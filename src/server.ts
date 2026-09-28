@@ -1,6 +1,6 @@
 /**
- * Server bootstrap — DB connect karo, phir hi listen karo.
- * Graceful shutdown: chal rahi requests poori hone do, phir band karo.
+ * Server bootstrap — connect to the database first, only then listen.
+ * Graceful shutdown: let in-flight requests finish before closing.
  */
 import { createApp } from './app';
 import { connectDb, disconnectDb } from './config/db';
@@ -22,7 +22,7 @@ async function main() {
       logger.info('Bye 👋');
       process.exit(0);
     });
-    // Agar 10s me clean shutdown na ho to force kill.
+    // Force the exit if a clean shutdown has not happened within 10 seconds.
     setTimeout(() => process.exit(1), 10_000).unref();
   };
 
@@ -40,6 +40,6 @@ process.on('uncaughtException', (err) => {
 });
 
 main().catch((err) => {
-  logger.fatal({ err }, 'Server start nahi ho paya');
+  logger.fatal({ err }, 'Server failed to start');
   process.exit(1);
 });

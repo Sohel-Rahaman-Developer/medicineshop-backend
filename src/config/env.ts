@@ -1,21 +1,21 @@
 /**
  * Environment loading + validation.
  *
- * Sab env vars yahin se aayenge. Kahin bhi `process.env.X` seedha mat padho —
- * import { env } from '@/config/env' karke use karo. Isse galat/missing config
- * server boot par hi pakda jaata hai, runtime par nahi.
+ * Every env var comes from here. Never read `process.env.X` directly —
+ * import { env } from '@/config/env' instead. This way bad or missing config
+ * is caught at boot, not at runtime in the middle of a sale.
  */
 import 'dotenv/config';
 import { z } from 'zod';
 
-/** "true" / "1" / "yes" ko boolean maano, warna default. */
+/** Treat "true" / "1" / "yes" as true, anything else falls back to the default. */
 const boolish = (fallback: boolean) =>
   z
     .string()
     .optional()
     .transform((v) => (v == null || v === '' ? fallback : /^(true|1|yes)$/i.test(v)));
 
-/** Comma-separated list ko trimmed array banao. */
+/** Turn a comma-separated list into a trimmed array. */
 const csv = z
   .string()
   .optional()
@@ -35,10 +35,10 @@ const schema = z.object({
   CORS_ORIGINS: csv,
 
   // Database
-  MONGODB_URI: z.string().min(1, 'MONGODB_URI required hai'),
+  MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
 
   // Access token
-  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET kam se kam 32 characters ka hona chahiye'),
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_ACCESS_TTL: z.string().default('15m'),
 
   // Refresh token
@@ -63,7 +63,7 @@ const schema = z.object({
   MAIL_FROM_NAME: z.string().default('Medicine Shop'),
   MAIL_FROM_EMAIL: z.string().default('no-reply@example.com'),
 
-  // Razorpay (Phase 9 — abhi optional)
+  // Razorpay (Phase 9 — optional for now)
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
@@ -76,9 +76,9 @@ const parsed = schema.safeParse(process.env);
 
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`);
-  // Logger abhi bana nahi hai (wo env par depend karta hai), isliye seedha console.
-  console.error('\n❌ Environment config galat hai:\n' + lines.join('\n'));
-  console.error('\n   `.env.example` ko `.env` me copy karke values bharo.\n');
+  // The logger does not exist yet (it depends on env), so use console directly.
+  console.error('\n❌ Invalid environment config:\n' + lines.join('\n'));
+  console.error('\n   Copy `.env.example` to `.env` and fill in the values.\n');
   process.exit(1);
 }
 
@@ -87,5 +87,5 @@ export const env = parsed.data;
 export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';
 
-/** SMTP tabhi usable hai jab host aur credentials dono set hon. */
+/** SMTP is only usable when the host and both credentials are set. */
 export const isSmtpConfigured = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);

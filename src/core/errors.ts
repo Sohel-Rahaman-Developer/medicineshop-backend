@@ -1,9 +1,9 @@
 /**
  * Application errors.
  *
- * Rule: service layer `AppError` throw karega, controller usse catch nahi
- * karega — global error handler use response me convert karega. Isse har
- * endpoint ka error shape same rehta hai.
+ * Rule: services throw `AppError`, controllers do not catch it — the global
+ * error handler turns it into a response. That keeps the error shape identical
+ * across every endpoint.
  */
 
 export type ErrorCode =
@@ -20,9 +20,9 @@ export type ErrorCode =
 export class AppError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
-  /** Client ko dikhane layak extra info (field errors waghairah). */
+  /** Extra info safe to show the client (field errors and the like). */
   readonly details?: unknown;
-  /** Expected error hai (business rule), ya genuine bug? */
+  /** Expected error (a business rule), or a genuine bug? */
   readonly isOperational = true;
 
   constructor(status: number, code: ErrorCode, message: string, details?: unknown) {
@@ -37,28 +37,28 @@ export class AppError extends Error {
   static badRequest(message: string, details?: unknown) {
     return new AppError(400, 'BAD_REQUEST', message, details);
   }
-  static validation(message = 'Bheji hui details sahi nahi hain', details?: unknown) {
+  static validation(message = 'Some of the details are not valid', details?: unknown) {
     return new AppError(422, 'VALIDATION_ERROR', message, details);
   }
-  static unauthenticated(message = 'Login zaroori hai') {
+  static unauthenticated(message = 'Please sign in to continue') {
     return new AppError(401, 'UNAUTHENTICATED', message);
   }
-  static forbidden(message = 'Is kaam ki permission nahi hai') {
+  static forbidden(message = 'You do not have permission to do this') {
     return new AppError(403, 'FORBIDDEN', message);
   }
-  static notFound(message = 'Record nahi mila') {
+  static notFound(message = 'Not found') {
     return new AppError(404, 'NOT_FOUND', message);
   }
   static conflict(message: string, details?: unknown) {
     return new AppError(409, 'CONFLICT', message, details);
   }
-  static rateLimited(message = 'Bahut zyada requests. Thodi der baad try karo.') {
+  static rateLimited(message = 'Too many requests. Please try again in a little while.') {
     return new AppError(429, 'RATE_LIMITED', message);
   }
-  static subscriptionRequired(message = 'Is feature ke liye active subscription chahiye') {
+  static subscriptionRequired(message = 'This feature needs an active subscription') {
     return new AppError(402, 'SUBSCRIPTION_REQUIRED', message);
   }
-  static internal(message = 'Kuch galat ho gaya') {
+  static internal(message = 'Something went wrong') {
     return new AppError(500, 'INTERNAL', message);
   }
 }

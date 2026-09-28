@@ -1,9 +1,9 @@
 /**
- * Global error handler — har error yahin se response banta hai.
+ * Global error handler — every error response is built here.
  *
- * Security: internal errors ka message client ko NAHI bhejte (stack trace,
- * mongo error text waghairah leak ho sakta hai). Client ko generic message
- * jaata hai, poora error sirf server log me.
+ * Security: internal errors never send their real message to the client (it
+ * can leak stack traces, Mongo error text and so on). The client gets a
+ * generic message; the full error goes to the server log only.
  */
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import mongoose from 'mongoose';
@@ -13,13 +13,13 @@ import { logger } from '../../config/logger';
 import { isProd } from '../../config/env';
 
 export const notFoundHandler: RequestHandler = (req, _res, next) => {
-  next(AppError.notFound(`Route nahi mila: ${req.method} ${req.originalUrl}`));
+  next(AppError.notFound(`Route not found: ${req.method} ${req.originalUrl}`));
 };
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   let status = 500;
   let code = 'INTERNAL';
-  let message = 'Kuch galat ho gaya';
+  let message = 'Something went wrong';
   let details: unknown;
 
   if (err instanceof AppError) {
@@ -30,23 +30,23 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   } else if (err instanceof ZodError) {
     status = 422;
     code = 'VALIDATION_ERROR';
-    message = 'Bheji hui details sahi nahi hain';
+    message = 'Some of the details are not valid';
     details = err.issues.map((i) => ({ field: i.path.join('.'), message: i.message }));
   } else if (err instanceof mongoose.Error.ValidationError) {
     status = 422;
     code = 'VALIDATION_ERROR';
-    message = 'Data validation fail hua';
+    message = 'Data validation failed';
     details = Object.values(err.errors).map((e) => ({ field: e.path, message: e.message }));
   } else if (err instanceof mongoose.Error.CastError) {
     status = 400;
     code = 'BAD_REQUEST';
-    message = `Galat ${err.path} value`;
+    message = `Invalid ${err.path} value`;
   } else if ((err as { code?: number }).code === 11000) {
     // duplicate key
     status = 409;
     code = 'CONFLICT';
     const key = Object.keys((err as { keyValue?: Record<string, unknown> }).keyValue ?? {})[0];
-    message = key ? `Ye ${key} pehle se maujood hai` : 'Duplicate record';
+    message = key ? `This ${key} already exists` : 'Duplicate record';
   }
 
   const log = { err, status, code, method: req.method, url: req.originalUrl };
@@ -59,7 +59,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
       code,
       message,
       ...(details ? { details } : {}),
-      // Stack sirf dev me — production me kabhi nahi.
+      // Stack traces in development only — never in production.
       ...(!isProd && status >= 500 ? { stack: (err as Error).stack } : {}),
     },
   });

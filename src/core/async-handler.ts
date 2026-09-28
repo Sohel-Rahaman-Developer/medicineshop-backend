@@ -1,6 +1,6 @@
 /**
- * Express 4 async route handlers ke rejected promises apne aap nahi pakadta —
- * request latak jaati hai. Har async controller ko isme wrap karo:
+ * Express 4 does not catch rejected promises from async route handlers — the
+ * request just hangs. Wrap every async controller in this:
  *
  *   router.post('/sales', asyncHandler(posController.createSale));
  */

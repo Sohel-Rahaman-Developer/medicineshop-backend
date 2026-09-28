@@ -1,5 +1,5 @@
 /**
- * Health check — deployment/monitoring ke liye. Auth ki zaroorat nahi.
+ * Health check — for deployment and monitoring. No auth required.
  */
 import { Router } from 'express';
 import mongoose from 'mongoose';
@@ -27,7 +27,8 @@ healthRouter.get('/', (_req, res) => {
       uptimeSeconds: Math.round(process.uptime()),
       db: {
         state: dbState,
-        // Transactions ke bina POS sale atomic nahi rahega — isliye visible rakha hai.
+        // Without transactions a POS sale cannot be atomic, so this is worth
+        // surfacing rather than hiding.
         transactions: healthy ? supportsTransactions() : false,
       },
       time: new Date().toISOString(),
