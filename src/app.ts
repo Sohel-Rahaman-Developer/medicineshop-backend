@@ -5,11 +5,13 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { env, isDev } from './config/env';
 import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
+import { authRouter } from './modules/auth/auth.routes';
 
 export function createApp() {
   const app = express();
@@ -37,6 +39,8 @@ export function createApp() {
 
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
+  // The refresh token arrives as an httpOnly cookie on web.
+  app.use(cookieParser());
 
   app.use(
     pinoHttp({
@@ -49,9 +53,9 @@ export function createApp() {
   // ─── Routes ───────────────────────────────────────────────────────────────
   app.use('/health', healthRouter);
   app.use(`${env.API_PREFIX}/health`, healthRouter);
+  app.use(`${env.API_PREFIX}/auth`, authRouter);
 
-  // TODO (Phase 1): auth routes
-  // TODO (Phase 2): business, employees, roles
+  // TODO (Phase 2): shops, memberships, roles, employees
 
   // ─── Fallbacks ────────────────────────────────────────────────────────────
   app.use(notFoundHandler);

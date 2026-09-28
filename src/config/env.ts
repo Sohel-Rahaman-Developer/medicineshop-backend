@@ -54,6 +54,15 @@ const schema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
 
+  // Rate limiting — tunable for a busy shop without touching code
+  RATE_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
+  RATE_OTP_REQUEST_PER_EMAIL: z.coerce.number().int().positive().default(3),
+  RATE_OTP_REQUEST_PER_IP: z.coerce.number().int().positive().default(60),
+  RATE_OTP_VERIFY_PER_EMAIL: z.coerce.number().int().positive().default(15),
+  RATE_REFRESH_PER_USER: z.coerce.number().int().positive().default(120),
+  /** Default for protected API routes — per user, per minute. */
+  RATE_API_PER_USER_PER_MIN: z.coerce.number().int().positive().default(300),
+
   // SMTP
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

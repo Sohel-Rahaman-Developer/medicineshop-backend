@@ -1,5 +1,8 @@
 /**
  * Health check — for deployment and monitoring. No auth required.
+ *
+ * This response is machine-facing, so it does not use the user-facing
+ * `sent`/`fetched` helpers.
  */
 import { Router } from 'express';
 import mongoose from 'mongoose';
