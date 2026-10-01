@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "smoke:auth": "tsx scripts/smoke-auth.ts",
     "smoke:security": "tsx scripts/smoke-security.ts",
+    "e2e:server": "tsx scripts/e2e-server.ts",
     "test": "npm run smoke:auth && npm run smoke:security"
   },
   "keywords": [],

@@ -161,7 +161,7 @@ export interface Harness {
 }
 
 /** Must run before anything imports src/config/env — env is read once at import. */
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(opts: { port?: number } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
   out('\n⏳ Starting in-memory MongoDB…\n');
   const { MongoMemoryReplSet } = await import('mongodb-memory-server');
@@ -185,7 +185,8 @@ export async function startHarness(): Promise<Harness> {
   const { hashOtp } = await import('../../src/utils/crypto.js');
 
   await connectDb();
-  const server: Server = createApp().listen(0);
+  const server: Server = createApp().listen(opts.port ?? 0);
+  await new Promise<void>((resolve) => server.once('listening', () => { resolve(); }));
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   const base = `http://127.0.0.1:${port}/api/v1`;
