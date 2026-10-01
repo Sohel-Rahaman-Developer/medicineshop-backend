@@ -51,6 +51,11 @@ const schema = z.object({
   MAIL_FROM_NAME: z.string().default('Medicine Shop'),
   MAIL_FROM_EMAIL: z.string().default('no-reply@example.com'),
 
+  // Trial and Terms until the admin app owns them (B8 / B9)
+  TRIAL_DAYS: z.coerce.number().int().positive().default(14),
+  TRIAL_MAX_USERS: z.coerce.number().int().positive().default(3),
+  TERMS_VERSION: z.string().default('2026-10'),
+
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),

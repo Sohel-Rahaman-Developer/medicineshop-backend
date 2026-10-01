@@ -81,8 +81,12 @@ async function main() {
   check('session list returned', sess.status === 200 && Array.isArray(list));
   check('the current device is flagged', Boolean(list?.some((s) => s.current)));
   const rtBeforeLogout = web2.jar.get('ms_rt') ?? '';
+  const atBeforeLogout = web2.jar.get('ms_at') ?? '';
   check('logout returned 200', (await web2.post('/auth/logout')).status === 200);
   check('logout clears both cookies', !web2.jar.get('ms_at') && !web2.jar.get('ms_rt'));
+  const replayAccess = h.client();
+  replayAccess.jar.set('ms_at', atBeforeLogout, '/api/v1');
+  check('an access token stops working the moment its session is signed out', (await replayAccess.get('/auth/me')).status === 401);
   const replayLogout = h.client();
   replayLogout.jar.set('ms_rt', rtBeforeLogout, '/api/v1/auth');
   const afterLogout = await replayLogout.post('/auth/refresh');

@@ -7,6 +7,8 @@ const HELPER_PORT = Number(process.env.E2E_HELPER_PORT ?? 5099);
 
 async function main() {
   process.env.PORT = String(API_PORT);
+  // Every Playwright project signs in from the same IP; the per-email limits stay real.
+  process.env.RATE_OTP_REQUEST_PER_IP ??= '1000';
   const h = await startHarness({ port: API_PORT });
 
   const helper = http.createServer((req, res) => {

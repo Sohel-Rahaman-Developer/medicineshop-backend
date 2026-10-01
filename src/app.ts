@@ -9,6 +9,10 @@ import { csrfProtection } from './core/middleware/csrf';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
+import { invitationsRouter } from './modules/memberships/invitations.routes';
+import { rolesRouter } from './modules/roles/roles.routes';
+import { shopRouter, shopsRouter } from './modules/shops/shops.routes';
+import { staffRouter } from './modules/staff/staff.routes';
 
 export function createApp() {
   const app = express();
@@ -34,7 +38,7 @@ export function createApp() {
       origin: (origin, callback) => callback(null, origin !== undefined && allowedOrigins.includes(origin)),
       // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
       credentials: true,
-      allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+      allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
       maxAge: 600,
     }),
@@ -61,8 +65,12 @@ export function createApp() {
   app.use('/health', healthRouter);
   app.use(`${env.API_PREFIX}/health`, healthRouter);
   app.use(`${env.API_PREFIX}/auth`, authRouter);
+  app.use(`${env.API_PREFIX}/shops`, shopsRouter);
+  app.use(`${env.API_PREFIX}/shop`, shopRouter);
+  app.use(`${env.API_PREFIX}/invitations`, invitationsRouter);
+  app.use(`${env.API_PREFIX}/staff`, staffRouter);
+  app.use(`${env.API_PREFIX}/roles`, rolesRouter);
 
-  // B1: shops, memberships, roles, staff
 
   app.use(notFoundHandler);
   app.use(errorHandler);

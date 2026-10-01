@@ -61,3 +61,25 @@ export function sessionRevokedEmail(deviceInfo: string, at: Date) {
     text: `Security alert — ${BRAND}\n\nAn old sign-in token was used again on your account. As a precaution every device has been signed out.\n\nDevice: ${deviceInfo || 'unknown'}\nTime: ${when} IST\n\nPlease sign in again.`,
   };
 }
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+export function inviteEmail(input: { shopName: string; roleName: string; inviterName: string; appUrl: string }) {
+  const shop = esc(input.shopName);
+  const role = esc(input.roleName);
+  const inviter = esc(input.inviterName);
+  return {
+    subject: `${input.inviterName} invited you to ${input.shopName} on ${BRAND}`,
+    html: layout(
+      'You are invited',
+      `<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#4b5563">
+         <b>${inviter}</b> invited you to <b>${shop}</b> as <b>${role}</b>.
+       </p>
+       <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4b5563">
+         Open ${BRAND}, sign in with this email address and accept the invitation. No password needed.
+       </p>
+       <a href="${esc(input.appUrl)}/login" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#0fb5a8;color:#fff;font-weight:700;text-decoration:none">Open ${BRAND}</a>`,
+    ),
+    text: `${input.inviterName} invited you to ${input.shopName} as ${input.roleName} on ${BRAND}.\n\nSign in with this email address at ${input.appUrl}/login and accept the invitation.`,
+  };
+}

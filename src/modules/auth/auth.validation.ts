@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mobile } from '../shops/shops.validation';
 
 // Every body schema is .strict(): unknown keys are rejected, never silently stored.
 
@@ -37,6 +38,14 @@ export const sessionIdSchema = z
   })
   .strict();
 
+export const updateMeSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Your name is required').max(80),
+    phone: mobile('Your phone').optional(),
+  })
+  .strict();
+
+export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;

@@ -92,6 +92,8 @@ export interface ClientOptions {
 export class Client {
   readonly jar = new CookieJar();
   private csrfToken: string | undefined;
+  /** Sent as X-Shop-Id when set. */
+  shopId: string | undefined;
 
   constructor(
     private readonly base: string,
@@ -122,6 +124,7 @@ export class Client {
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(cookie ? { cookie } : {}),
         ...(this.origin && method !== 'GET' ? { origin: this.origin } : {}),
+        ...(this.shopId ? { 'x-shop-id': this.shopId } : {}),
         ...headers,
       },
       ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
@@ -148,6 +151,18 @@ export class Client {
     return this.send('POST', path, body);
   }
 
+  put(path: string, body: unknown = {}): Promise<Res> {
+    return this.send('PUT', path, body);
+  }
+
+  patch(path: string, body: unknown = {}): Promise<Res> {
+    return this.send('PATCH', path, body);
+  }
+
+  del(path: string): Promise<Res> {
+    return this.send('DELETE', path, {});
+  }
+
   get(path: string): Promise<Res> {
     return this.raw('GET', path);
   }
@@ -155,6 +170,7 @@ export class Client {
 
 export interface Harness {
   base: string;
+  signIn: (email: string) => Promise<Client>;
   close: () => Promise<void>;
   seedOtp: (email: string, code: string) => Promise<void>;
   client: (opts?: ClientOptions) => Client;
@@ -191,19 +207,22 @@ export async function startHarness(opts: { port?: number } = {}): Promise<Harnes
   const port = typeof address === 'object' && address ? address.port : 0;
   const base = `http://127.0.0.1:${port}/api/v1`;
 
+  const seed = async (email: string, code: string) => {
+    await OtpTokenModel.updateMany({ email, consumedAt: null }, { $set: { consumedAt: new Date() } });
+    await OtpTokenModel.create({ audience: 'shop', email, otpHash: await hashOtp(code), maxAttempts: 5, expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+  };
+
   return {
     base,
     client: (opts) => new Client(base, opts),
-    seedOtp: async (email, code) => {
-      await OtpTokenModel.updateMany({ email, consumedAt: null }, { $set: { consumedAt: new Date() } });
-      await OtpTokenModel.create({
-        audience: 'shop',
-        email,
-        otpHash: await hashOtp(code),
-        maxAttempts: 5,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      });
+    signIn: async (email) => {
+      const c = new Client(base);
+      await seed(email, '424242');
+      const res = await c.post('/auth/otp/verify', { email, otp: '424242' });
+      if (res.status !== 200) throw new Error(`sign-in failed for ${email}: ${res.status} ${res.text}`);
+      return c;
     },
+    seedOtp: seed,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => { resolve(); }));
       await disconnectDb();

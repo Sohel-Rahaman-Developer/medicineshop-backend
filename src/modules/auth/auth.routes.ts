@@ -14,6 +14,7 @@ import {
   logoutSchema,
   requestOtpSchema,
   sessionIdSchema,
+  updateMeSchema,
   verifyOtpSchema,
 } from './auth.validation';
 
@@ -50,6 +51,7 @@ authRouter.post(
 authRouter.post('/logout', optionalAuth, validate({ body: logoutSchema }), asyncHandler(ctrl.logout));
 
 authRouter.get('/me', requireAuth, asyncHandler(ctrl.me));
+authRouter.patch('/me', requireAuth, validate({ body: updateMeSchema }), asyncHandler(ctrl.updateMe));
 authRouter.get('/sessions', requireAuth, asyncHandler(ctrl.sessions));
 authRouter.delete(
   '/sessions/:id',

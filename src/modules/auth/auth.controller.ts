@@ -3,11 +3,12 @@ import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
 import { issueCsrfToken } from '../../core/middleware/csrf';
 import { fetched, sent } from '../../core/response';
+import { myInvitations, myShops } from '../memberships/memberships.service';
 import { UserModel } from '../user/user.model';
 import * as authService from './auth.service';
 import { REFRESH_COOKIE, clearAuthCookies, setAuthCookies } from './auth.cookies';
 import { listActiveSessions, revokeAllForUser, revokeByRefreshToken, revokeSessionById } from './token.service';
-import type { LogoutInput, RequestOtpInput, VerifyOtpInput } from './auth.validation';
+import type { LogoutInput, RequestOtpInput, UpdateMeInput, VerifyOtpInput } from './auth.validation';
 
 function ctxOf(req: Request) {
   return {
@@ -47,8 +48,6 @@ export async function verifyOtp(req: Request, res: Response) {
     {
       user: { id: user.id, email: user.email, name: user.name, status: user.status },
       isNewUser,
-      // B1: memberships, so the frontend can show a shop picker.
-      memberships: [],
     },
     isNewUser ? 'Welcome! Let us set up your shop.' : 'Signed in',
   );
@@ -89,16 +88,26 @@ export async function logout(req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
   if (!req.auth) throw AppError.unauthenticated();
 
-  const user = await UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt').lean();
+  const [user, shops, invitations] = await Promise.all([
+    UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt').lean(),
+    myShops(req.auth.userId),
+    myInvitations(req.auth.userId),
+  ]);
   if (!user) throw AppError.notFound('User not found');
 
   // A read — no message, otherwise every page load fires a pointless toast.
   fetched(res, {
-    user: { id: String(user._id), ...user, _id: undefined },
-    // B1: memberships + effective permissions.
-    memberships: [],
-    permissions: [],
+    user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status },
+    shops,
+    invitations: invitations.length,
   });
+}
+
+export async function updateMe(req: Request, res: Response) {
+  if (!req.auth) throw AppError.unauthenticated();
+  const { name, phone } = req.body as UpdateMeInput;
+  await UserModel.updateOne({ _id: req.auth.userId }, phone ? { $set: { name, phone } } : { $set: { name }, $unset: { phone: 1 } });
+  sent(res, null, 'Profile saved');
 }
 
 export async function sessions(req: Request, res: Response) {
