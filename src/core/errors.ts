@@ -1,18 +1,12 @@
-/**
- * Application errors.
- *
- * Rule: services throw `AppError`, controllers do not catch it — the global
- * error handler turns it into a response. That keeps the error shape identical
- * across every endpoint.
- */
-
 export type ErrorCode =
   | 'BAD_REQUEST'
   | 'VALIDATION_ERROR'
   | 'UNAUTHENTICATED'
   | 'FORBIDDEN'
+  | 'CSRF_INVALID'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'PAYLOAD_TOO_LARGE'
   | 'RATE_LIMITED'
   | 'SUBSCRIPTION_REQUIRED'
   | 'INTERNAL';
@@ -22,7 +16,6 @@ export class AppError extends Error {
   readonly code: ErrorCode;
   /** Extra info safe to show the client (field errors and the like). */
   readonly details?: unknown;
-  /** Expected error (a business rule), or a genuine bug? */
   readonly isOperational = true;
 
   constructor(status: number, code: ErrorCode, message: string, details?: unknown) {
@@ -31,7 +24,7 @@ export class AppError extends Error {
     this.status = status;
     this.code = code;
     this.details = details;
-    Error.captureStackTrace?.(this, AppError);
+    Error.captureStackTrace(this, AppError);
   }
 
   static badRequest(message: string, details?: unknown) {
@@ -45,6 +38,10 @@ export class AppError extends Error {
   }
   static forbidden(message = 'You do not have permission to do this') {
     return new AppError(403, 'FORBIDDEN', message);
+  }
+  /** The client refetches /auth/csrf and retries once on this code. */
+  static csrf(message = 'Your session check failed. Please try again.') {
+    return new AppError(403, 'CSRF_INVALID', message);
   }
   static notFound(message = 'Not found') {
     return new AppError(404, 'NOT_FOUND', message);

@@ -1,18 +1,3 @@
-/**
- * Auth service — all the business logic behind email OTP login.
- *
- * Two things are the way they are on purpose:
- *
- * 1. Requesting an OTP always returns the same response, whether or not the
- *    email is registered. Otherwise anyone could use this endpoint to discover
- *    which addresses exist in the system (email enumeration).
- *
- * 2. Consuming an OTP is atomic. If two requests arrive with the same correct
- *    OTP at the same moment, only ONE login is created — because the update
- *    runs with a `consumedAt: null` filter, and that is a single-document
- *    atomic operation in MongoDB.
- */
-import { Types } from 'mongoose';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
@@ -35,24 +20,19 @@ export interface RequestContext {
   deviceInfo?: string;
 }
 
-/* ------------------------------------------------------------------ *
- * OTP request
- * ------------------------------------------------------------------ */
-
 export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise<{ expiresInMinutes: number }> {
   const email = rawEmail.toLowerCase().trim();
 
-  // Do not send an OTP to a blocked user — but keep the response identical,
-  // otherwise an attacker learns that this address exists and is blocked.
+  // Same response as success, so a disabled address is not revealed.
   const existing = await UserModel.findOne({ email }).select('status').lean();
-  if (existing?.status === 'blocked') {
-    logger.warn({ email }, 'Blocked user requested an OTP');
+  if (existing?.status === 'disabled') {
+    logger.warn({ email }, 'Disabled user requested an OTP');
     return { expiresInMinutes: env.OTP_TTL_MINUTES };
   }
 
   // Invalidate older unconsumed OTPs so only one code is live at a time.
   await OtpTokenModel.updateMany(
-    { email, purpose: 'login', consumedAt: null },
+    { audience: 'shop', email, consumedAt: null },
     { $set: { consumedAt: new Date() } },
   );
 
@@ -62,7 +42,7 @@ export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise
   await OtpTokenModel.create({
     email,
     otpHash: await hashOtp(otp),
-    purpose: 'login',
+    audience: 'shop',
     maxAttempts: env.OTP_MAX_ATTEMPTS,
     expiresAt,
     ip: ctx.ip,
@@ -74,10 +54,6 @@ export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise
 
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
 }
-
-/* ------------------------------------------------------------------ *
- * OTP verify → login
- * ------------------------------------------------------------------ */
 
 export interface VerifyResult {
   tokens: IssuedTokens;
@@ -93,10 +69,9 @@ export async function verifyOtpAndLogin(
 ): Promise<VerifyResult> {
   const email = rawEmail.toLowerCase().trim();
 
-  const token = await OtpTokenModel.findOne({ email, purpose: 'login', consumedAt: null }).sort({ createdAt: -1 });
+  const token = await OtpTokenModel.findOne({ audience: 'shop', email, consumedAt: null }).sort({ createdAt: -1 });
 
-  // Every failure returns the same message. An attacker must not be able to
-  // tell whether the OTP was wrong, expired, or never existed.
+  // One message for wrong, expired and missing codes.
   const invalid = () => AppError.unauthenticated('That code is wrong or has expired');
 
   if (!token) throw invalid();
@@ -126,8 +101,7 @@ export async function verifyOtpAndLogin(
     throw invalid();
   }
 
-  // ✅ The code is correct. Consume it ATOMICALLY so two concurrent requests
-  // cannot create two sessions. Whoever gets there first gets the document.
+  // Atomic consume: two concurrent verifies cannot both create a session.
   const consumed = await OtpTokenModel.findOneAndUpdate(
     { _id: token._id, consumedAt: null },
     { $set: { consumedAt: new Date() } },
@@ -135,22 +109,20 @@ export async function verifyOtpAndLogin(
   );
   if (!consumed) throw invalid(); // another request consumed it first
 
-  // Find or create the user. The upsert is atomic, so two parallel first-time
-  // logins still produce one user (the unique index on email backs this up).
+  // Find or create the user.
   const now = new Date();
-  const before = await UserModel.findOne({ email }).select('_id').lean();
-  const isNewUser = !before;
+  const before = await UserModel.findOne({ email }).select('emailVerifiedAt status').lean();
+  if (before?.status === 'disabled') throw invalid();
+  const isNewUser = !before?.emailVerifiedAt;
 
   const user = await UserModel.findOneAndUpdate(
     { email },
     {
-      $set: { lastLoginAt: now, status: 'active' },
+      $set: { lastLoginAt: now, ...(isNewUser ? { emailVerifiedAt: now } : {}) },
       $setOnInsert: { email, name: '' },
     },
     { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true },
   );
-
-  if (!user) throw AppError.internal('Could not create the user record');
 
   const sessionCtx: SessionContext = {
     ip: ctx.ip,
@@ -159,26 +131,23 @@ export async function verifyOtpAndLogin(
     rememberMe: ctx.rememberMe,
   };
 
-  const tokens = await issueNewSession(user._id as Types.ObjectId, sessionCtx);
+  const tokens = await issueNewSession(user._id, sessionCtx);
 
   logger.info({ userId: user.id, isNewUser }, 'Login successful');
 
   return { tokens, user, isNewUser };
 }
 
-/* ------------------------------------------------------------------ *
- * Refresh
- * ------------------------------------------------------------------ */
-
 export async function refresh(rawToken: string, ctx: RequestContext): Promise<IssuedTokens> {
   try {
     return await rotateRefreshToken(rawToken, ctx);
   } catch (err) {
-    // Reuse was detected — email the user. This is a security incident, and
-    // the login stays blocked even if the email fails to send.
+    // Reuse alert email; the family is already revoked even if mail fails.
     const e = err as AppError & { reuseDetected?: boolean; session?: SessionDoc };
     if (e.reuseDetected && e.session) {
-      void notifyReuse(e.session).catch((mailErr) => logger.error({ err: mailErr }, 'Reuse alert email failed'));
+      void notifyReuse(e.session).catch((mailErr: unknown) => {
+        logger.error({ err: mailErr }, 'Reuse alert email failed');
+      });
     }
     throw err;
   }

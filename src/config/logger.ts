@@ -1,10 +1,3 @@
-/**
- * Pino logger.
- *
- * Pretty output in development, JSON in production (for log aggregators).
- * Sensitive fields are always redacted — OTPs, passwords and tokens must
- * never reach the logs.
- */
 import pino from 'pino';
 import { env, isProd } from './env';
 

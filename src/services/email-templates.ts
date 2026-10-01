@@ -1,11 +1,3 @@
-/**
- * Email templates.
- *
- * Modules take their email bodies from here instead of building their own, so
- * branding stays consistent and switching provider later is easy.
- * Every template returns `{ subject, html, text }` — the text fallback matters,
- * since plenty of corporate mail clients block HTML.
- */
 import { env } from '../config/env';
 
 const BRAND = env.MAIL_FROM_NAME;
@@ -45,10 +37,6 @@ export function otpEmail(otp: string, expiryMinutes: number) {
   };
 }
 
-/**
- * Sent when refresh token reuse is detected. This is a security incident, so
- * the user needs to hear about it immediately.
- */
 export function sessionRevokedEmail(deviceInfo: string, at: Date) {
   const when = at.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
   return {

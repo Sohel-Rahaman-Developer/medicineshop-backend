@@ -1,14 +1,11 @@
-/**
- * Express app wiring. Middleware and route mounting only — business logic
- * lives in services, never in route handlers.
- */
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
-import { env, isDev } from './config/env';
+import { allowedOrigins, env, isProd } from './config/env';
 import { logger } from './config/logger';
+import { csrfProtection } from './core/middleware/csrf';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
@@ -16,31 +13,42 @@ import { authRouter } from './modules/auth/auth.routes';
 export function createApp() {
   const app = express();
 
-  // Behind a reverse proxy (Render/Railway/Nginx) this is what gives us the
-  // real client IP. Without it both rate limiting and the audit log are wrong.
+  // Real client IP behind the proxy — rate limits and audit depend on it.
   app.set('trust proxy', 1);
 
-  app.use(helmet());
-
+  // The API only ever returns JSON, so the CSP can forbid everything.
   app.use(
-    cors({
-      origin(origin, callback) {
-        // Mobile apps, curl and server-to-server calls send no Origin header.
-        if (!origin) return callback(null, true);
-        if (env.CORS_ORIGINS.length === 0 && isDev) return callback(null, true);
-        if (env.CORS_ORIGINS.includes(origin)) return callback(null, true);
-        return callback(new Error(`CORS blocked: ${origin}`));
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] },
       },
-      // The refresh token travels in an httpOnly cookie; without this the
-      // browser will neither send nor store it.
-      credentials: true,
+      crossOriginResourcePolicy: { policy: 'same-site' },
+      strictTransportSecurity: isProd ? { maxAge: 31_536_000, includeSubDomains: true, preload: true } : false,
     }),
   );
 
-  app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true }));
-  // The refresh token arrives as an httpOnly cookie on web.
+  // Only our own apps get CORS headers; any other origin gets none and the browser blocks it.
+  app.use(
+    cors({
+      origin: (origin, callback) => callback(null, origin !== undefined && allowedOrigins.includes(origin)),
+      // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
+      credentials: true,
+      allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+      maxAge: 600,
+    }),
+  );
+
+  app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
+
+  // Every API response is private to the signed-in user — no shared or browser caching.
+  app.use(env.API_PREFIX, (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+  app.use(env.API_PREFIX, csrfProtection);
 
   app.use(
     pinoHttp({
@@ -50,14 +58,12 @@ export function createApp() {
     }),
   );
 
-  // ─── Routes ───────────────────────────────────────────────────────────────
   app.use('/health', healthRouter);
   app.use(`${env.API_PREFIX}/health`, healthRouter);
   app.use(`${env.API_PREFIX}/auth`, authRouter);
 
-  // TODO (Phase 2): shops, memberships, roles, employees
+  // B1: shops, memberships, roles, staff
 
-  // ─── Fallbacks ────────────────────────────────────────────────────────────
   app.use(notFoundHandler);
   app.use(errorHandler);
 

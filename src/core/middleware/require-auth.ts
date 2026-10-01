@@ -1,13 +1,9 @@
-/**
- * requireAuth — verifies the access token from the Authorization header.
- *
- * There is no database hit here. The JWT is self-contained, so this middleware
- * is O(1) and puts no load on the database as traffic grows. Tenant and
- * permission checks live in separate middleware (Phase 2).
- */
+// requireAuth — verifies the access token from the httpOnly `ms_at` cookie.
 import type { RequestHandler } from 'express';
+import { readCookie } from '../cookies';
 import { AppError } from '../errors';
 import { verifyAccessToken } from '../../modules/auth/token.service';
+import { ACCESS_COOKIE } from '../../modules/auth/auth.cookies';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -19,14 +15,8 @@ declare global {
 }
 
 export const requireAuth: RequestHandler = (req, _res, next) => {
-  const header = req.headers.authorization;
-
-  if (!header?.startsWith('Bearer ')) {
-    return next(AppError.unauthenticated('An access token is required'));
-  }
-
-  const token = header.slice('Bearer '.length).trim();
-  if (!token) return next(AppError.unauthenticated('The access token is empty'));
+  const token = readCookie(req, ACCESS_COOKIE);
+  if (!token) return next(AppError.unauthenticated('Please sign in to continue'));
 
   try {
     const payload = verifyAccessToken(token);
@@ -37,12 +27,12 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
   }
 };
 
-/** Auth is optional — attach it when a token is present, otherwise carry on. */
+/** Auth is optional — attach it when a valid token is present, otherwise carry on. */
 export const optionalAuth: RequestHandler = (req, _res, next) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) return next();
+  const token = readCookie(req, ACCESS_COOKIE);
+  if (!token) return next();
   try {
-    const payload = verifyAccessToken(header.slice('Bearer '.length).trim());
+    const payload = verifyAccessToken(token);
     req.auth = { userId: payload.sub, sessionId: payload.sid };
   } catch {
     // Ignore a bad token — this endpoint is public.

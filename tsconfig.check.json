@@ -1,0 +1,6 @@
+{
+  // Typecheck + lint cover the scripts too; the build only emits src.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
+}

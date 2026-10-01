@@ -1,10 +1,4 @@
-/**
- * User — a global record, not owned by any one shop.
- *
- * The same person can work at several shops (an owner with two branches, or an
- * employee with two jobs). The link to a shop lives in `ShopMembership`, not
- * here — which is why this model deliberately has no `shopId`.
- */
+// User — one person's identity, global and not owned by any shop (PLAN §21.2).
 import { Schema, model, type InferSchemaType } from 'mongoose';
 
 const userSchema = new Schema(
@@ -12,22 +6,18 @@ const userSchema = new Schema(
     email: {
       type: String,
       required: true,
-      // This is the login identity, so always store it lowercased and trimmed.
-      // Otherwise "Sohel@x.com" and "sohel@x.com" become two different users.
       lowercase: true,
       trim: true,
       unique: true,
       index: true,
     },
+    /** Set on the first successful OTP login. A user created by an invite stays null until then. */
+    emailVerifiedAt: { type: Date },
     name: { type: String, trim: true, default: '' },
     phone: { type: String, trim: true },
     avatar: { type: String },
-    status: {
-      type: String,
-      enum: ['active', 'invited', 'blocked'],
-      default: 'active',
-      index: true,
-    },
+    /** Platform-level only (fraud, legal). A shop suspending staff is a Membership state. */
+    status: { type: String, enum: ['active', 'disabled'], default: 'active', required: true },
     lastLoginAt: { type: Date },
   },
   { timestamps: true, versionKey: false },
@@ -36,7 +26,4 @@ const userSchema = new Schema(
 export const UserModel = model('User', userSchema);
 
 export type User = InferSchemaType<typeof userSchema>;
-// NOTE: `HydratedDocument<User>` does not work here because the schema sets
-// `versionKey: false` (there is no `__v`) while that helper expects one.
-// Taking the instance type straight off the model is the correct approach.
 export type UserDoc = InstanceType<typeof UserModel>;

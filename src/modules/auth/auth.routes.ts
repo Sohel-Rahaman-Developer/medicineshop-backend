@@ -1,11 +1,3 @@
-/**
- * Auth routes.
- *
- * Middleware order matters:
- *   rate limit → validate → controller
- * Rate limiting comes first so that a flood never reaches validation or the
- * database at all.
- */
 import { Router } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { validate } from '../../core/middleware/validate';
@@ -18,8 +10,8 @@ import {
 } from '../../core/middleware/rate-limit';
 import * as ctrl from './auth.controller';
 import {
+  emptyBodySchema,
   logoutSchema,
-  refreshSchema,
   requestOtpSchema,
   sessionIdSchema,
   verifyOtpSchema,
@@ -27,7 +19,8 @@ import {
 
 export const authRouter = Router();
 
-/* ── Public ─────────────────────────────────────────────────────────── */
+// Hands the app its CSRF token (body + httpOnly cookie). GET, so CSRF itself does not apply.
+authRouter.get('/csrf', ctrl.csrf);
 
 authRouter.post(
   '/otp/request',
@@ -44,24 +37,17 @@ authRouter.post(
   asyncHandler(ctrl.verifyOtp),
 );
 
-// optionalAuth runs BEFORE the limiter so the rate limit keys on userId rather
-// than IP. A well-behaved client refreshes proactively, before the access token
-// expires, and gets its own per-user bucket. A client that refreshes after
-// expiry falls back to IP, which is safe on shared connections because that
-// limit is deliberately loose.
+// optionalAuth runs BEFORE the limiter so the rate limit keys on userId rather than IP.
 authRouter.post(
   '/refresh',
   optionalAuth,
   refreshLimiter,
-  validate({ body: refreshSchema }),
+  validate({ body: emptyBodySchema }),
   asyncHandler(ctrl.refresh),
 );
 
-// The access token may already be expired at logout. Logout must still work
-// using the refresh token, hence optionalAuth rather than requireAuth.
+// Logout must work with an expired access token, hence optionalAuth.
 authRouter.post('/logout', optionalAuth, validate({ body: logoutSchema }), asyncHandler(ctrl.logout));
-
-/* ── Protected ──────────────────────────────────────────────────────── */
 
 authRouter.get('/me', requireAuth, asyncHandler(ctrl.me));
 authRouter.get('/sessions', requireAuth, asyncHandler(ctrl.sessions));

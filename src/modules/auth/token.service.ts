@@ -1,42 +1,26 @@
-/**
- * Issuing, rotating and revoking tokens.
- *
- * Two kinds of token:
- *
- *  Access  — JWT, 15 minutes, STATELESS. It rides along on every API request
- *            and verifying it costs NO database hit. That is where this
- *            design's scalability comes from: 100 users or 10,000, the read
- *            path is the same.
- *
- *  Refresh — opaque random value, stored hashed. Only used on /auth/refresh,
- *            so roughly one database touch per user per 15 minutes.
- *
- * Deliberate tradeoff: a revoked access token stays valid for the remainder of
- * its life (up to 15 minutes) because we do not check revocation on every
- * request. Logout kills the refresh token instantly, so the user is out within
- * that window regardless.
- */
 import jwt from 'jsonwebtoken';
 import { Types } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { generateOpaqueToken, newFamilyId, sha256 } from '../../utils/crypto';
+import { UserModel } from '../user/user.model';
 import { SessionModel, type SessionDoc } from './models/session.model';
 
 /** Absolute cap — however far sliding expiry pushes, a login is required after this. */
 const ABSOLUTE_MAX_DAYS = 180;
 
 export interface AccessTokenPayload {
-  /** userId */
   sub: string;
-  /** sessionId — which session this came from */
   sid: string;
 }
 
-export function signAccessToken(userId: string, sessionId: string): string {
-  return jwt.sign({ sub: userId, sid: sessionId } satisfies AccessTokenPayload, env.JWT_ACCESS_SECRET, {
+export function signAccessToken(userId: string, sessionId: string): { token: string; expiresInMs: number } {
+  const token = jwt.sign({ sub: userId, sid: sessionId } satisfies AccessTokenPayload, env.JWT_ACCESS_SECRET, {
     expiresIn: env.JWT_ACCESS_TTL as jwt.SignOptions['expiresIn'],
   });
+  const decoded = jwt.decode(token);
+  const exp = typeof decoded === 'object' && decoded?.exp ? decoded.exp * 1000 : Date.now();
+  return { token, expiresInMs: Math.max(0, exp - Date.now()) };
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
@@ -45,7 +29,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
     if (typeof decoded === 'string' || !decoded.sub || !('sid' in decoded)) {
       throw AppError.unauthenticated('Invalid token');
     }
-    return { sub: String(decoded.sub), sid: String(decoded.sid) };
+    return { sub: decoded.sub, sid: String(decoded.sid) };
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
       // The frontend sees this and silently calls /auth/refresh.
@@ -73,13 +57,13 @@ function daysFromNow(days: number): Date {
 
 export interface IssuedTokens {
   accessToken: string;
+  /** Cookie maxAge, so the access cookie dies with the JWT. */
+  accessExpiresInMs: number;
   refreshToken: string;
   session: SessionDoc;
-  /** Used to set the cookie's maxAge. */
   refreshExpiresAt: Date;
 }
 
-/** A fresh login — starts a new family. */
 export async function issueNewSession(userId: Types.ObjectId, ctx: SessionContext): Promise<IssuedTokens> {
   return createSession(userId, ctx, newFamilyId(), daysFromNow(ABSOLUTE_MAX_DAYS));
 }
@@ -103,25 +87,20 @@ async function createSession(
     userAgent: ctx.userAgent,
     lastUsedAt: new Date(),
     expiresAt,
-    // On rotation the family's original absolute cap carries forward —
-    // otherwise every refresh would push the cap out and make it meaningless.
+    // The family's absolute cap carries forward on rotation.
     absoluteExpiresAt,
   });
 
+  const access = signAccessToken(userId.toString(), session.id);
   return {
-    accessToken: signAccessToken(userId.toString(), session.id),
+    accessToken: access.token,
+    accessExpiresInMs: access.expiresInMs,
     refreshToken,
     session,
     refreshExpiresAt: expiresAt,
   };
 }
 
-/**
- * Refresh, rotation and reuse detection.
- *
- * This is the most delicate part of the whole auth system, which is why every
- * branch below is handled separately and explicitly.
- */
 export async function rotateRefreshToken(
   rawToken: string,
   ctx: Omit<SessionContext, 'rememberMe'>,
@@ -131,8 +110,7 @@ export async function rotateRefreshToken(
   // Not in the database at all — wrong, made up, or old enough that TTL removed it.
   if (!session) throw AppError.unauthenticated('This session is no longer valid, please sign in again');
 
-  // ⚠️ REUSE: this token was already spent, so two parties are using the same
-  // chain — it has leaked. Kill the entire family.
+  // Spent token presented again = leaked chain: revoke the whole family.
   if (session.usedAt) {
     await revokeFamily(session.familyId, 'reuse_detected');
     const err = AppError.unauthenticated('All sessions were closed for your security. Please sign in again.');
@@ -148,8 +126,13 @@ export async function rotateRefreshToken(
     throw AppError.unauthenticated('Please sign in again for your security');
   }
 
-  // Mark the old token spent right here. If it ever shows up again, the REUSE
-  // branch above will catch it.
+  // A user disabled by the platform loses every session at the next refresh.
+  const owner = await UserModel.findById(session.userId).select('status').lean();
+  if (!owner || owner.status === 'disabled') {
+    await revokeFamily(session.familyId, 'disabled');
+    throw AppError.unauthenticated('This account is not active. Please contact support.');
+  }
+
   session.usedAt = new Date();
   session.revokedAt = new Date();
   session.revokedReason = 'rotated';
@@ -193,7 +176,6 @@ export async function revokeAllForUser(userId: Types.ObjectId | string, reason: 
   return res.modifiedCount;
 }
 
-/** For the Settings → Security screen. */
 export async function listActiveSessions(userId: Types.ObjectId | string) {
   return SessionModel.find({
     userId,

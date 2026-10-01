@@ -1,10 +1,3 @@
-/**
- * Environment loading + validation.
- *
- * Every env var comes from here. Never read `process.env.X` directly —
- * import { env } from '@/config/env' instead. This way bad or missing config
- * is caught at boot, not at runtime in the middle of a sale.
- */
 import 'dotenv/config';
 import { z } from 'zod';
 
@@ -15,46 +8,33 @@ const boolish = (fallback: boolean) =>
     .optional()
     .transform((v) => (v == null || v === '' ? fallback : /^(true|1|yes)$/i.test(v)));
 
-/** Turn a comma-separated list into a trimmed array. */
-const csv = z
-  .string()
-  .optional()
-  .transform((v) =>
-    (v ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-
 const schema = z.object({
-  // Server
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(5000),
   API_PREFIX: z.string().default('/api/v1'),
-  APP_WEB_URL: z.string().default('http://localhost:8081'),
-  CORS_ORIGINS: csv,
+  /** The only browser origins allowed to call the API (CORS + CSRF origin check). */
+  SHOP_APP_URL: z.url().transform((u) => new URL(u).origin),
+  ADMIN_APP_URL: z.url().transform((u) => new URL(u).origin),
 
-  // Database
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
 
-  // Access token
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_ACCESS_TTL: z.string().default('15m'),
 
-  // Refresh token
   REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(7),
   REFRESH_TTL_DAYS_REMEMBER: z.coerce.number().int().positive().default(90),
-  COOKIE_DOMAIN: z.string().optional(),
+  // Cookies are host-only (no Domain attribute). `none` is not offered: CSRF defence relies on SameSite.
   COOKIE_SECURE: boolish(false),
-  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  COOKIE_SAMESITE: z.enum(['lax', 'strict']).default('lax'),
 
-  // OTP
+  /** HMAC key for CSRF tokens. */
+  CSRF_SECRET: z.string().min(32, 'CSRF_SECRET must be at least 32 characters'),
+
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
 
-  // Rate limiting — tunable for a busy shop without touching code
   RATE_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
   RATE_OTP_REQUEST_PER_EMAIL: z.coerce.number().int().positive().default(3),
   RATE_OTP_REQUEST_PER_IP: z.coerce.number().int().positive().default(60),
@@ -63,7 +43,6 @@ const schema = z.object({
   /** Default for protected API routes — per user, per minute. */
   RATE_API_PER_USER_PER_MIN: z.coerce.number().int().positive().default(300),
 
-  // SMTP
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: boolish(false),
@@ -72,16 +51,23 @@ const schema = z.object({
   MAIL_FROM_NAME: z.string().default('Medicine Shop'),
   MAIL_FROM_EMAIL: z.string().default('no-reply@example.com'),
 
-  // Razorpay (Phase 9 — optional for now)
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 
-  // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 
-const parsed = schema.safeParse(process.env);
+const parsed = schema
+  .refine((e) => e.NODE_ENV !== 'production' || e.COOKIE_SECURE, {
+    path: ['COOKIE_SECURE'],
+    message: 'must be true in production',
+  })
+  .refine((e) => e.CSRF_SECRET !== e.JWT_ACCESS_SECRET, {
+    path: ['CSRF_SECRET'],
+    message: 'must differ from JWT_ACCESS_SECRET',
+  })
+  .safeParse(process.env);
 
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`);
@@ -97,4 +83,7 @@ export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';
 
 /** SMTP is only usable when the host and both credentials are set. */
+/** Browser origins allowed to make credentialed requests. */
+export const allowedOrigins: readonly string[] = [env.SHOP_APP_URL, env.ADMIN_APP_URL];
+
 export const isSmtpConfigured = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);

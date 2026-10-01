@@ -1,24 +1,21 @@
-/**
- * Global error handler — every error response is built here.
- *
- * Security: internal errors never send their real message to the client (it
- * can leak stack traces, Mongo error text and so on). The client gets a
- * generic message; the full error goes to the server log only.
- */
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import mongoose from 'mongoose';
 import { ZodError } from 'zod';
-import { AppError } from '../errors';
+import { AppError, type ErrorCode } from '../errors';
 import { logger } from '../../config/logger';
 import { isProd } from '../../config/env';
+
+// body-parser marks its own errors with `type`.
+const bodyParserType = (err: unknown) => (err as { type?: unknown } | null)?.type;
 
 export const notFoundHandler: RequestHandler = (req, _res, next) => {
   next(AppError.notFound(`Route not found: ${req.method} ${req.originalUrl}`));
 };
 
-export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (thrown, req, res, _next) => {
+  const err: unknown = thrown;
   let status = 500;
-  let code = 'INTERNAL';
+  let code: ErrorCode = 'INTERNAL';
   let message = 'Something went wrong';
   let details: unknown;
 
@@ -41,8 +38,15 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     status = 400;
     code = 'BAD_REQUEST';
     message = `Invalid ${err.path} value`;
+  } else if (bodyParserType(err) === 'entity.too.large') {
+    status = 413;
+    code = 'PAYLOAD_TOO_LARGE';
+    message = 'That request is too large';
+  } else if (bodyParserType(err) === 'entity.parse.failed') {
+    status = 400;
+    code = 'BAD_REQUEST';
+    message = 'The request body is not valid JSON';
   } else if ((err as { code?: number }).code === 11000) {
-    // duplicate key
     status = 409;
     code = 'CONFLICT';
     const key = Object.keys((err as { keyValue?: Record<string, unknown> }).keyValue ?? {})[0];

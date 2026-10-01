@@ -1,11 +1,3 @@
-/**
- * Crypto helpers — OTP hashing and opaque token generation.
- *
- * Rule: OTPs and refresh tokens never reach the database in plain text.
- *  - OTP      → bcrypt (a slow hash, because a 6-digit space is tiny)
- *  - Refresh  → SHA-256 (the token is already 256 bits of randomness, so a
- *               slow KDF buys nothing — brute force is not possible)
- */
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 
@@ -35,10 +27,6 @@ export function sha256(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
 
-/**
- * Identifier for the chain of refresh tokens that starts at one login.
- * When reuse is detected, the whole family is revoked together.
- */
 export function newFamilyId(): string {
   return crypto.randomUUID();
 }

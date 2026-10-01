@@ -1,7 +1,3 @@
-/**
- * Server bootstrap — connect to the database first, only then listen.
- * Graceful shutdown: let in-flight requests finish before closing.
- */
 import { createApp } from './app';
 import { connectDb, disconnectDb } from './config/db';
 import { env } from './config/env';
@@ -17,10 +13,11 @@ async function main() {
 
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'Shutting down…');
-    server.close(async () => {
-      await disconnectDb();
-      logger.info('Bye 👋');
-      process.exit(0);
+    server.close(() => {
+      void disconnectDb().finally(() => {
+        logger.info('Bye 👋');
+        process.exit(0);
+      });
     });
     // Force the exit if a clean shutdown has not happened within 10 seconds.
     setTimeout(() => process.exit(1), 10_000).unref();
@@ -39,7 +36,7 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   logger.fatal({ err }, 'Server failed to start');
   process.exit(1);
 });

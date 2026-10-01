@@ -1,11 +1,3 @@
-/**
- * SMTP mailer.
- *
- * When SMTP is not configured (common in development) the mail is printed to
- * the console instead of being sent, so OTP login can be tested without a mail
- * server. In production, missing SMTP throws — silently not sending email
- * there would be a serious bug.
- */
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env, isProd, isSmtpConfigured } from '../config/env';
 import { logger } from '../config/logger';
