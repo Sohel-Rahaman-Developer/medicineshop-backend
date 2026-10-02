@@ -8,7 +8,7 @@ import { idParams } from '../../core/zod';
 import { sendFile } from '../../core/export';
 import { productsXlsx } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
-import { importRows, importSchema, type ImportInput } from './products.import';
+import { importRows, importSchema, importTemplate, type ImportInput } from './products.import';
 import * as svc from './products.service';
 import { activeSchema, createProductSchema, listQuerySchema, updateProductSchema, type CreateProductInput, type ListQuery, type UpdateProductInput } from './products.validation';
 
@@ -50,6 +50,14 @@ productsRouter.get(
   view,
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.companies(tenantOf(req)));
+  }),
+);
+
+productsRouter.get(
+  '/import/template',
+  requirePermission('products', 'create'),
+  asyncHandler(async (_req: Request, res: Response) => {
+    sendFile(res, await importTemplate(), 'MedShop-product-import-template', 'xlsx');
   }),
 );
 

@@ -363,6 +363,37 @@ async function main() {
   check('cashier can’t import → 403', (await cashier.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows })).status === 403);
   check('201 rows → 422', (await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: Array.from({ length: 201 }, () => rows[0]) })).status === 422);
 
+  // Every kind of shop item (D59): product-only rows, devices without expiry, lots, lowest price, purchase pack, cold storage.
+  const tpl = await owner.get('/products/import/template');
+  check('template: an .xlsx file', tpl.status === 200 && tpl.text.startsWith('PK') && (tpl.headers.get('content-disposition') ?? '').includes('MedShop-product-import-template.xlsx'), code(tpl));
+  check('cashier can’t download the template → 403', (await cashier.get('/products/import/template')).status === 403);
+  const kinds = [
+    { name: 'Pantocid 40 Tablet', saleUnit: 'STRIP', baseUnit: 'TABLET', pack: '15', purchaseUnit: 'BOX', purchasePack: '10', category: 'Tablet', schedule: 'H', rack: 'A-1-3' },
+    { name: 'Omron BP Monitor', saleUnit: 'PIECE', baseUnit: 'PIECE', pack: '1', category: 'Device', schedule: 'NON_DRUG', gst: '18', hasExpiry: 'No', quantity: '2', mrp: '2450', rate: '1800', minPrice: '2200' },
+    { name: 'Dairy Milk Silk', saleUnit: 'BAR', baseUnit: 'BAR', pack: '1', category: 'Chocolate & snacks', schedule: 'NON_DRUG', gst: '5', expiry: '04/27', quantity: '12', mrp: '80', rate: '68' },
+    { name: 'Coca-Cola 300 ml', saleUnit: 'CAN', baseUnit: 'CAN', pack: '1', purchaseUnit: 'CASE', purchasePack: '24', category: 'Drinks', schedule: 'NON_DRUG', gst: '40', expiry: '01/27', quantity: '24', mrp: '40', rate: '30' },
+    { name: 'Huminsulin R', saleUnit: 'VIAL', baseUnit: 'VIAL', pack: '1', category: 'Injection', schedule: 'H', storage: 'Cold', batch: 'HR22', expiry: '05/27', quantity: '4', mrp: '158', rate: '120' },
+  ];
+  const kd = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: kinds });
+  const kdr = data<{ rows: { quantity: string; batch: string; errors: string[] }[]; summary: { errors: number; newProducts: number } }>(kd);
+  check('every kind passes the dry run (GST 40 too)', kd.status === 200 && kdr.summary.errors === 0 && kdr.summary.newProducts === 5, JSON.stringify(kdr.rows.map((r) => r.errors)));
+  check('blank stock columns = product only', kdr.rows[0]?.quantity === '—' && kdr.rows[0].batch === '');
+  check('chocolate without a batch number → today’s lot', /^LOT-\d{6}$/.test(kdr.rows[2]?.batch ?? ''), kdr.rows[2]?.batch);
+  const ks = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows: kinds });
+  check('every kind saves', ks.status === 200, code(ks));
+  const pan = await ProductModel.findOne({ shopId: shop1, nameLower: 'pantocid 40 tablet' }).lean();
+  check('Pantocid 40: product with no batch, bought by BOX of 10 STRIP, Schedule H', pan !== null && (await BatchModel.countDocuments({ shopId: shop1, productId: pan._id })) === 0 && pan.units?.purchase === 'BOX' && (pan.units.conversions as Record<string, number>).BOX === 150 && pan.scheduleType === 'H');
+  const bp = await ProductModel.findOne({ shopId: shop1, nameLower: 'omron bp monitor' }).lean();
+  const bpb = await BatchModel.findOne({ shopId: shop1, productId: bp?._id }).lean();
+  check('BP monitor: no expiry, lot number, lowest ₹2,200', bp?.noExpiry === true && bpb?.expiryDate.getUTCFullYear() === 9999 && /^LOT-/.test(bpb.batchNumber) && bpb.minPrice === 220_000, JSON.stringify({ n: bp?.noExpiry, b: bpb?.batchNumber, m: bpb?.minPrice }));
+  check('insulin goes in cold storage', (await ProductModel.findOne({ shopId: shop1, nameLower: 'huminsulin r' }).lean())?.storageType === 'COLD');
+  const again = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Pantocid 40 Tablet' }] });
+  check('an existing product with no stock columns → row error', data<{ summary: { errors: number } }>(again).summary.errors === 1);
+  const medNoBatch = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Pantocid 40 Tablet', expiry: '03/28', quantity: '2', mrp: '150', rate: '100' }] });
+  check('a medicine without a batch number → row error', data<{ rows: { errors: string[] }[] }>(medNoBatch).rows[0]?.errors.some((e) => e.includes('Batch number is missing')) === true);
+  const badExp = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Thing X', hasExpiry: 'maybe' }] });
+  check('Has expiry must be Yes or No', data<{ rows: { errors: string[] }[] }>(badExp).rows[0]?.errors.includes('Has expiry is Yes or No') === true);
+
   section('17. Deactivate + categories in use');
   const pd = data<Product>(await owner.get(`/products/${dolo}`));
   check('deactivate → 200', (await owner.post(`/products/${dolo}/active`, { isActive: false, version: pd.version })).status === 200);
