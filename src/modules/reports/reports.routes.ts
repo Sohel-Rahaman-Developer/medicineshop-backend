@@ -9,6 +9,7 @@ import { istDay } from '../../core/zod';
 import { AppError } from '../../core/errors';
 import { day, dayTime, pdfTable, rupees, sendFile, xlsx, type Column } from '../../core/export';
 import { reportByKey, reportList, type Cell, type Col, type Params, type Row } from './catalog';
+import { analytics } from './analytics.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
 
@@ -117,5 +118,21 @@ reportsRouter.get(
   validate({ query: monthSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await gstMonth(tenantOf(req), (req.query as { month: string }).month));
+  }),
+);
+
+const analyticsQuery = z
+  .object({ tab: z.enum(['sales', 'stock', 'customers', 'suppliers']), from: istDay, to: istDay })
+  .strict()
+  .refine((v) => v.from <= v.to && v.to.getTime() - v.from.getTime() <= 400 * 24 * 60 * 60 * 1000, { message: 'Choose a range of at most about a year', path: ['to'] });
+
+// S60 analytics: one tab at a time, every chart on the topbar range.
+reportsRouter.get(
+  '/analytics',
+  validate({ query: analyticsQuery }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as { tab: 'sales' | 'stock' | 'customers' | 'suppliers'; from: Date; to: Date };
+    if (!req.auth) throw AppError.unauthenticated();
+    fetched(res, await analytics(tenantOf(req), req.auth.userId, q.tab, q.from, q.to));
   }),
 );

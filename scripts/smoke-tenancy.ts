@@ -207,11 +207,13 @@ async function main() {
   check('owner updates the profile', upd.status === 200, code(upd));
   check('saving the same month keeps it (no drift)', istMonth(new Date(data<{ drugLicenseExpiry: string }>(upd).drugLicenseExpiry)) === '2031-03');
   check('stale profile version → 409', (await owner.patch('/shop', { ...shopBody().shop, pricingMode: undefined, legalName: 'X', version: profile.version })).status === 409);
-  await SubscriptionModel.updateOne({ shopId: shop1 }, { $set: { status: 'expired' } });
+  // D64: the date decides — a plan 8 days past its end (beyond grace) is expired.
+  const subBefore = await SubscriptionModel.findOne({ shopId: shop1 }).lean();
+  await SubscriptionModel.updateOne({ shopId: shop1 }, { $set: { endDate: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) } });
   const ro = await owner.post('/staff', { email: 'q@shop1.test', name: 'Q', roleId: roleId('cashier') });
   check('expired plan: writes → 402', ro.status === 402, code(ro));
   check('expired plan: reads still work', (await owner.get('/staff')).status === 200);
-  await SubscriptionModel.updateOne({ shopId: shop1 }, { $set: { status: 'trial' } });
+  await SubscriptionModel.updateOne({ shopId: shop1 }, { $set: { status: 'trial', endDate: subBefore?.endDate } });
   await ShopModel.updateOne({ _id: shop1 }, { $set: { status: 'suspended' } });
   check('suspended shop → 403', (await owner.get('/staff')).status === 403);
   await ShopModel.updateOne({ _id: shop1 }, { $set: { status: 'active' } });

@@ -143,8 +143,8 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
 
     const sub = t.subscription;
     const left = Math.ceil((sub.endDate.getTime() - now.getTime()) / DAY);
-    if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: `Subscription ${sub.status} — read-only`, body: 'Your data is safe. Renew to start billing again.', route: '/settings', action: 'Renew', at: at8 }));
-    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${istIsoDay(sub.endDate)}.`, route: '/settings', action: 'Choose a plan', at: at8 }));
+    if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: `Subscription ${sub.status} — read-only`, body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
+    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${istIsoDay(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
 
     // End-of-day summary: today's after 22:00 IST, otherwise yesterday's (sandbox).
     const late = now.getTime() - istDayStart(now).getTime() >= 22 * 60 * 60 * 1000;

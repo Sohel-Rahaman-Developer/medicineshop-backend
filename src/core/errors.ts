@@ -9,6 +9,7 @@ export type ErrorCode =
   | 'PAYLOAD_TOO_LARGE'
   | 'RATE_LIMITED'
   | 'SUBSCRIPTION_REQUIRED'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL';
 
 export class AppError extends Error {
@@ -54,6 +55,9 @@ export class AppError extends Error {
   }
   static subscriptionRequired(message = 'This feature needs an active subscription') {
     return new AppError(402, 'SUBSCRIPTION_REQUIRED', message);
+  }
+  static serviceUnavailable(message = 'This service is not available right now') {
+    return new AppError(503, 'SERVICE_UNAVAILABLE', message);
   }
   static internal(message = 'Something went wrong') {
     return new AppError(500, 'INTERNAL', message);

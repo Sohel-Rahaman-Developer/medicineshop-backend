@@ -194,6 +194,11 @@ export async function startHarness(opts: { port?: number } = {}): Promise<Harnes
     COOKIE_SECURE: 'false',
     SMTP_HOST: '',
     DEV_STATIC_OTP: '',
+    // Local orders and real HMAC signatures with these test secrets (B8).
+    PAYMENTS_MODE: 'test',
+    RAZORPAY_KEY_ID: 'rzp_test_local',
+    RAZORPAY_KEY_SECRET: 'smoke-razorpay-key-secret',
+    RAZORPAY_WEBHOOK_SECRET: 'smoke-razorpay-webhook-secret',
   });
 
   const { connectDb, disconnectDb } = await import('../../src/config/db.js');

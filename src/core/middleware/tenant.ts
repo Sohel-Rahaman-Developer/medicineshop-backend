@@ -5,7 +5,8 @@ import { MembershipModel } from '../../modules/memberships/membership.model';
 import { effective, type Action, type Module, type Permissions, type Scopes, can } from '../../modules/rbac/permissions';
 import { RoleModel } from '../../modules/roles/role.model';
 import { ShopModel } from '../../modules/shops/shop.model';
-import { SubscriptionModel, isReadOnly, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
+import { SubscriptionModel, graceEndOf, isReadOnly, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
+import { env } from '../../config/env';
 
 export interface TenantContext {
   shopId: Types.ObjectId;
@@ -43,6 +44,9 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
   ]);
   if (!shop || !role || !sub) throw AppError.forbidden('You do not have access to this shop');
   if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedShop support.');
+  // The date moves the plan along (trial → grace → expired); the nightly job does the same for shops nobody opens.
+  const status = statusAt(sub, new Date());
+  if (status !== sub.status) await SubscriptionModel.updateOne({ shopId, _id: sub._id, status: sub.status }, { $set: { status, graceEndDate: graceEndOf(sub.endDate) } });
   const ctx: TenantContext = {
     shopId,
     shopName: shop.name,
@@ -52,7 +56,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
     isOwner: role.systemKey === 'owner' && shop.ownerUserId.equals(userId),
     permissions: effective(role.permissions as Permissions, membership.grants as Permissions, membership.denies as Permissions),
     scopes: role.scopes as Scopes,
-    subscription: { status: sub.status, endDate: sub.endDate, maxUsers: sub.maxUsers },
+    subscription: { status, endDate: sub.endDate, maxUsers: sub.maxUsers },
   };
   return { ctx, membership };
 }
@@ -66,7 +70,8 @@ export const tenant: RequestHandler = (req, _res, next) => {
     const shopId = new Types.ObjectId(header);
     const userId = new Types.ObjectId(req.auth.userId);
     const { ctx, membership } = await contextFor(shopId, userId);
-    if (isReadOnly(ctx.subscription.status) && !SAFE.has(req.method)) {
+    // Paying for a plan is the one write a read-only shop must still make.
+    if (isReadOnly(ctx.subscription.status) && !SAFE.has(req.method) && req.baseUrl !== `${env.API_PREFIX}/subscription`) {
       throw AppError.subscriptionRequired('Your plan has ended, so the shop is read-only. Choose a plan to continue.');
     }
     req.tenant = ctx;

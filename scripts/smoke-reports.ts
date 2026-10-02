@@ -117,7 +117,25 @@ async function main() {
   check('PDF → a PDF', x2.status === 200 && (x2.headers.get('content-type') ?? '').includes('pdf'), String(x2.status));
   check('accountant (reports: VX) exports; stock keeper (reports: V) → 403', (await accountant.raw('GET', `/reports/r/expenses/export?${range}&format=xlsx`)).status === 200 && (await keeper.raw('GET', `/reports/r/expenses/export?${range}&format=xlsx`)).status === 403);
 
-  section('7. Another shop sees none of it');
+  section('7. Analytics (S60) adds up');
+  const an = async (tab: string, q = range) => data<Record<string, unknown>>(await owner.get(`/reports/analytics?tab=${tab}&${q}`));
+  const sales = (await an('sales')) as { trend: { sales: number }[]; heatmap: { data: { y: number }[] }[]; weekday: { avg: number }[]; topProfit: { name: string; value: number }[] };
+  check('sales tab: net sales ₹107 (137 − 30), 3 bills on the heatmap', sales.trend.reduce((x, d) => x + d.sales, 0) === 10_700 && sales.heatmap.flatMap((r) => r.data).reduce((x, c) => x + c.y, 0) === 3, JSON.stringify(sales.trend));
+  check('weekday: today’s average is the day’s bills (₹137)', sales.weekday.some((w) => w.avg === 13_700));
+  check('top by profit: Dolo (77.68 − 58.50 = ₹19.18) above Alprax (47.62 − 30.00 = ₹17.62)', sales.topProfit[0]?.name === 'Dolo 650 Tablet' && sales.topProfit[0].value === 1918 && sales.topProfit[1]?.value === 1762, JSON.stringify(sales.topProfit));
+  const week = `from=${isoDay(-6)}&to=${isoDay()}`;
+  const stock = (await an('stock', week)) as { valuation: { value: number }[]; purchaseVsSale: { purchases: number; cogs: number }[] };
+  const atCost = (await BatchModel.find({ shopId: shop1, quantity: { $gt: 0 }, status: { $ne: 'returned' } }).lean()).reduce((x, b) => x + b.quantity * b.costPerBaseUnit, 0);
+  check('valuation: today = Σ batches at cost; yesterday ₹0 (all stock came today)', stock.valuation.length === 7 && stock.valuation.at(-1)?.value === atCost && stock.valuation.at(-2)?.value === 0, JSON.stringify(stock.valuation.slice(-2)));
+  check('purchase vs sale: ₹200 bought; cost of goods 19.50 × 3 + 30.00 − 19.50 = ₹69.00', stock.purchaseVsSale.reduce((x, w) => x + w.purchases, 0) === 20_000 && stock.purchaseVsSale.reduce((x, w) => x + w.cogs, 0) === 6900);
+  const cust = (await an('customers')) as { growth: { fresh: number; repeat: number }[] };
+  check('customers: 1 new (Apollo Clinic), 0 repeat', cust.growth.reduce((x, w) => x + w.fresh, 0) === 1 && cust.growth.reduce((x, w) => x + w.repeat, 0) === 0);
+  const sups = (await an('suppliers')) as { bySupplier: { key: string; value: number }[]; rates: { name: string; before: number; now: number; pct: number }[] };
+  // ₹20 a strip of 15 lands at 133 paise a tablet (rounded), so ₹19.95 a strip.
+  check('suppliers: Sharma ₹224; Dolo’s rate ₹19.50 → ₹19.95 (+2.3%)', sups.bySupplier[0]?.value === 22_400 && sups.rates[0]?.name === 'Dolo 650 Tablet' && sups.rates[0].before === 1950 && sups.rates[0].now === 1995 && sups.rates[0].pct === 2.3, JSON.stringify(sups.rates));
+  check('cashier → 403; bad tab → 422', (await cashier.get(`/reports/analytics?tab=sales&${range}`)).status === 403 && (await owner.get(`/reports/analytics?tab=money&${range}`)).status === 422);
+
+  section('8. Another shop sees none of it');
   const other = await h.signIn('kakoli@rep2.test');
   other.shopId = data<{ id: string }>(await other.post('/shops', shopBody('Kakoli Pharmacy'))).id;
   check('sales register and GST empty', data<Report>(await other.get(`/reports/r/sales-register?${range}`)).count === 0 && data<Gst>(await other.get(`/reports/gst?month=${month}`)).outTax === 0);

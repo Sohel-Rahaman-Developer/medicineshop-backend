@@ -26,6 +26,17 @@ subscriptionSchema.plugin(tenantScoped);
 export const SubscriptionModel = model('Subscription', subscriptionSchema);
 export type Subscription = InferSchemaType<typeof subscriptionSchema>;
 
+export const GRACE_DAYS = 7;
+const DAY = 24 * 60 * 60 * 1000;
+
+/** PLAN §8: trial / active until the end date, then 7 days of grace, then read-only. Cancelled stays cancelled. */
+export function statusAt(sub: { status: SubscriptionStatus; planCode: string; endDate: Date }, now: Date): SubscriptionStatus {
+  if (sub.status === 'cancelled') return 'cancelled';
+  if (now < sub.endDate) return sub.planCode === 'trial' ? 'trial' : 'active';
+  return now.getTime() < sub.endDate.getTime() + GRACE_DAYS * DAY ? 'grace' : 'expired';
+}
+export const graceEndOf = (endDate: Date) => new Date(endDate.getTime() + GRACE_DAYS * DAY);
+
 /** Read-only states (PLAN §5): browsing and download work, nothing can be written. */
 export function isReadOnly(status: SubscriptionStatus): boolean {
   return status === 'expired' || status === 'cancelled';
