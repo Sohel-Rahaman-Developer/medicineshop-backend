@@ -17,6 +17,8 @@ const dayCloseSchema = new Schema(
     advanceBack: { type: Number, required: true },
     cancelled: { type: Number, required: true },
     suppliers: { type: Number, required: true },
+    /** Drawer cash spent on expenses (B7a); closes before it have none. */
+    expenses: { type: Number },
     cashIn: { type: Number, required: true },
     cashOut: { type: Number, required: true },
     expected: { type: Number, required: true },

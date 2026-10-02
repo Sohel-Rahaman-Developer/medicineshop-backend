@@ -9,6 +9,7 @@ import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
 import { CustomerPaymentModel } from '../customers/customer.model';
+import { ExpenseModel } from '../expenses/expense.model';
 import { OrderModel } from '../orders/order.model';
 import { SupplierPaymentModel } from '../purchases/purchase.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
@@ -47,7 +48,7 @@ export async function cashDay(t: TenantContext, day: string) {
   const d0 = startOf(day);
   const d1 = new Date(d0.getTime() + DAY);
   const inDay = { $gte: d0, $lt: d1 };
-  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, prev, shop, collections] = await Promise.all([
+  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, prev, shop, collections, spent] = await Promise.all([
     SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName').lean(),
     SaleModel.find({ shopId: t.shopId, status: 'cancelled', cancelledAt: inDay }).select('payments').lean(),
     SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack').lean(),
@@ -58,6 +59,7 @@ export async function cashDay(t: TenantContext, day: string) {
     DayCloseModel.findOne({ shopId: t.shopId, dayStart: { $lt: d0 } }).sort({ dayStart: -1 }).select('day leftInDrawer').lean(),
     ShopModel.findById(t.shopId).select('settings.billing.openingFloat').lean(),
     CustomerPaymentModel.find({ shopId: t.shopId, paymentDate: inDay, paymentMode: 'CASH' }).select('amount').lean(),
+    ExpenseModel.find({ shopId: t.shopId, status: 'active', date: inDay, paymentMode: 'CASH', fromDrawer: true }).select('amount').lean(),
   ]);
   const pay = (mode: string) => sumOf(billed, (s) => sumOf(s.payments.filter((p) => p.mode === mode), (p) => p.amount));
   const byUser = new Map<string, number>();
@@ -77,6 +79,7 @@ export async function cashDay(t: TenantContext, day: string) {
     advanceBack: sumOf(completed, (o) => o.advanceBack),
     cancelled: sumOf(cancelledBills, (s) => sumOf(s.payments.filter((p) => p.mode === 'CASH'), (p) => p.amount)),
     suppliers: sumOf(suppliers, (p) => p.amount),
+    expenses: sumOf(spent, (e) => e.amount),
     upi: pay('UPI'),
     card: pay('CARD'),
     advanceUsed: pay('ADVANCE'),
@@ -86,7 +89,7 @@ export async function cashDay(t: TenantContext, day: string) {
     byUser: [...byUser.entries()].map(([name, cash]) => ({ name, cash })).sort((a, b) => b.cash - a.cash),
   };
   const cashIn = r.cashSales + r.collected + r.advances;
-  const cashOut = r.refunds + r.orderRefunds + r.advanceBack + r.cancelled + r.suppliers;
+  const cashOut = r.refunds + r.orderRefunds + r.advanceBack + r.cancelled + r.suppliers + r.expenses;
   return { ...r, cashIn, cashOut, expected: r.opening + cashIn - cashOut };
 }
 
@@ -106,6 +109,7 @@ function shape(c: CloseLean) {
     advanceBack: c.advanceBack,
     cancelled: c.cancelled,
     suppliers: c.suppliers,
+    expenses: c.expenses ?? 0,
     cashIn: c.cashIn,
     cashOut: c.cashOut,
     expected: c.expected,
@@ -172,6 +176,7 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
           advanceBack: cash.advanceBack,
           cancelled: cash.cancelled,
           suppliers: cash.suppliers,
+          expenses: cash.expenses,
           cashIn: cash.cashIn,
           cashOut: cash.cashOut,
           expected: cash.expected,

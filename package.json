@@ -23,7 +23,8 @@
     "smoke:loyalty": "tsx scripts/smoke-loyalty.ts",
     "smoke:notifications": "tsx scripts/smoke-notifications.ts",
     "smoke:tax": "tsx scripts/smoke-tax.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax"
+    "smoke:expenses": "tsx scripts/smoke-expenses.ts",
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses"
   },
   "keywords": [],
   "author": "",

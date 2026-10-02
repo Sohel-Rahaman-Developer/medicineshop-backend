@@ -159,8 +159,8 @@ export class Client {
     return this.send('PATCH', path, body);
   }
 
-  del(path: string): Promise<Res> {
-    return this.send('DELETE', path, {});
+  del(path: string, body: unknown = {}): Promise<Res> {
+    return this.send('DELETE', path, body);
   }
 
   get(path: string): Promise<Res> {
