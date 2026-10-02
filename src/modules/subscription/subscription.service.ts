@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Types } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
@@ -105,6 +105,16 @@ async function markPaid(orderId: string, paymentId: string, amount: number | nul
     await audit({ shopId: pay.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(pay._id), entityName: invoiceNumber, text: `${who.name} paid ${inr(pay.amount)} for ${pay.planName} — valid till ${day(end)} (${invoiceNumber})`, ip: undefined }, session);
     return { payment: pay, replayed: false };
   });
+}
+
+/** B9 accounts desk: money taken outside Razorpay — the same extension and invoice through markPaid. */
+export async function recordManual(shopId: Types.ObjectId, planCode: string, reference: string, by: { id: string; name: string }) {
+  const plan = (await plans()).find((p) => p.code === planCode);
+  if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
+  const id = `manual_${randomBytes(9).toString('hex')}`;
+  await SubscriptionPaymentModel.create({ shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount: plan.price, gst: plan.price - rhu(plan.price * 100, 118), razorpayOrderId: id, status: 'created', source: 'manual', reference, createdBy: new Types.ObjectId(by.id), createdByName: by.name });
+  const r = await markPaid(id, id, null, 'manual', by);
+  return shapePayment(r.payment.toObject());
 }
 
 /** Step 2: Checkout hands back order, payment and signature; only a signature made with our secret counts. */

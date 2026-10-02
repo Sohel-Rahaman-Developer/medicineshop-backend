@@ -15,9 +15,7 @@ export const shopRouter = Router();
 
 const ctxOf = (req: Request) => ({ ip: req.ip, userAgent: req.get('user-agent') ?? undefined });
 
-shopsRouter.get('/onboarding', requireAuth, (_req, res) => {
-  fetched(res, svc.onboardingMeta());
-});
+shopsRouter.get('/onboarding', requireAuth, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.onboardingMeta()); }));
 
 shopsRouter.post(
   '/',

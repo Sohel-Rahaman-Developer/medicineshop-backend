@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import { platform } from '../admin/platform';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import type { TenantContext } from '../../core/middleware/tenant';
@@ -21,17 +22,18 @@ interface Ctx {
   userAgent?: string;
 }
 
-export function onboardingMeta() {
+export async function onboardingMeta() {
   return {
     terms: { version: env.TERMS_VERSION, points: TERMS_POINTS },
     states: STATES.map((s) => s.name),
-    trialDays: env.TRIAL_DAYS,
+    trialDays: (await platform()).trialDays,
   };
 }
 
 const DAY = 24 * 60 * 60 * 1000;
 
 export async function createShop(userId: string, input: CreateShopInput, ctx: Ctx) {
+  const trial = await platform();
   if (input.termsVersion !== env.TERMS_VERSION) {
     throw AppError.conflict('The Terms have changed. Please read and agree to the new version.');
   }
@@ -88,7 +90,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
         { session },
       );
       await SubscriptionModel.create(
-        [{ shopId, planCode: 'trial', status: 'trial', startDate: now, endDate: new Date(now.getTime() + env.TRIAL_DAYS * DAY), maxUsers: env.TRIAL_MAX_USERS }],
+        [{ shopId, planCode: 'trial', status: 'trial', startDate: now, endDate: new Date(now.getTime() + trial.trialDays * DAY), maxUsers: trial.trialMaxUsers }],
         { session },
       );
       await seedSystemCategories(shopId, session);

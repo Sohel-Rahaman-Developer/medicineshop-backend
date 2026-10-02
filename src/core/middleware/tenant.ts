@@ -7,6 +7,7 @@ import { RoleModel } from '../../modules/roles/role.model';
 import { ShopModel } from '../../modules/shops/shop.model';
 import { SubscriptionModel, graceEndOf, isReadOnly, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
 import { env } from '../../config/env';
+import { platform } from '../../modules/admin/platform';
 
 export interface TenantContext {
   shopId: Types.ObjectId;
@@ -44,6 +45,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
   ]);
   if (!shop || !role || !sub) throw AppError.forbidden('You do not have access to this shop');
   if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedShop support.');
+  await platform();
   // The date moves the plan along (trial → grace → expired); the nightly job does the same for shops nobody opens.
   const status = statusAt(sub, new Date());
   if (status !== sub.status) await SubscriptionModel.updateOne({ shopId, _id: sub._id, status: sub.status }, { $set: { status, graceEndDate: graceEndOf(sub.endDate) } });

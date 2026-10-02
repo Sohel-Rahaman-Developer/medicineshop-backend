@@ -43,7 +43,9 @@ const paymentSchema = new Schema(
     periodStart: { type: Date },
     periodEnd: { type: Date },
     invoiceNumber: { type: String },
-    source: { type: String, enum: ['razorpay', 'test'], required: true },
+    source: { type: String, enum: ['razorpay', 'test', 'manual'], required: true },
+    /** Manual (B9): the UTR / cheque number the accounts desk typed. */
+    reference: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },
     paidAt: { type: Date },

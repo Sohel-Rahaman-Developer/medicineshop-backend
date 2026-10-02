@@ -60,6 +60,12 @@ const schema = z.object({
   TRIAL_MAX_USERS: z.coerce.number().int().positive().default(3),
   TERMS_VERSION: z.string().default('2026-10'),
 
+  /** Seals admin authenticator secrets; production must set its own (32+ characters). */
+  ADMIN_TOTP_KEY: z
+    .string()
+    .optional()
+    .transform((v) => v || undefined)
+    .refine((v) => !v || v.length >= 32, 'needs 32+ characters'),
   /** off = no online payment; test = local orders and a test-pay button (never in production); razorpay = live. */
   PAYMENTS_MODE: z.enum(['off', 'test', 'razorpay']).default('off'),
   RAZORPAY_KEY_ID: z.string().optional(),
@@ -78,6 +84,7 @@ const parsed = schema
     path: ['CSRF_SECRET'],
     message: 'must differ from JWT_ACCESS_SECRET',
   })
+  .refine((e) => e.NODE_ENV !== 'production' || Boolean(e.ADMIN_TOTP_KEY), { message: 'is required in production', path: ['ADMIN_TOTP_KEY'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENTS_MODE === 'test'), { message: 'PAYMENTS_MODE=test is refused in production', path: ['PAYMENTS_MODE'] })
   .refine((e) => e.PAYMENTS_MODE !== 'razorpay' || Boolean(e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET && e.RAZORPAY_WEBHOOK_SECRET), { message: 'needs RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET', path: ['PAYMENTS_MODE'] })
   .refine((e) => !e.DEV_STATIC_OTP || e.NODE_ENV === 'development', {

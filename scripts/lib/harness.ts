@@ -172,7 +172,7 @@ export interface Harness {
   base: string;
   signIn: (email: string) => Promise<Client>;
   close: () => Promise<void>;
-  seedOtp: (email: string, code: string) => Promise<void>;
+  seedOtp: (email: string, code: string, audience?: 'shop' | 'admin') => Promise<void>;
   client: (opts?: ClientOptions) => Client;
 }
 
@@ -213,9 +213,9 @@ export async function startHarness(opts: { port?: number } = {}): Promise<Harnes
   const port = typeof address === 'object' && address ? address.port : 0;
   const base = `http://127.0.0.1:${port}/api/v1`;
 
-  const seed = async (email: string, code: string) => {
-    await OtpTokenModel.updateMany({ email, consumedAt: null }, { $set: { consumedAt: new Date() } });
-    await OtpTokenModel.create({ audience: 'shop', email, otpHash: await hashOtp(code), maxAttempts: 5, expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+  const seed = async (email: string, code: string, audience: 'shop' | 'admin' = 'shop') => {
+    await OtpTokenModel.updateMany({ audience, email, consumedAt: null }, { $set: { consumedAt: new Date() } });
+    await OtpTokenModel.create({ audience, email, otpHash: await hashOtp(code), maxAttempts: 5, expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
   };
 
   return {
