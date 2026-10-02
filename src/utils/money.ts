@@ -12,9 +12,12 @@ export const amountFor = (pricePerSale: number, qtyBase: number, salePack: numbe
 /** ₹1,52,000.50 — Indian grouping, for messages only (screens format on their side). */
 export const inr = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/** A tax rate (up to 2 decimals) in basis points, so the maths stays in integers (D62). */
+const bp = (rate: number) => Math.round(rate * 100);
+
 /** Purchase rates are before GST: tax = taxable × rate% rounded half up; SGST takes the lower half (PLAN §14). */
 export function gstExclusive(taxable: number, rate: number) {
-  const tax = rhu(taxable * rate, 100);
+  const tax = rhu(taxable * bp(rate), 10_000);
   const sgst = Math.floor(tax / 2);
   return { taxable, rate, tax, sgst, cgst: tax - sgst, amount: taxable + tax };
 }
@@ -27,7 +30,7 @@ export function roundRupee(amount: number) {
 
 /** Sales are MRP-inclusive: taxable = amount × 100 / (100 + rate) half up, tax = the rest (PLAN §14). */
 export function gstInclusive(amount: number, rate: number) {
-  const taxable = rate ? rhu(amount * 100, 100 + rate) : amount;
+  const taxable = rate ? rhu(amount * 10_000, 10_000 + bp(rate)) : amount;
   const tax = amount - taxable;
   const sgst = Math.floor(tax / 2);
   return { amount, rate, taxable, tax, sgst, cgst: tax - sgst };

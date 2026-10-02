@@ -28,6 +28,7 @@ import { notificationsRouter } from './modules/notifications/notifications.route
 import { ordersRouter } from './modules/orders/orders.routes';
 import { posRouter, saleReturnsRouter, salesRouter } from './modules/sales/sales.routes';
 import { searchRouter } from './modules/search/search.routes';
+import { taxRouter } from './modules/tax/tax.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
@@ -116,6 +117,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/loyalty`, loyaltyRouter);
   app.use(`${env.API_PREFIX}/notifications`, notificationsRouter);
   app.use(`${env.API_PREFIX}/audit`, auditRouter);
+  app.use(`${env.API_PREFIX}/tax`, taxRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
 
   app.use(notFoundHandler);

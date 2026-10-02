@@ -12,6 +12,8 @@ const settingsSchema = new Schema(
       defaultGstRate: { type: Number, default: 12 },
       enableIgst: { type: Boolean, default: false },
       showHsnOnBill: { type: Boolean, default: true },
+      /** D62: the shop's own list; empty = the default list. */
+      rates: { type: [{ _id: false, name: { type: String, required: true }, rate: { type: Number, required: true } }], default: undefined },
     },
     billing: {
       billPrefix: { type: String, default: 'INV' },

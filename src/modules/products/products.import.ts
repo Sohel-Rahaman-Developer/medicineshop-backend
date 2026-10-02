@@ -14,7 +14,8 @@ import { lotOf } from '../stock/stock.domain';
 import { receiveOpening } from '../stock/stock.service';
 import { refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
-import { GST_RATES, ProductModel, SCHEDULE_TYPES } from './product.model';
+import { ProductModel, SCHEDULE_TYPES } from './product.model';
+import { ratesOf } from '../tax/tax.service';
 import { saltKeyOf, searchKeyOf } from './products.service';
 
 const cell = z.union([z.string().max(200), z.number()]).optional().transform((v) => (v === undefined ? '' : String(v).trim()));
@@ -78,6 +79,7 @@ interface Plan {
 async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Promise<Plan[]> {
   const shop = await ShopModel.findById(t.shopId).select('settings.tax.defaultGstRate').lean();
   const defaultGst = shop?.settings.tax?.defaultGstRate ?? 12;
+  const rates = (await ratesOf(t, session)).map((r) => r.rate);
   const cats = await CategoryModel.find({ shopId: t.shopId }).select('name key').lean();
   const catByKey = new Map(cats.map((c) => [c.key, c]));
   const names = [...new Set(rows.map((r) => r.name.toLowerCase()).filter(Boolean))];
@@ -125,7 +127,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
       if (!SCHEDULE_TYPES.includes(schedule)) errors.push('Schedule is OTC, H, H1, X or NON_DRUG');
       scheduleOf = schedule;
       const gst = r.gst ? Number(r.gst.replace('%', '')) : defaultGst;
-      if (!(GST_RATES as readonly number[]).includes(gst)) errors.push('GST must be 0, 5, 12, 18, 28 or 40');
+      if (!rates.includes(gst)) errors.push(`GST ${r.gst || String(gst)} is not in your tax list (${rates.join(', ')}) — add it in Settings → Tax`);
       const storage = /^(cold|fridge|2-8)/i.test(r.storage) ? 'COLD' : /^(controlled|locked)/i.test(r.storage) ? 'CONTROLLED' : 'NORMAL';
       if (r.storage && !/^(normal|cold|fridge|2-8|controlled|locked)/i.test(r.storage)) errors.push('Storage is Normal, Cold or Controlled');
       if (r.hsn && !/^\d{4,8}$/.test(r.hsn)) errors.push('HSN has 4 to 8 digits');
@@ -268,7 +270,7 @@ const HOW_TO: [column: string, needed: string, what: string][] = [
   ['Salt / composition · Strength', 'No', 'Helps search by salt and shows similar medicines.'],
   ['Category', 'No', 'One of your categories: Tablet, Capsule, Syrup, Injection, Ointment, Drops, Powder, Surgical, FMCG, Ayurvedic, Device, Chocolate & snacks, Drinks, Baby care, Personal care, Nutrition.'],
   ['Schedule', 'No', 'OTC (no prescription) · H (prescription) · H1 (doctor + patient on the bill) · X (narcotic) · NON_DRUG (not a medicine). Blank = OTC.'],
-  ['GST %', 'No', '0, 5, 12, 18, 28 or 40 — copy it from the supplier’s invoice; ask your CA when unsure. Blank = the shop’s default.'],
+  ['GST %', 'No', 'One of your rates in Settings → Tax — copy it from the supplier’s invoice; you decide the right rate. Blank = the shop’s default.'],
   ['HSN · Barcode', 'No', 'HSN 4–8 digits from the invoice. Barcode from the pack (4–32 letters or digits).'],
   ['Sale unit · Base unit · Units per sale unit', 'For new products', 'How you sell and how stock is counted: STRIP of 15 TABLET → STRIP, TABLET, 15. A bottle, bar or can → the same unit twice and 1.'],
   ['Purchase unit · Sale units per purchase unit', 'No', 'How the supplier sells it: BOX of 10 STRIP → BOX, 10. Blank = same as the sale unit.'],

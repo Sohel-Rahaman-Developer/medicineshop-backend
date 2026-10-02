@@ -7,6 +7,7 @@ import { versionOf } from '../../core/version';
 import { amountFor } from '../../utils/money';
 import { purchasePack, salePack, toUnits, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
+import { assertRate } from '../tax/tax.service';
 import { CategoryModel } from '../categories/category.model';
 import { can } from '../rbac/permissions';
 import { PurchaseModel } from '../purchases/purchase.model';
@@ -330,6 +331,7 @@ function masterFields(input: CreateProductInput) {
 
 export async function create(t: TenantContext, actor: Actor, input: CreateProductInput, ip?: string) {
   await assertCategory(t, input.categoryId);
+  await assertRate(t, input.gstRate);
   const photo = input.photo ? { ...(await processPhoto(input.photo)), updatedAt: new Date() } : null;
   const id = await inTransaction(async (session) => {
     await ensureRack(t.shopId, input.defaultRack, input.storageType === 'COLD' ? 'COLD' : 'NORMAL', session);
@@ -351,6 +353,9 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   if (!doc) throw AppError.notFound('Product not found');
   if (versionOf(doc) !== input.version) throw AppError.conflict('Someone else changed this product. Reload to see the latest.');
   await assertCategory(t, input.categoryId);
+  const oldGst = doc.gstRate;
+  // An unchanged rate stays valid even if the shop has since dropped it from the list.
+  if (oldGst !== input.gstRate) await assertRate(t, input.gstRate);
   const before = unitsOut(doc.units as Units);
   const after = unitsOut(toUnits(input.units));
   const hasStock = async () => Boolean(await BatchModel.exists({ shopId: t.shopId, productId: doc._id }));
@@ -368,7 +373,9 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
     if (photo !== undefined) doc.set('photo', photo);
     await doc.save({ session }).catch(onDuplicate);
     await refreshRollups(t.shopId, [doc._id], session);
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: input.name, text: `${actor.name} updated product ${input.name}`, ip }, session);
+    const gst = oldGst === input.gstRate ? null : { before: { gstRate: oldGst }, after: { gstRate: input.gstRate } };
+    const text = `${actor.name} updated product ${input.name}${gst ? ` · GST ${String(oldGst)}% → ${String(input.gstRate)}%` : ''}`;
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: input.name, text, ...(gst ? { changes: gst } : {}), ip }, session);
   });
 }
 

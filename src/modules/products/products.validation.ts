@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { LIMIT, objectId } from '../../core/zod';
 import { ALL_UNITS, UNIT_TYPES, unitsProblem } from '../../utils/units';
 import { STORAGE_TYPES } from '../racks/rack.model';
-import { GST_RATES, SCHEDULE_TYPES } from './product.model';
+import { SCHEDULE_TYPES } from './product.model';
+import { taxRate } from '../tax/tax.validation';
 
 const MAX_QTY = 10_000_000;
 const optional = (max: number) => z.string().trim().max(max).default('');
@@ -39,7 +40,7 @@ const fields = {
   scheduleType: z.enum(SCHEDULE_TYPES),
   storageType: z.enum(STORAGE_TYPES),
   hsnCode: z.string().trim().refine((v) => v === '' || /^\d{4,8}$/.test(v), 'HSN has 4 to 8 digits').default(''),
-  gstRate: z.union(GST_RATES.map((r) => z.literal(r)), 'GST must be 0, 5, 12, 18, 28 or 40'),
+  gstRate: taxRate,
   barcode: z.string().trim().refine((v) => v === '' || /^[A-Za-z0-9-]{4,32}$/.test(v), 'Barcode has 4 to 32 letters or digits').default(''),
   units: unitsSchema,
   packSize: optional(40),

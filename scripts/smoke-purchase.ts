@@ -165,7 +165,7 @@ async function main() {
   check('rate in rupees (23.4) → 422', (await v({ rate: 23.4 })).status === 422);
   check('discount 120 % → 422', (await v({ discountPercent: 120 })).status === 422);
   check('discount with 3 decimals → 422', (await v({ discountPercent: 1.234 })).status === 422);
-  check('GST 7 % → 422', (await v({ gstRate: 7 })).status === 422);
+  check('GST 101 % or 3 decimals → 422 (any supplier rate 0–100 is fine, D62)', (await v({ gstRate: 101 })).status === 422 && (await v({ gstRate: 2.555 })).status === 422);
   check('same batch twice in one invoice → 422', (await owner.post('/purchases', purchase({ invoiceNumber: 'V-dup', lines: [line({ batchNumber: 'VX2' }), line({ batchNumber: 'vx2' })] }))).status === 422);
   check('paid more than the total → 422', (await v({}, { payment: { mode: 'CASH', amount: 99_999_999 } })).status === 422);
   check('invoice date next week → 422', (await v({}, { invoiceDate: isoDay(7) })).status === 422);

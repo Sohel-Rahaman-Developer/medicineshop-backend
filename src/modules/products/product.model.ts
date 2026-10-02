@@ -5,7 +5,6 @@ import { STORAGE_TYPES } from '../racks/rack.model';
 import { NO_EXPIRY } from '../stock/stock.domain';
 
 export const SCHEDULE_TYPES = ['OTC', 'H', 'H1', 'X', 'NON_DRUG'] as const;
-export const GST_RATES = [0, 5, 12, 18, 28, 40] as const;
 
 // Rollup of the product's batches (PLAN §21.4). Rewritten in the same transaction as every movement.
 const stockSchema = new Schema(
@@ -42,7 +41,7 @@ const productSchema = new Schema(
     scheduleType: { type: String, enum: SCHEDULE_TYPES, required: true, default: 'OTC' },
     storageType: { type: String, enum: STORAGE_TYPES, required: true, default: 'NORMAL' },
     hsnCode: { type: String, trim: true, default: '' },
-    gstRate: { type: Number, enum: GST_RATES, required: true },
+    gstRate: { type: Number, min: 0, max: 100, required: true },
     barcode: { type: String, trim: true },
     units: {
       type: { type: String, enum: UNIT_TYPES, required: true },

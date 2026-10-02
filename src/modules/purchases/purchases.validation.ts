@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { clientRequestId, istDay, LIMIT, monthEnd, objectId, paise } from '../../core/zod';
 import { ALL_UNITS } from '../../utils/units';
-import { GST_RATES } from '../products/product.model';
+import { taxRate } from '../tax/tax.validation';
 import { rackCode } from '../products/products.validation';
 import { PAY_MODES, RETURN_REASONS } from './purchase.model';
 
@@ -26,7 +26,8 @@ export const purchaseLineSchema = z
     /** Paise per sale unit. */
     mrp: paise('MRP').min(1, 'MRP is required'),
     minPrice: paise('Lowest price').nullable().optional(),
-    gstRate: z.union(GST_RATES.map((r) => z.literal(r)), 'GST must be 0, 5, 12, 18, 28 or 40'),
+    /** As on the supplier's bill — any rate (D62). */
+    gstRate: taxRate,
     rack: rackCode.default(''),
     mrpChoice: z.enum(['merge', 'separate']).optional(),
   })
