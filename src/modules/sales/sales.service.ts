@@ -8,6 +8,7 @@ import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { conv, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
+import * as orders from '../orders/orders.service';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
 import { ProductModel } from '../products/product.model';
@@ -164,6 +165,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const inv = shop.settings.inventory;
     if (!billing || !inv) throw AppError.internal('Shop settings are missing');
 
+    const order = input.orderId ? await orders.forBill(t, input.orderId, session) : null;
     const built = await buildParts(t, input, now, session);
     if (built.picked.size && !(inv.allowBatchOverride && can(t.permissions, 'stock', 'edit'))) {
       throw AppError.forbidden('Choosing a batch by hand needs stock edit permission — FEFO picks the batch.');
@@ -177,10 +179,15 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     if (input.expectedTotal !== undefined && input.expectedTotal !== priced.grandTotal) {
       throw AppError.conflict(`The total is now ${inr(priced.grandTotal)} — stock or prices changed. Check the bill and charge again.`, { reason: 'TOTAL_CHANGED', total: priced.grandTotal });
     }
+    // An order's advance pays first; more advance than the bill goes back in cash.
+    const advanceUsed = order ? Math.min(order.advance, priced.grandTotal) : 0;
+    const due = priced.grandTotal - advanceUsed;
     const paid = input.payments.reduce((s, x) => s + x.amount, 0);
-    if (paid !== priced.grandTotal) {
-      throw AppError.validation(`Payments add up to ${inr(paid)}, the bill is ${inr(priced.grandTotal)}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(priced.grandTotal)}` }]);
+    if (paid !== due) {
+      const what = advanceUsed ? `the bill is ${inr(priced.grandTotal)} less ${inr(advanceUsed)} advance = ${inr(due)}` : `the bill is ${inr(priced.grandTotal)}`;
+      throw AppError.validation(`Payments add up to ${inr(paid)}, ${what}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
     }
+    const payments = [...input.payments, ...(order && advanceUsed ? [{ mode: 'ADVANCE' as const, amount: advanceUsed, reference: order.orderNumber }] : [])];
     const cash = input.payments.filter((x) => x.mode === 'CASH').reduce((s, x) => s + x.amount, 0);
     if (input.cashReceived !== undefined && input.cashReceived < cash) throw AppError.validation('Cash received is less than the cash part', [{ field: 'body.cashReceived', message: 'Less than the cash part' }]);
 
@@ -232,7 +239,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     for (const l of lines) {
       await applyMove(t.shopId, l.batchId, -l.quantityInBase, { type: 'SALE', refType: 'SALE', refId: saleId, refNumber: billNumber, actor, at: now }, session);
     }
-    const modes = [...new Set(input.payments.map((x) => x.mode))];
+    const modes = [...new Set(payments.map((x) => x.mode))];
     const totalCost = lines.reduce((s, l) => s + l.lineCost, 0);
     const discountAboveLimit = priced.discountPercent > billing.maxDiscountPercent;
     const belowMinPrice = lines.some((l) => l.belowMinPrice);
@@ -251,6 +258,8 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           patientName: input.rx?.patientName ?? '',
           rxNumber: input.rx?.rxNumber ?? '',
           rxDate: input.rx?.rxDate,
+          orderId: order?._id,
+          orderNumber: order?.orderNumber,
           lines,
           subtotal: priced.subtotal,
           lineDiscountAmount: priced.lineDiscount,
@@ -269,10 +278,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           roundOff: priced.roundOff,
           grandTotal: priced.grandTotal,
           toPay: priced.grandTotal,
-          payments: input.payments,
+          payments,
           paymentMode: modes.length > 1 ? 'SPLIT' : (modes[0] ?? 'NONE'),
           cashReceived: input.cashReceived,
-          paidAmount: paid,
+          paidAmount: paid + advanceUsed,
           dueAmount: 0,
           paymentStatus: 'paid',
           totalCost,
@@ -283,6 +292,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       ],
       { session },
     );
+    if (order) await orders.complete(t, order, { id: saleId, billNumber, at: now, advanceUsed }, session);
     const productIds = [...new Set(lines.map((l) => String(l.productId)))].map(oid);
     await ProductModel.updateMany({ shopId: t.shopId, _id: { $in: productIds } }, { $set: { lastSoldAt: now } }, { session });
     await refreshRollups(t.shopId, productIds, session, now);
@@ -290,12 +300,13 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       discountAboveLimit ? `discount ${String(priced.discountPercent)}% is above the ${String(billing.maxDiscountPercent)}% limit` : '',
       priced.aboveMrp ? `${inr(priced.aboveMrp)} above MRP` : '',
       belowMinPrice ? 'sold under the lowest price' : '',
+      order ? `order ${order.orderNumber}${advanceUsed ? `, advance ${inr(advanceUsed)}` : ''}${order.advance > advanceUsed ? `, ${inr(order.advance - advanceUsed)} advance given back` : ''}` : '',
     ].filter(Boolean);
     await audit(
       { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(saleId), entityName: billNumber, text: `${actor.name} billed ${billNumber} · ${inr(priced.grandTotal)} · ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
       session,
     );
-    return { id: String(saleId), billNumber, grandTotal: priced.grandTotal, change: input.cashReceived !== undefined ? input.cashReceived - cash : 0 };
+    return { id: String(saleId), billNumber, grandTotal: priced.grandTotal, change: input.cashReceived !== undefined ? input.cashReceived - cash : 0, advanceUsed, advanceBack: order ? order.advance - advanceUsed : 0 };
   });
 }
 
@@ -318,6 +329,8 @@ function shape(s: SaleLean, cost: boolean) {
     patientName: s.patientName,
     rxNumber: s.rxNumber,
     rxDate: s.rxDate ?? null,
+    orderId: s.orderId ? String(s.orderId) : null,
+    orderNumber: s.orderNumber ?? null,
     lines: s.lines.map((l) => ({
       item: l.item,
       productId: String(l.productId),

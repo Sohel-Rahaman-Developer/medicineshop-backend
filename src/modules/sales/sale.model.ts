@@ -3,6 +3,8 @@ import { tenantScoped } from '../../core/tenant-scope';
 
 export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD'] as const;
 export type SalePayMode = (typeof SALE_PAY_MODES)[number];
+// ADVANCE is an order's advance coming off its bill (PLAN §35.1); the server adds it, the client never sends it.
+const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE'] as const;
 
 // One line per batch: a cart line that spans two batches is two bill lines, each at its own MRP (PLAN §14).
 const lineSchema = new Schema(
@@ -43,7 +45,7 @@ const lineSchema = new Schema(
   { _id: false },
 );
 
-const paymentSchema = new Schema({ mode: { type: String, enum: SALE_PAY_MODES, required: true }, amount: { type: Number, required: true }, reference: { type: String, default: '' } }, { _id: false });
+const paymentSchema = new Schema({ mode: { type: String, enum: STORED_MODES, required: true }, amount: { type: Number, required: true }, reference: { type: String, default: '' } }, { _id: false });
 
 const saleSchema = new Schema(
   {
@@ -58,6 +60,8 @@ const saleSchema = new Schema(
     patientName: { type: String, default: '' },
     rxNumber: { type: String, default: '' },
     rxDate: { type: Date },
+    orderId: { type: Schema.Types.ObjectId, ref: 'CustomerOrder' },
+    orderNumber: { type: String },
     lines: { type: [lineSchema], required: true },
     subtotal: { type: Number, required: true },
     lineDiscountAmount: { type: Number, required: true },
@@ -78,7 +82,7 @@ const saleSchema = new Schema(
     grandTotal: { type: Number, required: true },
     toPay: { type: Number, required: true },
     payments: { type: [paymentSchema], default: [] },
-    paymentMode: { type: String, enum: [...SALE_PAY_MODES, 'SPLIT', 'NONE'], required: true },
+    paymentMode: { type: String, enum: [...STORED_MODES, 'SPLIT', 'NONE'], required: true },
     cashReceived: { type: Number },
     paidAmount: { type: Number, required: true },
     dueAmount: { type: Number, required: true, default: 0 },

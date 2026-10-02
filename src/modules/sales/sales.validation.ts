@@ -35,6 +35,8 @@ export const saleSchema = z
     rx: z.object({ doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional() }).strict().optional(),
     payments: z.array(z.object({ mode: z.enum(SALE_PAY_MODES, 'Choose cash, UPI or card'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
     cashReceived: paise('Cash received').optional(),
+    /** Billing a customer order: its advance comes off this bill. */
+    orderId: objectId.optional(),
     /** What the cashier saw; a different server total means stock or prices changed meanwhile (409). */
     expectedTotal: paise('Total').optional(),
   })

@@ -1,4 +1,4 @@
-// B4 billing checks: PLAN §14 bill, FEFO split, GST, discounts, typed price (D56), lowest price flag (D57), H1, cancel, return, isolation.
+// B4 billing checks: PLAN §14 bill, FEFO split, GST, discounts, typed price (D56), lowest price flag (D57), H1, cancel, return, orders, isolation.
 import { randomUUID } from 'node:crypto';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
@@ -315,6 +315,55 @@ async function main() {
   check('SALE_RETURN movements carry the return number', (await MovementModel.countDocuments({ shopId: shop1, type: 'SALE_RETURN', refNumber: /^SR-/ })) === 12);
   check('shop 2: return shop 1’s bill → 404', (await other.post('/sale-returns', ret(cbId, [{ line: 0, quantity: 1 }]))).status === 404);
   check('shop 2: shop 1 return → 404 · its PDF → 404 · list empty', (await other.get(`/sale-returns/${rt1.id}`)).status === 404 && (await other.get(`/sale-returns/${rt1.id}/pdf`)).status === 404 && data<unknown[]>(await other.get('/sale-returns')).length === 0);
+
+  section('12. Customer orders (PLAN §35.1)');
+  interface Ord { id: string; orderNumber: string; status: string; ready: boolean; billNumber: string | null; advanceUsed: number; advanceBack: number; items: { state: string; productId: string | null; qtyBase: number }[]; kept: unknown; refund: { amount: number; mode: string } | null }
+  // The server prices a bill; an expectedTotal of 0 makes it say the total (409) before anything is saved.
+  const quote = async (items: Record<string, unknown>[], over: Record<string, unknown> = {}) => (details(await owner.post('/sales', bill(items, { expectedTotal: 0, ...over }))).total as number | undefined) ?? -1;
+  const ob1 = { clientRequestId: randomUUID(), customer: { name: 'Ratna Sen', phone: '98300 12345' }, items: [{ productId: amox, qty: 2 }, { name: 'Nurokind Gold Capsule', qty: 1 }], advance: 10_000, advanceMode: 'CASH', note: 'Call after 5 pm' };
+  const or1 = await owner.post('/orders', ob1);
+  const o1 = data<{ id: string; orderNumber: string }>(or1);
+  check(`order with a ₹100 cash advance → ORD-${fy}-0001`, or1.status === 201 && o1.orderNumber === `ORD-${fy}-0001`, code(or1));
+  check('same clientRequestId → 200, same order', (await owner.post('/orders', ob1)).status === 200);
+  const g1 = data<Ord>(await owner.get(`/orders/${o1.id}`));
+  check('Augmentin 2 strips = 20 capsules · the typed name is “free” · not ready', g1.items[0]?.qtyBase === 20 && g1.items[1]?.state === 'free' && !g1.ready);
+  check('advance without how it was paid → 422', (await owner.post('/orders', { ...ob1, clientRequestId: randomUUID(), advanceMode: undefined })).status === 422);
+  check('a product of nowhere → 422 · no items → 422', (await owner.post('/orders', { ...ob1, clientRequestId: randomUUID(), items: [{ productId: am6, qty: 1 }] })).status === 422 && (await owner.post('/orders', { ...ob1, clientRequestId: randomUUID(), items: [] })).status === 422);
+  check('link the typed line to Dolo → 200', (await owner.post(`/orders/${o1.id}/link`, { index: 1, productId: dolo })).status === 200);
+  check('link it again → 409', (await owner.post(`/orders/${o1.id}/link`, { index: 1, productId: dolo })).status === 409);
+  check('now ready, and on the Ready tab', data<Ord>(await owner.get(`/orders/${o1.id}`)).ready && data<Ord[]>(await owner.get('/orders?status=ready')).some((x) => x.id === o1.id));
+  check('summary: 1 open, 1 ready, ₹100 advance held', JSON.stringify(data<unknown>(await owner.get('/orders/summary'))) === JSON.stringify({ open: 1, ready: 1, stale: 0, advanceHeld: 10_000 }));
+
+  const oitems = [{ productId: amox, quantity: 2, unit: 'STRIP' }, { productId: dolo, quantity: 1, unit: 'STRIP' }];
+  const ot = await quote(oitems);
+  check('paying the whole bill when ₹100 is already paid → 422', (await owner.post('/sales', bill(oitems, { orderId: o1.id, payments: cash(ot) }))).status === 422);
+  const obill = await owner.post('/sales', bill(oitems, { orderId: o1.id, payments: cash(ot - 10_000), expectedTotal: ot }));
+  const os1 = data<Saved & { advanceUsed: number; advanceBack: number }>(obill);
+  check(`bill the order: ${String(ot / 100)} less ₹100 advance, paid in cash`, obill.status === 201 && os1.advanceUsed === 10_000 && os1.advanceBack === 0, code(obill));
+  const osd = data<Sale & { payments: { mode: string; amount: number; reference: string }[]; orderNumber: string | null }>(await owner.get(`/sales/${os1.id}`));
+  check('the bill shows ADVANCE ₹100 against the order', osd.orderNumber === o1.orderNumber && osd.payments.some((p) => p.mode === 'ADVANCE' && p.amount === 10_000 && p.reference === o1.orderNumber) && osd.paymentMode === 'SPLIT');
+  const og = data<Ord>(await owner.get(`/orders/${o1.id}`));
+  check('order completed with the bill number', og.status === 'completed' && og.billNumber === os1.billNumber && og.advanceUsed === 10_000);
+  check('bill the same order again → 409', (await owner.post('/sales', bill(oitems, { orderId: o1.id, payments: cash(ot - 10_000) }))).status === 409);
+  check('a client can’t send ADVANCE itself → 422', (await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: [{ mode: 'ADVANCE', amount: 9200 }] }))).status === 422);
+
+  const o2 = data<{ id: string }>(await owner.post('/orders', { clientRequestId: randomUUID(), customer: { name: 'Big Advance' }, items: [{ productId: amox, qty: 1 }], advance: 50_000, advanceMode: 'UPI' }));
+  const t2 = await quote([{ productId: amox, quantity: 1, unit: 'STRIP' }]);
+  const b2 = data<Saved & { advanceUsed: number; advanceBack: number }>(await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { orderId: o2.id })));
+  check(`₹500 advance on a ₹${String(t2 / 100)} bill → nothing to pay, the rest back from the drawer`, t2 > 0 && b2.advanceUsed === t2 && b2.advanceBack === 50_000 - t2 && data<Ord>(await owner.get(`/orders/${o2.id}`)).advanceBack === 50_000 - t2, JSON.stringify(b2));
+
+  const o3 = data<{ id: string }>(await cashier.post('/orders', { clientRequestId: randomUUID(), customer: { name: 'Walk Away' }, items: [{ productId: dolo, qty: 1 }], advance: 5000, advanceMode: 'CASH' }));
+  check('cashier takes an order → 201', o3.id.length === 24);
+  check('cashier can’t keep the advance (Owner / Manager) → 403', (await cashier.post(`/orders/${o3.id}/cancel`, { reason: 'Never came', keepReason: 'Special order' })).status === 403);
+  const c3 = await cashier.post(`/orders/${o3.id}/cancel`, { reason: 'Customer bought elsewhere', refundMode: 'CASH' });
+  check('cashier cancels → ₹50 back in cash', c3.status === 200 && data<Ord>(await owner.get(`/orders/${o3.id}`)).refund?.amount === 5000, code(c3));
+  check('cancel again → 409 · bill a cancelled order → 409', (await cashier.post(`/orders/${o3.id}/cancel`, { reason: 'Again' })).status === 409 && (await owner.post('/sales', bill([{ productId: dolo, quantity: 1, unit: 'STRIP' }], { orderId: o3.id }))).status === 409);
+  const o4 = data<{ id: string }>(await owner.post('/orders', { clientRequestId: randomUUID(), customer: { name: 'Special Import' }, items: [{ name: 'Imported insulin pen', qty: 1 }], advance: 20_000, advanceMode: 'UPI' }));
+  check('owner keeps an advance with a reason', (await owner.post(`/orders/${o4.id}/cancel`, { reason: 'Never came', keepReason: 'Special import, told non-refundable' })).status === 200 && data<Ord>(await owner.get(`/orders/${o4.id}`)).kept !== null);
+  check('audit: order taken, billed against, cancelled', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: o1.orderNumber })) === 2 && (await AuditLogModel.countDocuments({ shopId: shop1, entityName: os1.billNumber, text: /order ORD-/ })) === 1);
+  check('accountant (no POS) → orders 403', (await accountant.get('/orders')).status === 403);
+  check('shop 2: shop 1 order → 404 · cancel → 404 · link → 404', (await other.get(`/orders/${o1.id}`)).status === 404 && (await other.post(`/orders/${o4.id}/cancel`, { reason: 'Hack attempt' })).status === 404 && (await other.post(`/orders/${o1.id}/link`, { index: 0, productId: dolo })).status === 404);
+  check('shop 2: bill shop 1 order → 404', (await other.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { orderId: o4.id }))).status === 404);
 
   await ledgerEqualsStock('end');
   await h.close();

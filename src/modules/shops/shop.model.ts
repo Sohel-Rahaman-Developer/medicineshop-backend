@@ -20,6 +20,8 @@ const settingsSchema = new Schema(
       maxDiscountPercent: { type: Number, default: 20 },
       enforceH1Prescription: { type: Boolean, default: true },
       saleReturnWindowDays: { type: Number, default: 7 },
+      // Cash in the drawer before the first day close (PLAN §35.3); later the last close's leftover.
+      openingFloat: { type: Number, default: 0 },
     },
     inventory: {
       defaultReorderLevel: { type: Number, default: 10 },
