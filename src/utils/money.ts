@@ -24,3 +24,26 @@ export function roundRupee(amount: number) {
   const total = rhu(amount, 100) * 100;
   return { total, roundOff: total - amount };
 }
+
+/** Sales are MRP-inclusive: taxable = amount × 100 / (100 + rate) half up, tax = the rest (PLAN §14). */
+export function gstInclusive(amount: number, rate: number) {
+  const taxable = rate ? rhu(amount * 100, 100 + rate) : amount;
+  const tax = amount - taxable;
+  const sgst = Math.floor(tax / 2);
+  return { amount, rate, taxable, tax, sgst, cgst: tax - sgst };
+}
+
+/** Splits a whole amount over weights exactly (largest remainder); the parts always add up to `total`. */
+export function distribute(total: number, weights: readonly number[]): number[] {
+  const sum = weights.reduce((s, w) => s + w, 0);
+  if (!sum || !total) return weights.map(() => 0);
+  const raw = weights.map((w) => (total * w) / sum);
+  const out = raw.map(Math.floor);
+  let left = total - out.reduce((s, v) => s + v, 0);
+  const order = raw.map((r, i) => ({ i, f: r - Math.floor(r) })).sort((a, b) => b.f - a.f || a.i - b.i);
+  for (let k = 0; left > 0; k++, left--) {
+    const at = order[k % order.length]?.i ?? 0;
+    out[at] = (out[at] ?? 0) + 1;
+  }
+  return out;
+}

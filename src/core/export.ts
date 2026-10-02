@@ -7,8 +7,8 @@ import { ShopModel } from '../modules/shops/shop.model';
 
 // DejaVu has the ₹ sign; PDFKit's built-in Helvetica does not.
 const fontDir = `${createRequire(__filename).resolve('dejavu-fonts-ttf/package.json').replace(/package\.json$/, '')}ttf/`;
-const FONT = `${fontDir}DejaVuSans.ttf`;
-const BOLD = `${fontDir}DejaVuSans-Bold.ttf`;
+export const FONT = `${fontDir}DejaVuSans.ttf`;
+export const BOLD = `${fontDir}DejaVuSans-Bold.ttf`;
 
 export interface Column<T> {
   label: string;

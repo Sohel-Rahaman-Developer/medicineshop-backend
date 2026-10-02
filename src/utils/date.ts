@@ -25,3 +25,9 @@ export function monthLabel(at: Date): string {
   const [y = '', m = '1'] = istMonth(at).split('-');
   return `${MONTHS[Number(m) - 1] ?? ''} ${y}`;
 }
+
+/** The IST calendar day of an instant, as "YYYY-MM-DD". */
+export function istIsoDay(at: Date): string {
+  const ist = new Date(at.getTime() + IST_OFFSET_MS);
+  return `${String(ist.getUTCFullYear())}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+}

@@ -20,6 +20,7 @@ import { staffRouter } from './modules/staff/staff.routes';
 import { stockRouter } from './modules/stock/stock.routes';
 import { demandsRouter } from './modules/demands/demands.routes';
 import { purchasesRouter, returnsRouter } from './modules/purchases/purchases.routes';
+import { posRouter, salesRouter } from './modules/sales/sales.routes';
 import { searchRouter } from './modules/search/search.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
@@ -98,6 +99,8 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/purchase-returns`, returnsRouter);
   app.use(`${env.API_PREFIX}/demands`, demandsRouter);
   app.use(`${env.API_PREFIX}/search`, searchRouter);
+  app.use(`${env.API_PREFIX}/pos`, posRouter);
+  app.use(`${env.API_PREFIX}/sales`, salesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
