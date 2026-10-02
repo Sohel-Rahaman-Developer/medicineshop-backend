@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { monthEndIST } from '../../utils/date';
+import { monthEnd } from '../../core/zod';
 import { GSTIN_RE, PAN_RE, PINCODE_RE, STATES, isMobile, normalizePhone } from '../../utils/india';
 
 const text = (label: string, max = 120) => z.string().trim().min(1, `${label} is required`).max(max);
@@ -26,14 +26,6 @@ const upper = (re: RegExp, message: string) =>
     .optional()
     .transform((v) => v || undefined)
     .refine((v) => v === undefined || re.test(v), message);
-
-const monthEnd = z
-  .string()
-  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use month and year, like 03/2031')
-  .transform((v) => {
-    const [y = 0, m = 0] = v.split('-').map(Number);
-    return monthEndIST(y, m);
-  });
 
 const address = z
   .object({

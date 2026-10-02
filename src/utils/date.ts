@@ -10,3 +10,11 @@ export function istMonth(at: Date): string {
   const ist = new Date(at.getTime() + IST_OFFSET_MS);
   return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Dec 2026" in IST, for messages. */
+export function monthLabel(at: Date): string {
+  const [y = '', m = '1'] = istMonth(at).split('-');
+  return `${MONTHS[Number(m) - 1] ?? ''} ${y}`;
+}

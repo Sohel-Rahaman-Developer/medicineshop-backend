@@ -9,10 +9,14 @@ import { csrfProtection } from './core/middleware/csrf';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
+import { categoriesRouter } from './modules/categories/categories.routes';
 import { invitationsRouter } from './modules/memberships/invitations.routes';
+import { productsRouter } from './modules/products/products.routes';
+import { racksRouter } from './modules/racks/racks.routes';
 import { rolesRouter } from './modules/roles/roles.routes';
 import { shopRouter, shopsRouter } from './modules/shops/shops.routes';
 import { staffRouter } from './modules/staff/staff.routes';
+import { stockRouter } from './modules/stock/stock.routes';
 
 export function createApp() {
   const app = express();
@@ -70,7 +74,10 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/invitations`, invitationsRouter);
   app.use(`${env.API_PREFIX}/staff`, staffRouter);
   app.use(`${env.API_PREFIX}/roles`, rolesRouter);
-
+  app.use(`${env.API_PREFIX}/categories`, categoriesRouter);
+  app.use(`${env.API_PREFIX}/racks`, racksRouter);
+  app.use(`${env.API_PREFIX}/products`, productsRouter);
+  app.use(`${env.API_PREFIX}/stock`, stockRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

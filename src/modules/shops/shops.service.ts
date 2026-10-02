@@ -5,6 +5,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { versionOf } from '../../core/version';
 import { STATES, stateCodeOf } from '../../utils/india';
 import { audit } from '../audit/audit.model';
+import { seedSystemCategories } from '../categories/category.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS } from '../rbac/permissions';
 import { RoleModel } from '../roles/role.model';
@@ -90,6 +91,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
         [{ shopId, planCode: 'trial', status: 'trial', startDate: now, endDate: new Date(now.getTime() + env.TRIAL_DAYS * DAY), maxUsers: env.TRIAL_MAX_USERS }],
         { session },
       );
+      await seedSystemCategories(shopId, session);
       await TermsAcceptanceModel.create(
         [{ shopId, version: env.TERMS_VERSION, userId: uid, userName: owner.name, ip: ctx.ip, userAgent: ctx.userAgent }],
         { session },
