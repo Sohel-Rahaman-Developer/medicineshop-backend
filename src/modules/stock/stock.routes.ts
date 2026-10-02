@@ -15,6 +15,7 @@ import * as svc from './stock.service';
 import {
   adjustmentSchema,
   blockSchema,
+  minPriceSchema,
   cursorQuerySchema,
   expiryQuerySchema,
   idsQuerySchema,
@@ -43,6 +44,16 @@ stockRouter.post(
     const msg = result.how === 'merged' ? `Added to batch ${result.batchNumber}` : `Batch ${result.batchNumber} added`;
     if (replayed) sent(res, result, msg);
     else created(res, result, msg);
+  }),
+);
+
+stockRouter.patch(
+  '/batches/:id/min-price',
+  requirePermission('products', 'edit'),
+  validate({ params: idParams, body: minPriceSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { minPrice } = req.body as { minPrice: number | null };
+    sent(res, await svc.setMinPrice(tenantOf(req), await actorOf(req), idOf(req), minPrice, req.ip), minPrice === null ? 'Lowest price removed' : 'Lowest price saved');
   }),
 );
 
@@ -152,6 +163,14 @@ stockRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { summary, items, meta } = await svc.expiry(tenantOf(req), req.query as unknown as ExpiryQuery);
     fetched(res, { summary, items }, meta);
+  }),
+);
+
+stockRouter.get(
+  '/expiry/aging',
+  view,
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await svc.expiryAging(tenantOf(req)));
   }),
 );
 

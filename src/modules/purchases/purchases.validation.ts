@@ -8,12 +8,14 @@ import { PAY_MODES, RETURN_REASONS } from './purchase.model';
 const whole = (label: string, min: number, max = 1_000_000) =>
   z.number(`${label} must be a number`).int(`${label} must be a whole number`).min(min, min ? `${label} must be at least ${min}` : `${label} can’t be negative`).max(max, `${label} is too large`);
 const batchNumber = z.string().trim().min(1, 'Batch number is required').max(20, 'Batch number is at most 20 characters').regex(/^[A-Za-z0-9/-]+$/, 'Use letters, numbers, / and -');
+/** Empty only for a non-medicine: the service gives it the day's lot (D59). */
+const batchOrBlank = z.union([batchNumber, z.literal('')]).default('');
 
 export const purchaseLineSchema = z
   .object({
     productId: objectId,
-    batchNumber,
-    expiry: monthEnd,
+    batchNumber: batchOrBlank,
+    expiry: monthEnd.optional(),
     mfg: monthEnd.optional(),
     quantity: whole('Quantity', 1),
     freeQuantity: whole('Free quantity', 0).default(0),
@@ -23,12 +25,13 @@ export const purchaseLineSchema = z
     discountPercent: z.number('Discount must be a number').min(0, 'Discount can’t be negative').max(100, 'Discount is at most 100 %').multipleOf(0.01, 'Discount has at most 2 decimals').default(0),
     /** Paise per sale unit. */
     mrp: paise('MRP').min(1, 'MRP is required'),
-    gstRate: z.union(GST_RATES.map((r) => z.literal(r)), 'GST must be 0, 5, 12, 18 or 28'),
+    minPrice: paise('Lowest price').nullable().optional(),
+    gstRate: z.union(GST_RATES.map((r) => z.literal(r)), 'GST must be 0, 5, 12, 18, 28 or 40'),
     rack: rackCode.default(''),
     mrpChoice: z.enum(['merge', 'separate']).optional(),
   })
   .strict()
-  .refine((v) => !v.mfg || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] });
+  .refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] });
 
 export const purchaseSchema = z
   .object({

@@ -250,3 +250,13 @@ export async function pay(t: TenantContext, actor: Actor, id: string, input: Pay
     return out;
   });
 }
+
+/** Every invoice with money still due, oldest first — the order a payment is spread in. */
+export async function openInvoices(t: TenantContext, id: string) {
+  const s = await load(t, id);
+  const rows = await PurchaseModel.find({ shopId: t.shopId, supplierId: s._id, status: 'active', dueAmount: { $gt: 0 } })
+    .sort({ invoiceDate: 1, _id: 1 })
+    .select('purchaseNumber invoiceNumber invoiceDate dueDate grandTotal dueAmount')
+    .lean();
+  return rows.map((p) => ({ id: String(p._id), purchaseNumber: p.purchaseNumber, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, dueDate: p.dueDate, grandTotal: p.grandTotal, dueAmount: p.dueAmount }));
+}

@@ -5,7 +5,7 @@ import { STORAGE_TYPES } from '../racks/rack.model';
 import { NO_EXPIRY } from '../stock/stock.domain';
 
 export const SCHEDULE_TYPES = ['OTC', 'H', 'H1', 'X', 'NON_DRUG'] as const;
-export const GST_RATES = [0, 5, 12, 18, 28] as const;
+export const GST_RATES = [0, 5, 12, 18, 28, 40] as const;
 
 // Rollup of the product's batches (PLAN §21.4). Rewritten in the same transaction as every movement.
 const stockSchema = new Schema(
@@ -53,6 +53,8 @@ const productSchema = new Schema(
       allowLooseSale: { type: Boolean, required: true, default: false },
     },
     packSize: { type: String, trim: true, default: '' },
+    /** D59: BP machines, thermometers — batches carry NO_EXPIRY. Fixed once stock exists. */
+    noExpiry: { type: Boolean, required: true, default: false },
     defaultRack: { type: String, uppercase: true, trim: true, default: '' },
     reorderLevel: { type: Number, required: true, default: 0 },
     reorderQuantity: { type: Number, required: true, default: 0 },

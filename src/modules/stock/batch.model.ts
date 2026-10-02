@@ -12,6 +12,8 @@ const batchSchema = new Schema(
     mfgDate: { type: Date },
     /** Paise per sale unit — the price printed on the pack. */
     mrp: { type: Number, required: true },
+    /** D57: optional lowest sale price, paise per sale unit — information only, billing flags a sale under it. */
+    minPrice: { type: Number },
     /** Paise per purchaseUnit, before GST. */
     purchaseRate: { type: Number, required: true },
     purchaseUnit: { type: String, required: true },

@@ -94,6 +94,15 @@ suppliersRouter.get(
 );
 
 suppliersRouter.get(
+  '/:id/open-invoices',
+  view,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await svc.openInvoices(tenantOf(req), idOf(req)));
+  }),
+);
+
+suppliersRouter.get(
   '/:id/products',
   view,
   validate({ params: idParams }),

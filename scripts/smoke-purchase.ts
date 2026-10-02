@@ -184,6 +184,8 @@ async function main() {
   check('older invoice untouched', data<Purchase>(await owner.get(`/purchases/${p1.id}`)).paidAmount === 0);
   check('balance went up by total − paid', data<Supplier>(await owner.get(`/suppliers/${sharma}`)).payableBalance === before + p5.grandTotal - 50_000);
   const pay = (amount: number, over: Record<string, unknown> = {}) => owner.post(`/suppliers/${sharma}/payments`, { clientRequestId: randomUUID(), amount, mode: 'NEFT', reference: 'UTR9', ...over });
+  const openInv = data<{ id: string; dueAmount: number }[]>(await owner.get(`/suppliers/${sharma}/open-invoices`));
+  check('open invoices: oldest first, dues add up to the balance', openInv[0]?.id === p1.id && openInv.reduce((a, x) => a + x.dueAmount, 0) === data<Supplier>(await owner.get(`/suppliers/${sharma}`)).payableBalance);
   const pr = await pay(300_000);
   const pd = data<{ applied: { purchaseId: string; amount: number }[]; advanceAdded: number }>(pr);
   check('₹3,000 paid → oldest invoice first (PUR-0001 fully), then the next', pr.status === 201 && pd.applied[0]?.purchaseId === p1.id && pd.applied[0].amount === 223_300 && pd.applied.length >= 2, code(pr));
@@ -404,6 +406,82 @@ async function main() {
   const items = (await Promise.all(['d30', 'd60', 'd90'].map(async (b) => data<{ items: { batchNumber: string; supplierName: string | null; source: string }[] }>(await owner.get(`/stock/expiry?bucket=${b}`)).items))).flat();
   check('expiring purchase batch names its supplier', items.find((i) => i.batchNumber === 'SOON1')?.supplierName === 'Sharma Distributors', JSON.stringify(items));
   check('expiring opening batch has no supplier', items.find((i) => i.batchNumber === 'OPEN1')?.supplierName === null);
+
+  const aging = data<{ months: string[]; basis: string; series: { name: string; data: number[] }[] }>(await owner.get('/stock/expiry/aging'));
+  const soonValue = (await BatchModel.find({ shopId: shop1, batchNumber: { $in: ['SOON1', 'OPEN1'] } }).lean()).reduce((a, b) => a + b.quantity * b.costPerBaseUnit, 0);
+  const soonIdx = aging.months.indexOf(soon);
+  check('expiry aging: 6 months, the expiring Pan batches counted at cost in their month', aging.months.length === 6 && aging.basis === 'cost' && soonIdx > 0 && aging.series.reduce((a, s) => a + (s.data[soonIdx] ?? 0), 0) >= soonValue && soonValue > 0, JSON.stringify(aging));
+  check('cashier aging is at MRP', data<{ basis: string }>(await cashier.get('/stock/expiry/aging')).basis === 'mrp');
+  section('15. Not only medicines: no-expiry devices, lots for non-medicines, lowest price (D57, D59)');
+  const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
+  const cats = data<{ id: string; name: string }[]>(await owner.get('/categories'));
+  check('new shops get Chocolate & snacks, Drinks, Baby care, Personal care, Nutrition', ['Chocolate & snacks', 'Drinks', 'Baby care', 'Personal care', 'Nutrition'].every((n) => cats.some((c) => c.name === n)));
+  const catOf = (n: string) => cats.find((c) => c.name === n)?.id ?? '';
+  const piece = { type: 'COUNT', base: 'PIECE', sale: 'PIECE', salePack: 1, purchase: 'BOX', purchasePack: 10, allowLooseSale: false };
+  const bp = await mk(owner, 'Omron BP Monitor', piece, { company: 'Omron', categoryId: catOf('Device'), scheduleType: 'NON_DRUG', hsnCode: '9018', gstRate: 18, defaultRack: 'ST-B-2', noExpiry: true, reorderLevel: 1, reorderQuantity: 2 });
+  const bar = { type: 'COUNT', base: 'BAR', sale: 'BAR', salePack: 1, purchase: 'BOX', purchasePack: 24, allowLooseSale: false };
+  const silk = await mk(owner, 'Dairy Milk Silk 60 g', bar, { company: 'Mondelez', categoryId: catOf('Chocolate & snacks'), scheduleType: 'NON_DRUG', hsnCode: '1806', gstRate: 5, defaultRack: 'CS-4', reorderLevel: 5, reorderQuantity: 24 });
+  const can = { type: 'COUNT', base: 'CAN', sale: 'CAN', salePack: 1, purchase: 'CASE', purchasePack: 24, allowLooseSale: false };
+  const bull = await mk(owner, 'Red Bull 250 ml', can, { company: 'Red Bull', categoryId: catOf('Drinks'), scheduleType: 'NON_DRUG', hsnCode: '2202', gstRate: 40, defaultRack: 'CS-5', reorderLevel: 6, reorderQuantity: 24 });
+  check('device, chocolate (BAR) and drink (CAN by the CASE, 40 % GST) are products', Boolean(bp && silk && bull));
+  check('device detail says noExpiry', data<{ noExpiry: boolean }>(await owner.get(`/products/${bp}`)).noExpiry);
+  const lineInfo = data<{ product: { noExpiry: boolean; scheduleType: string } }>(await owner.get(`/purchases/line-info?productId=${bp}`));
+  check('purchase line info tells the screen: no expiry, non-drug', lineInfo.product.noExpiry && lineInfo.product.scheduleType === 'NON_DRUG', JSON.stringify(lineInfo.product));
+  const invDay = isoDay(-2);
+  const lot = `LOT-${invDay.slice(2).replace(/-/g, '')}`;
+  const nx = await owner.post(
+    '/purchases',
+    purchase({
+      invoiceNumber: 'NX/1',
+      invoiceDate: invDay,
+      lines: [
+        { productId: bp, batchNumber: '', quantity: 2, freeQuantity: 0, unit: 'PIECE', rate: 150_000, discountPercent: 0, mrp: 249_000, gstRate: 18, rack: '' },
+        { productId: silk, batchNumber: '', expiry: '2027-03', quantity: 1, freeQuantity: 0, unit: 'BOX', rate: 160_000, discountPercent: 0, mrp: 9000, minPrice: 8000, gstRate: 5, rack: '' },
+        { productId: bull, batchNumber: 'RB77', expiry: '2027-01', quantity: 1, freeQuantity: 0, unit: 'CASE', rate: 210_000, discountPercent: 0, mrp: 12_500, gstRate: 40, rack: '' },
+      ],
+    }),
+  );
+  check('device without batch or expiry, chocolate without batch → 201', nx.status === 201, code(nx));
+  const bpBatch = await BatchModel.findOne({ shopId: shop1, productId: bp }).lean();
+  check(`device batch is ${lot}, stored with the far-future date`, bpBatch?.batchNumber === lot && bpBatch.expiryDate.getUTCFullYear() === 9999, String(bpBatch?.batchNumber));
+  const silkBatch = await BatchModel.findOne({ shopId: shop1, productId: silk }).lean();
+  check('chocolate got the same day lot, its own expiry and the lowest price', silkBatch?.batchNumber === lot && silkBatch.expiryDate.getUTCFullYear() === 2027 && silkBatch.minPrice === 8000);
+  check('drink bought by the case: 24 cans on the shelf', (await BatchModel.findOne({ shopId: shop1, productId: bull }).lean())?.quantity === 24);
+  const nxd = data<{ lines: { productName: string; expiryDate: string | null }[] }>(await owner.get(`/purchases/${data<Saved>(nx).id}`));
+  check('API sends the device expiry as null, never 9999', nxd.lines.find((l) => l.productName === 'Omron BP Monitor')?.expiryDate === null && !JSON.stringify(nxd).includes('9999'), JSON.stringify(nxd.lines));
+  const bpb = data<{ id: string; expiryDate: string | null; daysLeft: number | null; bucket: string }[]>(await owner.get(`/products/${bp}/batches`));
+  check('device batch: expiry null, days left null, sellable', bpb[0]?.expiryDate === null && bpb[0].daysLeft === null && bpb[0].bucket === 'sellable', JSON.stringify(bpb));
+  const bpp = data<{ stock: { sellable: number; nextExpiry: string | null } }>(await owner.get(`/products/${bp}`));
+  check('device stock 2, next expiry null', bpp.stock.sellable === 2 && bpp.stock.nextExpiry === null, JSON.stringify(bpp.stock));
+  check('purchase PDF prints a device line', (await owner.get(`/purchases/${data<Saved>(nx).id}/pdf`)).status === 200);
+  const v2 = async (l: Record<string, unknown>) => owner.post('/purchases', purchase({ invoiceNumber: `NX-${randomUUID().slice(0, 6)}`, lines: [{ quantity: 1, freeQuantity: 0, discountPercent: 0, rack: '', ...l }] }));
+  const noExp = await v2({ productId: silk, batchNumber: 'S1', unit: 'BAR', rate: 7000, mrp: 9000, gstRate: 5 });
+  check('chocolate without expiry → 422 on the line (it does expire)', noExp.status === 422 && JSON.stringify(noExp.json).includes('body.lines.0'), code(noExp));
+  const noBatch = await v2({ productId: dolo, batchNumber: '', expiry: '2028-01', unit: 'STRIP', rate: 2340, mrp: 3350, gstRate: 12 });
+  check('medicine without batch number → 422 (only non-medicines get a lot)', noBatch.status === 422 && JSON.stringify(noBatch.json).toLowerCase().includes('batch number is required'), code(noBatch));
+  const op = await owner.post('/stock/opening', { clientRequestId: randomUUID(), productId: bp, batchNumber: '', quantity: 1, mrp: 249_000, purchaseRate: 150_000, rack: '' });
+  check('opening stock of a device without batch or expiry → saved', op.status === 201, code(op));
+  check('opening of a medicine still needs expiry → 422', (await owner.post('/stock/opening', { clientRequestId: randomUUID(), productId: dolo, batchNumber: 'X9', quantity: 15, mrp: 3350, purchaseRate: 2340, rack: '' })).status === 422);
+  const exAll = (await Promise.all(['expired', 'd30', 'd60', 'd90'].map(async (b) => data<{ items: { productName: string }[] }>(await owner.get(`/stock/expiry?bucket=${b}`)).items))).flat();
+  check('expiry centre never lists the device', !exAll.some((i) => i.productName === 'Omron BP Monitor'));
+  check('“expiring” product filter leaves the device out', !data<{ name: string }[]>(await owner.get('/products?expiring=true')).some((i) => i.name === 'Omron BP Monitor'));
+  const editBody = { name: 'Omron BP Monitor', company: 'Omron', salt: '', strength: '', categoryId: catOf('Device'), scheduleType: 'NON_DRUG', storageType: 'NORMAL', hsnCode: '9018', gstRate: 18, units: piece, packSize: '', defaultRack: 'ST-B-2', reorderLevel: 1, reorderQuantity: 2 };
+  const flip = await owner.put(`/products/${bp}`, { ...editBody, noExpiry: false, version: data<{ version: number }>(await owner.get(`/products/${bp}`)).version });
+  check('“Has an expiry date” locked once stock exists → 409', flip.status === 409, code(flip));
+  const fresh = await mk(owner, 'Dr Trust Thermometer', piece, { categoryId: catOf('Device'), scheduleType: 'NON_DRUG', hsnCode: '9025', gstRate: 18, noExpiry: true });
+  const fv = data<{ version: number }>(await owner.get(`/products/${fresh}`)).version;
+  check('…but free to change before any stock', (await owner.put(`/products/${fresh}`, { ...editBody, name: 'Dr Trust Thermometer', noExpiry: false, version: fv })).status === 200);
+
+  const silkB = data<{ id: string; minPrice: number | null }[]>(await owner.get(`/products/${silk}/batches`))[0];
+  const sid = silkB?.id ?? '';
+  check('lowest price from the purchase line is on the batch (₹80 a bar)', silkB?.minPrice === 8000, JSON.stringify(silkB));
+  const mp = await owner.patch(`/stock/batches/${sid}/min-price`, { minPrice: 8500 });
+  check('owner sets the lowest price → 200, audited', mp.status === 200 && (await AuditLogModel.exists({ shopId: shop1, text: /lowest price of Dairy Milk Silk 60 g/ })) !== null, code(mp));
+  check('cashier can’t change it → 403', (await cashier.patch(`/stock/batches/${sid}/min-price`, { minPrice: 100 })).status === 403);
+  check('negative or rupees → 422', (await owner.patch(`/stock/batches/${sid}/min-price`, { minPrice: -1 })).status === 422 && (await owner.patch(`/stock/batches/${sid}/min-price`, { minPrice: 80.5 })).status === 422);
+  check('null removes it', (await owner.patch(`/stock/batches/${sid}/min-price`, { minPrice: null })).status === 200 && (await BatchModel.findOne({ shopId: shop1, _id: sid }).lean())?.minPrice === undefined);
+  check('shop 2 can’t touch shop 1’s batch → 404', (await other.patch(`/stock/batches/${sid}/min-price`, { minPrice: 100 })).status === 404);
+  check('line info carries the last lowest price (removed → null)', data<{ lastMinPrice: number | null }>(await owner.get(`/purchases/line-info?productId=${silk}`)).lastMinPrice === null);
 
   await books('end');
   await ledgerEqualsStock('end');

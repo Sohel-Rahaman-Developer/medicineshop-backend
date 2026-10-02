@@ -12,7 +12,7 @@ import { can } from '../rbac/permissions';
 import { PurchaseModel } from '../purchases/purchase.model';
 import { BatchModel } from '../stock/batch.model';
 import { MovementModel } from '../stock/movement.model';
-import { bucketOf, daysLeft, fefo, type BatchLike } from '../stock/stock.domain';
+import { type BatchLike, bucketOf, daysLeftOut, fefo } from '../stock/stock.domain';
 import { ensureRack, refreshRollups, refreshStale } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { photoUrl, processPhoto } from './photo';
@@ -71,6 +71,7 @@ function detailShape(p: Lean, category: string, cost: boolean) {
     barcode: p.barcode ?? '',
     units: unitsOut(p.units as Units),
     packSize: p.packSize,
+    noExpiry: p.noExpiry,
     defaultRack: p.defaultRack,
     reorderLevel: p.reorderLevel,
     reorderQuantity: p.reorderQuantity,
@@ -221,10 +222,11 @@ export async function batchesOf(t: TenantContext, id: string) {
       id: String(b._id),
       batchNumber: b.batchNumber,
       expiryDate: b.expiryDate,
-      daysLeft: daysLeft(b.expiryDate, now),
+      daysLeft: daysLeftOut(b.expiryDate, now),
       quantity: b.quantity,
       mrp: b.mrp,
       mrpValue: amountFor(b.mrp, b.quantity, pack),
+      minPrice: b.minPrice ?? null,
       rack: b.rack,
       bucket: bucketOf(b, now),
       sellsNext: String(b._id) === next,
@@ -319,6 +321,7 @@ function masterFields(input: CreateProductInput) {
     barcode: input.barcode || undefined,
     units: toUnits(input.units),
     packSize: input.packSize,
+    noExpiry: input.noExpiry,
     defaultRack: input.defaultRack,
     reorderLevel: input.reorderLevel,
     reorderQuantity: input.reorderQuantity,
@@ -350,8 +353,12 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   await assertCategory(t, input.categoryId);
   const before = unitsOut(doc.units as Units);
   const after = unitsOut(toUnits(input.units));
-  if (LOCKED.some((k) => before[k] !== after[k]) && (await BatchModel.exists({ shopId: t.shopId, productId: doc._id }))) {
+  const hasStock = async () => Boolean(await BatchModel.exists({ shopId: t.shopId, productId: doc._id }));
+  if (LOCKED.some((k) => before[k] !== after[k]) && (await hasStock())) {
     throw AppError.conflict('Units can’t change once stock is added: the base unit, sale unit and pack size are fixed now.');
+  }
+  if (doc.noExpiry !== input.noExpiry && (await hasStock())) {
+    throw AppError.conflict('“Has an expiry date” can’t change once stock is added.');
   }
   const photo = input.photo === undefined ? undefined : input.photo === null ? null : { ...(await processPhoto(input.photo)), updatedAt: new Date() };
   await inTransaction(async (session) => {

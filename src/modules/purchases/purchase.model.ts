@@ -32,6 +32,7 @@ const lineSchema = new Schema(
     igst: { type: Number, required: true, default: 0 },
     totalAmount: { type: Number, required: true },
     mrp: { type: Number, required: true },
+    minPrice: { type: Number },
     landingPerUnit: { type: Number, required: true },
     costPerBaseUnit: { type: Number, required: true },
     rack: { type: String, default: '' },

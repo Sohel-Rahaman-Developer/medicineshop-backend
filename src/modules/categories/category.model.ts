@@ -1,7 +1,7 @@
 import { Schema, model, type ClientSession, type Types } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
-export const SYSTEM_CATEGORIES = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Powder', 'Surgical', 'FMCG', 'Ayurvedic', 'Device'];
+export const SYSTEM_CATEGORIES = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Powder', 'Surgical', 'FMCG', 'Ayurvedic', 'Device', 'Chocolate & snacks', 'Drinks', 'Baby care', 'Personal care', 'Nutrition'];
 
 /** "eye drops", "Eye-Drop" and "EYE DROPS " are one category (PLAN §35.9). */
 export const categoryKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '').replace(/s$/, '');

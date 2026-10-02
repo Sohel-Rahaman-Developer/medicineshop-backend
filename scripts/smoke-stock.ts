@@ -42,7 +42,7 @@ async function main() {
 
   section('1. Categories');
   const cats = data<Category[]>(await owner.get('/categories'));
-  check('11 built-in categories on a new shop', cats.length === 11 && cats.every((c) => c.isSystem));
+  check('16 built-in categories on a new shop (medicines and everyday items, D59)', cats.length === 16 && cats.every((c) => c.isSystem));
   const tablet = cats.find((c) => c.name === 'Tablet')?.id ?? '';
   const eye = await owner.post('/categories', { name: 'Eye drops' });
   check('add “Eye drops” → 201', eye.status === 201, code(eye));

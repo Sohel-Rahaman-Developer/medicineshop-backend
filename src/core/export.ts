@@ -125,11 +125,13 @@ const IST = 5.5 * 60 * 60 * 1000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** 02 Oct 2026, by the IST calendar. */
 export function day(at: Date) {
+  if (at.getUTCFullYear() >= 9999) return '—';
   const d = new Date(at.getTime() + IST);
   return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()] ?? ''} ${String(d.getUTCFullYear())}`;
 }
 /** 08/27 — pack expiry. */
 export function mmyy(at: Date) {
+  if (at.getUTCFullYear() >= 9999) return '—';
   const d = new Date(at.getTime() + IST);
   return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
 }

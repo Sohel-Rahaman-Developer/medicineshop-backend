@@ -4,11 +4,12 @@ import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
-import { monthLabel } from '../../utils/date';
+import { istMonth, istYmd, monthEndIST, monthLabel } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
 import { amountFor, inr, rhu } from '../../utils/money';
 import { fromBase, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
+import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { photoUrl } from '../products/photo';
@@ -24,7 +25,7 @@ import { SupplierModel } from '../suppliers/supplier.model';
 import { AdjustmentModel, type AdjustmentType } from './adjustment.model';
 import { BatchModel } from './batch.model';
 import { MovementModel, type MovementType } from './movement.model';
-import { bucketOf, daysLeft, expiryRange, mergedCost, suggestReorder, type ExpiryBucket } from './stock.domain';
+import { bucketOf, daysLeftOut, type ExpiryBucket, expiryRange, lotOf, mergedCost, suggestReorder } from './stock.domain';
 import { applyMove, ensureRack, refreshRollups, refreshStale } from './stock.ledger';
 import type { AdjustmentInput, ExpiryQuery, MovementsQuery, OpeningInput } from './stock.validation';
 
@@ -53,6 +54,7 @@ export interface Receive {
   mfg?: Date;
   quantity: number;
   mrp: number;
+  minPrice?: number | null;
   purchaseRate: number;
   rack: string;
   mrpChoice?: 'merge' | 'separate';
@@ -113,6 +115,7 @@ export async function receiveBatch(shopId: Types.ObjectId, p: ProductForStock, i
       mrp: input.mrp,
       initialQuantity: same.initialQuantity + src.quantity,
       freeQuantity: same.freeQuantity + src.freeQuantity,
+      ...(input.minPrice != null ? { minPrice: input.minPrice } : {}),
     });
     await same.save({ session });
     batchId = same._id;
@@ -135,6 +138,7 @@ export async function receiveBatch(shopId: Types.ObjectId, p: ProductForStock, i
           expiryDate: input.expiry,
           mfgDate: input.mfg,
           mrp: input.mrp,
+          minPrice: input.minPrice ?? undefined,
           purchaseRate: src.purchaseRate,
           purchaseUnit: src.purchaseUnit,
           salePack: pack,
@@ -174,7 +178,9 @@ export async function addOpening(t: TenantContext, actor: Actor, input: OpeningI
     if (!p) throw AppError.notFound('Product not found');
     if (!p.isActive) throw AppError.conflict(`${p.name} is deactivated. Reactivate it first.`);
     const now = new Date();
-    const out = await receiveOpening(t.shopId, p, input, actor, session, now);
+    const lot = lotOf(p, input.batchNumber, input.expiry, istYmd(now));
+    if ('field' in lot) throw AppError.validation(lot.message, [{ field: `body.${lot.field}`, message: lot.message }]);
+    const out = await receiveOpening(t.shopId, p, { ...input, ...lot }, actor, session, now);
     await refreshRollups(t.shopId, [p._id], session, now);
     await audit(
       { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityId: out.batchId, entityName: `${p.name} · ${out.batchNumber}`, text: `${actor.name} added opening stock: ${fromBase(input.quantity, p.units as Units)} of ${p.name}, batch ${out.batchNumber}`, ip },
@@ -182,6 +188,19 @@ export async function addOpening(t: TenantContext, actor: Actor, input: OpeningI
     );
     return out;
   });
+}
+
+export async function setMinPrice(t: TenantContext, actor: Actor, batchId: string, minPrice: number | null, ip?: string) {
+  const b = await BatchModel.findOne({ shopId: t.shopId, _id: oid(batchId) });
+  if (!b) throw AppError.notFound('Batch not found');
+  const p = await ProductModel.findOne({ shopId: t.shopId, _id: b.productId }).select('name units').lean();
+  const was = b.minPrice ?? null;
+  if (was === minPrice) return { minPrice };
+  b.set('minPrice', minPrice ?? undefined);
+  await b.save();
+  const per = (p?.units as Units | undefined)?.sale.toLowerCase() ?? 'unit';
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'stock', entityId: batchId, entityName: b.batchNumber, text: `${actor.name} set the lowest price of ${p?.name ?? ''} ${b.batchNumber}: ${was === null ? 'none' : inr(was)} → ${minPrice === null ? 'none' : inr(minPrice)} per ${per}`, ip });
+  return { minPrice };
 }
 
 export async function setBlocked(t: TenantContext, actor: Actor, batchId: string, block: boolean, reason: string, ip?: string) {
@@ -460,7 +479,7 @@ export async function expiry(t: TenantContext, q: ExpiryQuery) {
         units: unitsBrief(p?.units),
         batchNumber: b.batchNumber,
         expiryDate: b.expiryDate,
-        daysLeft: daysLeft(b.expiryDate, now),
+        daysLeft: daysLeftOut(b.expiryDate, now),
         quantity: b.quantity,
         rack: b.rack,
         source: b.source,
@@ -564,4 +583,37 @@ export async function lastPurchases(shopId: Types.ObjectId, productIds: Types.Ob
     { $group: { _id: '$lines.productId', supplierId: { $first: '$supplierId' }, supplierName: { $first: '$supplierName' }, rate: { $first: '$lines.rate' }, unit: { $first: '$lines.unit' }, at: { $first: '$invoiceDate' } } },
   ]);
   return new Map(rows.map((r) => [String(r._id), r]));
+}
+
+const AGING_GROUPS: [RegExp, string][] = [
+  [/tablet|capsule/i, 'Tablets & capsules'],
+  [/syrup/i, 'Syrups'],
+  [/injection/i, 'Injections'],
+  [/ointment|drop|cream|gel/i, 'Topicals & drops'],
+];
+
+/** Next 6 months of expiring value by category group (sandbox analytics.expiryAging); expired stock counts in this month. */
+export async function expiryAging(t: TenantContext, months = 6) {
+  const now = new Date();
+  const cost = seesCost(t);
+  const [y = 0, m = 1] = istMonth(now).split('-').map(Number);
+  const labels = Array.from({ length: months }, (_, i) => istMonth(monthEndIST(y, m + i)));
+  const end = monthEndIST(y, m + months - 1);
+  const rows = await BatchModel.find({ shopId: t.shopId, status: 'active', quantity: { $gt: 0 }, expiryDate: { $lte: end } })
+    .select('productId expiryDate quantity costPerBaseUnit mrp salePack')
+    .limit(20_000)
+    .lean();
+  const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: [...new Set(rows.map((b) => String(b.productId)))].map(oid) } }).select('categoryId').lean();
+  const cats = await CategoryModel.find({ shopId: t.shopId }).select('name').lean();
+  const catName = new Map(cats.map((c) => [String(c._id), c.name]));
+  const groupOf = new Map(products.map((p) => [String(p._id), AGING_GROUPS.find(([re]) => re.test(catName.get(String(p.categoryId)) ?? ''))?.[1] ?? 'Other']));
+  const series = new Map<string, number[]>();
+  for (const b of rows) {
+    const i = Math.max(0, labels.indexOf(istMonth(b.expiryDate)));
+    const g = groupOf.get(String(b.productId)) ?? 'Other';
+    const arr = series.get(g) ?? labels.map(() => 0);
+    arr[i] = (arr[i] ?? 0) + (cost ? b.quantity * b.costPerBaseUnit : amountFor(b.mrp, b.quantity, b.salePack));
+    series.set(g, arr);
+  }
+  return { months: labels, basis: cost ? 'cost' : 'mrp', series: [...series.entries()].map(([name, data]) => ({ name, data })) };
 }

@@ -11,7 +11,7 @@ import { audit } from '../audit/audit.model';
 import { nextNumber } from '../counters/counter.model';
 import { ProductModel } from '../products/product.model';
 import { BatchModel } from '../stock/batch.model';
-import { bucketOf, daysLeft } from '../stock/stock.domain';
+import { bucketOf, daysLeftOut } from '../stock/stock.domain';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import { credit } from '../suppliers/supplier.ledger';
 import { SupplierModel } from '../suppliers/supplier.model';
@@ -40,7 +40,7 @@ export async function candidates(t: TenantContext, supplierId: string, purchaseI
       units: u ? { base: u.base, sale: u.sale, salePack: salePack(u) } : { base: '', sale: '', salePack: 1 },
       batchNumber: b.batchNumber,
       expiryDate: b.expiryDate,
-      daysLeft: daysLeft(b.expiryDate, now),
+      daysLeft: daysLeftOut(b.expiryDate, now),
       bucket: bucketOf(b, now),
       quantity: b.quantity,
       rack: b.rack,

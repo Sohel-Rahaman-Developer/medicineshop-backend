@@ -7,26 +7,30 @@ const MAX_QTY = 10_000_000;
 const qty = (label: string, min = 1) =>
   z.number(`${label} must be a number`).int(`${label} must be a whole number`).min(min, min === 0 ? `${label} can’t be negative` : `${label} must be at least ${min}`).max(MAX_QTY, `${label} is too large`);
 const batchNumber = z.string().trim().min(1, 'Batch number is required').max(20, 'Batch number is at most 20 characters').regex(/^[A-Za-z0-9/-]+$/, 'Use letters, numbers, / and -');
+/** Empty only for a non-medicine: the service gives it the day's lot (D59). */
+const batchOrBlank = z.union([batchNumber, z.literal('')]).default('');
 const reason = z.string().trim().min(2, 'A reason is required').max(200);
 
 export const openingSchema = z
   .object({
     clientRequestId,
     productId: objectId,
-    batchNumber,
-    expiry: monthEnd,
+    batchNumber: batchOrBlank,
+    /** Not needed for a product without expiry (D59). */
+    expiry: monthEnd.optional(),
     mfg: monthEnd.optional(),
     /** Base units. */
     quantity: qty('Quantity'),
     /** Paise per sale unit. */
     mrp: paise('MRP').min(1, 'MRP is required'),
+    minPrice: paise('Lowest price').nullable().optional(),
     /** Paise per sale unit, before GST. */
     purchaseRate: paise('Purchase rate'),
     rack: rackCode.default(''),
     mrpChoice: z.enum(['merge', 'separate']).optional(),
   })
   .strict()
-  .refine((v) => !v.mfg || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] })
+  .refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] })
   .refine((v) => !v.mfg || v.mfg.getTime() <= Date.now() + 31 * 24 * 60 * 60 * 1000, { message: 'Manufacturing month is in the future', path: ['mfg'] });
 
 const lines = <T extends z.ZodType>(line: T) =>
@@ -43,6 +47,8 @@ export const adjustmentSchema = z.discriminatedUnion('type', [
   z.object({ ...common, type: z.enum(['DAMAGE', 'EXPIRY_WRITE_OFF', 'SELF_USE']), lines: lines(z.object({ batchId: objectId, quantity: qty('Quantity') }).strict()) }).strict(),
   z.object({ ...common, type: z.literal('TRANSFER'), lines: lines(z.object({ batchId: objectId, rackTo: rackCode.refine((v) => v !== '', 'Choose a rack') }).strict()) }).strict(),
 ]);
+
+export const minPriceSchema = z.object({ minPrice: paise('Lowest price').nullable() }).strict();
 
 export const blockSchema = z.object({ reason: z.string().trim().max(200).default('') }).strict();
 

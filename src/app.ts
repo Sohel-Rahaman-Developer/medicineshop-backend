@@ -1,4 +1,5 @@
 import express from 'express';
+import { NO_EXPIRY } from './modules/stock/stock.domain';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -29,6 +30,8 @@ export function createApp() {
 
   // Real client IP behind the proxy — rate limits and audit depend on it.
   app.set('trust proxy', 1);
+  const noExpiry = NO_EXPIRY.toISOString();
+  app.set('json replacer', (_key: string, value: unknown) => (value === noExpiry ? null : value));
 
   // The API only ever returns JSON, so the CSP can forbid everything.
   app.use(

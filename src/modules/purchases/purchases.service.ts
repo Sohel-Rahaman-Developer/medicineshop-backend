@@ -4,6 +4,7 @@ import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
+import { istYmd } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { conv, salePack, type Units } from '../../utils/units';
@@ -12,6 +13,7 @@ import { nextNumber } from '../counters/counter.model';
 import { ProductModel } from '../products/product.model';
 import { BatchModel } from '../stock/batch.model';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
+import { lotOf } from '../stock/stock.domain';
 import { mergeTarget, mrpDiffers, receiveBatch } from '../stock/stock.service';
 import { chargeInvoice, credit, reverseInvoice } from '../suppliers/supplier.ledger';
 import { SupplierModel } from '../suppliers/supplier.model';
@@ -27,7 +29,7 @@ const lineError = (i: number, message: string) => AppError.validation(message, [
 
 /** Everything the entry screen pre-fills for a product: last purchase, last MRP and batches the merge rule would hit. */
 export async function lineInfo(t: TenantContext, productId: string) {
-  const p = await ProductModel.findOne({ shopId: t.shopId, _id: oid(productId) }).select('name company units gstRate defaultRack storageType isActive').lean();
+  const p = await ProductModel.findOne({ shopId: t.shopId, _id: oid(productId) }).select('name company units gstRate defaultRack storageType isActive scheduleType noExpiry').lean();
   if (!p) throw AppError.notFound('Product not found');
   const [last] = await PurchaseModel.aggregate<{ line: { rate: number; unit: string; discountPercent: number; gstRate: number; mrp: number; rack: string }; supplierName: string; invoiceDate: Date }>([
     { $match: { shopId: t.shopId, status: 'active', 'lines.productId': p._id } },
@@ -40,13 +42,14 @@ export async function lineInfo(t: TenantContext, productId: string) {
     .select('batchNumber expiryDate mrp quantity receivedAt')
     .limit(60)
     .lean();
-  const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp').lean();
+  const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp minPrice').lean();
   return {
-    product: { id: String(p._id), name: p.name, company: p.company, units: unitsBrief(p.units as Units), gstRate: p.gstRate, defaultRack: p.defaultRack, storageType: p.storageType, isActive: p.isActive },
+    product: { id: String(p._id), name: p.name, company: p.company, units: unitsBrief(p.units as Units), gstRate: p.gstRate, defaultRack: p.defaultRack, storageType: p.storageType, isActive: p.isActive, scheduleType: p.scheduleType, noExpiry: p.noExpiry },
     last: last
       ? { rate: last.line.rate, unit: last.line.unit, discountPercent: last.line.discountPercent, gstRate: last.line.gstRate, mrp: last.line.mrp, rack: last.line.rack, supplierName: last.supplierName, invoiceDate: last.invoiceDate }
       : null,
     lastMrp: latest?.mrp ?? null,
+    lastMinPrice: latest?.minPrice ?? null,
     batches: batches.map((b) => ({ id: String(b._id), batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: b.mrp, quantity: b.quantity })),
   };
 }
@@ -68,26 +71,31 @@ export async function create(t: TenantContext, actor: Actor, input: PurchaseInpu
     const seen = new Set<string>();
     const lastMrp = new Map<string, number>();
     const conflicts = [];
+    const lots: { batchNumber: string; expiry: Date }[] = [];
+    const lotDay = istYmd(input.invoiceDate);
     for (const [i, l] of input.lines.entries()) {
       const p = byId.get(l.productId);
       if (!p) throw lineError(i, `Line ${String(i + 1)}: product not found`);
       if (!p.isActive) throw lineError(i, `Line ${String(i + 1)}: ${p.name} is deactivated`);
       const u = p.units as Units;
       if (l.unit !== u.sale && l.unit !== u.purchase) throw lineError(i, `Line ${String(i + 1)}: buy ${p.name} in ${u.purchase} or ${u.sale}`);
-      if (l.expiry.getTime() < now.getTime()) throw lineError(i, `Line ${String(i + 1)}: batch ${l.batchNumber} has already expired — don’t take it into stock`);
-      const key = `${l.productId}|${l.batchNumber.toUpperCase()}|${String(l.expiry.getTime())}`;
-      if (seen.has(key)) throw lineError(i, `Line ${String(i + 1)}: ${p.name} batch ${l.batchNumber} is listed twice — put it on one line`);
+      const lot = lotOf(p, l.batchNumber, l.expiry, lotDay);
+      if ('field' in lot) throw lineError(i, `Line ${String(i + 1)}: ${p.name} — ${lot.message.toLowerCase()}`);
+      lots.push(lot);
+      if (lot.expiry.getTime() < now.getTime()) throw lineError(i, `Line ${String(i + 1)}: batch ${lot.batchNumber} has already expired — don’t take it into stock`);
+      const key = `${l.productId}|${lot.batchNumber.toUpperCase()}|${String(lot.expiry.getTime())}`;
+      if (seen.has(key)) throw lineError(i, `Line ${String(i + 1)}: ${p.name} batch ${lot.batchNumber} is listed twice — put it on one line`);
       seen.add(key);
       if (!lastMrp.has(l.productId)) {
         const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp').session(session).lean();
         if (latest) lastMrp.set(l.productId, latest.mrp);
       }
-      const same = l.mrpChoice ? null : await mergeTarget(t.shopId, p._id, l.batchNumber, l.expiry, session);
+      const same = l.mrpChoice ? null : await mergeTarget(t.shopId, p._id, lot.batchNumber, lot.expiry, session);
       if (same && same.mrp !== l.mrp) conflicts.push({ index: i, productName: p.name, batch: { id: String(same._id), batchNumber: same.batchNumber, mrp: same.mrp }, mrp: l.mrp });
     }
     const first = conflicts[0];
     if (first) {
-      const b = { _id: oid(first.batch.id), batchNumber: first.batch.batchNumber, expiryDate: input.lines[first.index]?.expiry ?? now, mrp: first.batch.mrp };
+      const b = { _id: oid(first.batch.id), batchNumber: first.batch.batchNumber, expiryDate: lots[first.index]?.expiry ?? now, mrp: first.batch.mrp };
       throw mrpDiffers(b, first.mrp, { lines: conflicts });
     }
 
@@ -95,16 +103,17 @@ export async function create(t: TenantContext, actor: Actor, input: PurchaseInpu
     const number = await nextNumber(t.shopId, 'purchase', now, session);
     const lines = [];
     const mrpChanges = [];
-    for (const l of input.lines) {
+    for (const [i, l] of input.lines.entries()) {
       const p = byId.get(l.productId);
-      if (!p) throw AppError.internal();
+      const lot = lots[i];
+      if (!p || !lot) throw AppError.internal();
       const u = p.units as Units;
       const c = conv(u, l.unit);
       const calc = purchaseLine({ quantity: l.quantity, freeQuantity: l.freeQuantity, rate: l.rate, discountPercent: l.discountPercent, gstRate: l.gstRate, conv: c });
       const got = await receiveBatch(
         t.shopId,
         p,
-        { batchNumber: l.batchNumber, expiry: l.expiry, mfg: l.mfg, mrp: l.mrp, rack: l.rack, mrpChoice: l.mrpChoice },
+        { batchNumber: lot.batchNumber, expiry: lot.expiry, mfg: l.mfg, mrp: l.mrp, minPrice: l.minPrice, rack: l.rack, mrpChoice: l.mrpChoice },
         { source: 'purchase', quantity: calc.baseQty, freeQuantity: calc.freeBase, purchaseRate: l.rate, purchaseUnit: l.unit, costPerBaseUnit: calc.costPerBaseUnit, supplierId: sup._id, purchaseId, invoiceNumber: input.invoiceNumber, refNumber: number },
         actor,
         session,
@@ -118,7 +127,7 @@ export async function create(t: TenantContext, actor: Actor, input: PurchaseInpu
         productName: p.name,
         batchId: oid(got.batchId),
         batchNumber: got.batchNumber,
-        expiryDate: l.expiry,
+        expiryDate: lot.expiry,
         mfgDate: l.mfg,
         quantity: l.quantity,
         freeQuantity: l.freeQuantity,
@@ -137,6 +146,7 @@ export async function create(t: TenantContext, actor: Actor, input: PurchaseInpu
         igst: 0,
         totalAmount: calc.total,
         mrp: l.mrp,
+        minPrice: l.minPrice ?? undefined,
         landingPerUnit: calc.landingPerUnit,
         costPerBaseUnit: calc.costPerBaseUnit,
         rack: batch?.rack ?? '',

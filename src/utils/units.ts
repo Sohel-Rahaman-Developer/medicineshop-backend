@@ -3,7 +3,7 @@ export const UNIT_TYPES = ['COUNT', 'VOLUME', 'WEIGHT'] as const;
 export type UnitType = (typeof UNIT_TYPES)[number];
 
 export const UNITS: Record<UnitType, readonly string[]> = {
-  COUNT: ['TABLET', 'CAPSULE', 'PIECE', 'STRIP', 'BOX', 'VIAL', 'TUBE', 'BOTTLE', 'PACKET', 'PAIR'],
+  COUNT: ['TABLET', 'CAPSULE', 'PIECE', 'STRIP', 'BOX', 'VIAL', 'TUBE', 'BOTTLE', 'PACKET', 'PAIR', 'BAR', 'CAN', 'JAR', 'SACHET', 'PACK', 'ROLL', 'KIT', 'CASE'],
   VOLUME: ['ML', 'LITRE'],
   WEIGHT: ['GM', 'KG'],
 };

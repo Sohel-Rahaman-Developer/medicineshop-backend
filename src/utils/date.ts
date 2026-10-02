@@ -5,6 +5,12 @@ export function monthEndIST(year: number, month: number): Date {
   return new Date(Date.UTC(year, month, 0, 23, 59, 59) - IST_OFFSET_MS);
 }
 
+/** The IST calendar day as "YYMMDD" — the lot number of a non-medicine bought without a batch (D59). */
+export function istYmd(at: Date): string {
+  const ist = new Date(at.getTime() + IST_OFFSET_MS);
+  return `${String(ist.getUTCFullYear() % 100).padStart(2, '0')}${String(ist.getUTCMonth() + 1).padStart(2, '0')}${String(ist.getUTCDate()).padStart(2, '0')}`;
+}
+
 /** The IST calendar month of an instant, as "YYYY-MM". */
 export function istMonth(at: Date): string {
   const ist = new Date(at.getTime() + IST_OFFSET_MS);
@@ -15,6 +21,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** "Dec 2026" in IST, for messages. */
 export function monthLabel(at: Date): string {
+  if (at.getUTCFullYear() >= 9999) return 'no expiry';
   const [y = '', m = '1'] = istMonth(at).split('-');
   return `${MONTHS[Number(m) - 1] ?? ''} ${y}`;
 }

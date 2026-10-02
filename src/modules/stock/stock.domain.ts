@@ -19,6 +19,17 @@ export interface BatchLike {
 const DAY = 24 * 60 * 60 * 1000;
 /** Sorts products without sellable stock after every real expiry date. */
 export const NO_EXPIRY = new Date('9999-12-31T00:00:00.000Z');
+/** D59: a product without expiry keeps NO_EXPIRY on its batches, so every date range skips it; the API sends null. */
+export const hasExpiry = (d: Date) => d.getTime() < NO_EXPIRY.getTime();
+
+/** D59: what a received line is stored as. No-expiry products take NO_EXPIRY; a non-medicine without a batch number gets the day's lot. */
+export function lotOf(p: { noExpiry?: boolean | null; scheduleType: string }, batchNumber: string, expiry: Date | undefined, lotDay: string): { batchNumber: string; expiry: Date } | { field: 'expiry' | 'batchNumber'; message: string } {
+  const exp = p.noExpiry ? NO_EXPIRY : expiry;
+  if (!exp) return { field: 'expiry', message: 'Expiry is required' };
+  if (batchNumber) return { batchNumber, expiry: exp };
+  if (p.scheduleType !== 'NON_DRUG') return { field: 'batchNumber', message: 'Batch number is required' };
+  return { batchNumber: `LOT-${lotDay}`, expiry: exp };
+}
 
 /** Each batch counts in one bucket only: blocked > expired > sellable. */
 export function bucketOf(b: Pick<BatchLike, 'quantity' | 'status' | 'expiryDate'>, now: Date): Bucket | null {
@@ -83,12 +94,14 @@ export function rollup(batches: readonly BatchLike[], p: { reorderLevel: number;
     r.batches += 1;
     r.value += b.quantity * b.costPerBaseUnit;
     r.mrpValue += amountFor(b.mrp, b.quantity, p.salePack);
-    if (k === 'sellable' && (!next || b.expiryDate < next)) next = b.expiryDate;
+    if (k === 'sellable' && hasExpiry(b.expiryDate) && (!next || b.expiryDate < next)) next = b.expiryDate;
   }
   return { ...r, nextExpiry: next, expirySort: next ?? NO_EXPIRY, validUntil: next ?? NO_EXPIRY, status: statusOf(r.sellable, p.reorderLevel) };
 }
 
 export const daysLeft = (expiry: Date, now: Date) => Math.ceil((expiry.getTime() - now.getTime()) / DAY);
+/** For the API: null for a batch without expiry (D59). */
+export const daysLeftOut = (expiry: Date, now: Date) => (hasExpiry(expiry) ? daysLeft(expiry, now) : null);
 
 /** Expiry centre tiles: expired, then 0–30, 31–60, 61–90 days (blocked batches stay out). */
 export function expiryBucketOf(b: Pick<BatchLike, 'quantity' | 'status' | 'expiryDate'>, now: Date): ExpiryBucket | null {
