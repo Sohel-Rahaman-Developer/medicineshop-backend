@@ -20,7 +20,8 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "smoke:dayclose": "tsx scripts/smoke-dayclose.ts",
     "smoke:customers": "tsx scripts/smoke-customers.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers"
+    "smoke:loyalty": "tsx scripts/smoke-loyalty.ts",
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty"
   },
   "keywords": [],
   "author": "",

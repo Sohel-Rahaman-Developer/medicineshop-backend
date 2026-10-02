@@ -9,6 +9,7 @@ import { inr } from '../../utils/money';
 import { conv, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import * as customers from '../customers/customers.service';
+import * as loyalty from '../loyalty/loyalty.service';
 import * as orders from '../orders/orders.service';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
@@ -98,15 +99,17 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
 
 /** What the counter needs to price a cart the way the server will (no settings: view needed). */
 export async function posSettings(t: TenantContext) {
-  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory').lean();
+  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean();
   const billing = shop?.settings.billing;
   const inv = shop?.settings.inventory;
+  const r = loyalty.rulesOf(shop?.settings.loyalty);
   return {
     roundOff: billing?.roundOffEnabled ?? true,
     maxDiscountPercent: billing?.maxDiscountPercent ?? 20,
     enforceH1: billing?.enforceH1Prescription ?? true,
     canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
     seesCost: seesCost(t),
+    loyalty: { ...r, canRedeem: can(t.permissions, 'loyalty', 'create'), canSetUp: can(t.permissions, 'loyalty', 'edit') },
   };
 }
 
@@ -183,23 +186,32 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     if (input.expectedTotal !== undefined && input.expectedTotal !== priced.grandTotal) {
       throw AppError.conflict(`The total is now ${inr(priced.grandTotal)} — stock or prices changed. Check the bill and charge again.`, { reason: 'TOTAL_CHANGED', total: priced.grandTotal });
     }
-    // An order's advance pays first; more advance than the bill goes back in cash.
-    const advanceUsed = order ? Math.min(order.advance, priced.grandTotal) : 0;
-    const due = priced.grandTotal - advanceUsed;
-    const paid = input.payments.reduce((s, x) => s + x.amount, 0);
-    if (paid !== due) {
-      const what = advanceUsed ? `the bill is ${inr(priced.grandTotal)} less ${inr(advanceUsed)} advance = ${inr(due)}` : `the bill is ${inr(priced.grandTotal)}`;
-      throw AppError.validation(`Payments add up to ${inr(paid)}, ${what}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
-    }
-    const payments = [...input.payments, ...(order && advanceUsed ? [{ mode: 'ADVANCE' as const, amount: advanceUsed, reference: order.orderNumber }] : [])];
     // Udhaar: a customer with room under the limit; the bill's due is what was put on credit.
     const credit = input.payments.filter((x) => x.mode === 'CREDIT').reduce((s, x) => s + x.amount, 0);
     if (credit && !input.customerId) throw AppError.validation('Udhaar needs a customer — pick or add one first', [{ field: 'body.customerId', message: 'Pick a customer for udhaar' }]);
     const customer = input.customerId ? await customers.forBill(t, input.customerId, credit, session) : null;
+    const cats = new Map((await CategoryModel.find({ shopId: t.shopId }).select('name').session(session).lean()).map((c) => [String(c._id), c.name]));
+    const catOf = (x: { p: ProductLean }) => cats.get(String(x.p.categoryId)) ?? '';
+    const rules = loyalty.rulesOf(shop.settings.loyalty);
+    const points = await loyalty.forBill(t, rules, customer, { redeemPoints: input.redeemPoints, grandTotal: priced.grandTotal, lines: built.parts.map((x, i) => ({ category: catOf(x), totalAmount: priced.lines[i]?.amount ?? 0 })), canRedeem: can(t.permissions, 'loyalty', 'create'), now }, session);
+    // Points pay first, then an order's advance; more advance than the rest goes back in cash.
+    const toPay = priced.grandTotal - points.redeemValue;
+    const advanceUsed = order ? Math.min(order.advance, toPay) : 0;
+    const due = toPay - advanceUsed;
+    const paid = input.payments.reduce((s, x) => s + x.amount, 0);
+    if (paid !== due) {
+      const less = [points.redeemValue ? `${inr(points.redeemValue)} points` : '', advanceUsed ? `${inr(advanceUsed)} advance` : ''].filter(Boolean).join(' and ');
+      const what = less ? `the bill is ${inr(priced.grandTotal)} less ${less} = ${inr(due)}` : `the bill is ${inr(priced.grandTotal)}`;
+      throw AppError.validation(`Payments add up to ${inr(paid)}, ${what}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
+    }
+    const payments = [
+      ...input.payments,
+      ...(points.redeem ? [{ mode: 'POINTS' as const, amount: points.redeemValue, reference: `${String(points.redeem)} pts` }] : []),
+      ...(order && advanceUsed ? [{ mode: 'ADVANCE' as const, amount: advanceUsed, reference: order.orderNumber }] : []),
+    ];
     const cash = input.payments.filter((x) => x.mode === 'CASH').reduce((s, x) => s + x.amount, 0);
     if (input.cashReceived !== undefined && input.cashReceived < cash) throw AppError.validation('Cash received is less than the cash part', [{ field: 'body.cashReceived', message: 'Less than the cash part' }]);
 
-    const cats = new Map((await CategoryModel.find({ shopId: t.shopId }).select('name').session(session).lean()).map((c) => [String(c._id), c.name]));
     const lines = built.parts.map((x, i) => {
       const r = priced.lines[i];
       if (!r) throw AppError.internal();
@@ -210,7 +222,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
         item: x.item,
         productId: x.p._id,
         productName: x.p.name,
-        category: cats.get(String(x.p.categoryId)) ?? '',
+        category: catOf(x),
         hsn: x.p.hsnCode,
         schedule: x.p.scheduleType,
         batchId: x.b._id,
@@ -239,6 +251,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
         lineCost,
         lineProfit: r.taxable - lineCost,
         returnedQuantity: 0,
+        noPoints: !loyalty.earnsPoints(catOf(x), rules),
       };
     });
 
@@ -247,6 +260,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     for (const l of lines) {
       await applyMove(t.shopId, l.batchId, -l.quantityInBase, { type: 'SALE', refType: 'SALE', refId: saleId, refNumber: billNumber, actor, at: now }, session);
     }
+    const pts = customer ? await loyalty.afterBill(t, rules, customer, { saleId, billNumber, redeem: points.redeem, earned: points.earned, actor, at: now }, session) : null;
     const modes = [...new Set(payments.map((x) => x.mode))];
     const totalCost = lines.reduce((s, l) => s + l.lineCost, 0);
     const discountAboveLimit = priced.discountPercent > billing.maxDiscountPercent;
@@ -287,11 +301,15 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           totalTax: priced.totalTax,
           roundOff: priced.roundOff,
           grandTotal: priced.grandTotal,
-          toPay: priced.grandTotal,
+          toPay,
+          loyaltyPointsRedeemed: points.redeem,
+          loyaltyDiscountAmount: points.redeemValue,
+          loyaltyPointsEarned: points.earned,
+          loyaltyBalanceAfter: pts?.balance,
           payments,
           paymentMode: modes.length > 1 ? 'SPLIT' : (modes[0] ?? 'NONE'),
           cashReceived: input.cashReceived,
-          paidAmount: paid - credit + advanceUsed,
+          paidAmount: paid - credit + advanceUsed + points.redeemValue,
           dueAmount: credit,
           paymentStatus: !credit ? 'paid' : credit === priced.grandTotal ? 'credit' : 'partial',
           totalCost,
@@ -303,7 +321,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       { session },
     );
     if (order) await orders.complete(t, order, { id: saleId, billNumber, at: now, advanceUsed }, session);
-    if (customer) await customers.afterBill(t, customer, { total: priced.grandTotal, credit, at: now }, session);
+    if (customer) await customers.afterBill(t, customer, { total: toPay, credit, at: now }, session);
     const productIds = [...new Set(lines.map((l) => String(l.productId)))].map(oid);
     await ProductModel.updateMany({ shopId: t.shopId, _id: { $in: productIds } }, { $set: { lastSoldAt: now } }, { session });
     await refreshRollups(t.shopId, productIds, session, now);
@@ -312,13 +330,25 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       priced.aboveMrp ? `${inr(priced.aboveMrp)} above MRP` : '',
       belowMinPrice ? 'sold under the lowest price' : '',
       credit ? `udhaar ${inr(credit)} to ${customer?.name ?? ''}` : '',
+      points.redeem ? `${String(points.redeem)} points used (${inr(points.redeemValue)})` : '',
       order ? `order ${order.orderNumber}${advanceUsed ? `, advance ${inr(advanceUsed)}` : ''}${order.advance > advanceUsed ? `, ${inr(order.advance - advanceUsed)} advance given back` : ''}` : '',
     ].filter(Boolean);
     await audit(
       { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(saleId), entityName: billNumber, text: `${actor.name} billed ${billNumber} · ${inr(priced.grandTotal)} · ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
       session,
     );
-    return { id: String(saleId), billNumber, grandTotal: priced.grandTotal, change: input.cashReceived !== undefined ? input.cashReceived - cash : 0, advanceUsed, advanceBack: order ? order.advance - advanceUsed : 0 };
+    return {
+      id: String(saleId),
+      billNumber,
+      grandTotal: priced.grandTotal,
+      change: input.cashReceived !== undefined ? input.cashReceived - cash : 0,
+      advanceUsed,
+      advanceBack: order ? order.advance - advanceUsed : 0,
+      pointsRedeemed: points.redeem,
+      pointsEarned: points.earned,
+      pointsBalance: pts?.balance ?? null,
+      tierUp: pts?.tierUp ?? null,
+    };
   });
 }
 
@@ -374,6 +404,7 @@ function shape(s: SaleLean, cost: boolean) {
       igst: l.igst,
       totalAmount: l.totalAmount,
       returnedQuantity: l.returnedQuantity,
+      noPoints: l.noPoints ?? false,
       ...(cost ? { costPerBaseUnit: l.costPerBaseUnit, lineCost: l.lineCost, lineProfit: l.lineProfit } : {}),
     })),
     subtotal: s.subtotal,
@@ -393,6 +424,12 @@ function shape(s: SaleLean, cost: boolean) {
     roundOff: s.roundOff,
     grandTotal: s.grandTotal,
     toPay: s.toPay,
+    loyaltyPointsRedeemed: s.loyaltyPointsRedeemed ?? 0,
+    loyaltyDiscountAmount: s.loyaltyDiscountAmount ?? 0,
+    loyaltyPointsEarned: s.loyaltyPointsEarned ?? 0,
+    loyaltyBalanceAfter: s.loyaltyBalanceAfter ?? null,
+    loyaltyPointsReversed: s.loyaltyPointsReversed ?? 0,
+    loyaltyPointsRestored: s.loyaltyPointsRestored ?? 0,
     payments: s.payments.map((p) => ({ mode: p.mode, amount: p.amount, reference: p.reference })),
     paymentMode: s.paymentMode,
     cashReceived: s.cashReceived ?? null,
@@ -504,15 +541,23 @@ export async function cancel(t: TenantContext, actor: Actor, id: string, reason:
     if (!s) throw AppError.notFound('Bill not found');
     if (s.status === 'cancelled') throw AppError.conflict(`${s.billNumber} is already cancelled`);
     if (s.status !== 'completed') throw AppError.conflict(`${s.billNumber} has a return — cancel isn’t possible now. Return the rest instead.`);
-    const done = await SaleModel.updateOne({ shopId: t.shopId, _id: s._id, status: 'completed', dueAmount: s.dueAmount }, { $set: { status: 'cancelled', cancelReason: reason, cancelledBy: actor.name, cancelledAt: now, cancelledDue: s.dueAmount, dueAmount: 0 } }, { session });
+    const earned = s.loyaltyPointsEarned ?? 0;
+    const redeemed = s.loyaltyPointsRedeemed ?? 0;
+    const done = await SaleModel.updateOne(
+      { shopId: t.shopId, _id: s._id, status: 'completed', dueAmount: s.dueAmount },
+      { $set: { status: 'cancelled', cancelReason: reason, cancelledBy: actor.name, cancelledAt: now, cancelledDue: s.dueAmount, dueAmount: 0, loyaltyPointsReversed: earned, loyaltyPointsRestored: redeemed } },
+      { session },
+    );
     if (!done.modifiedCount) throw AppError.conflict(`${s.billNumber} changed meanwhile — reload`);
     for (const l of s.lines) {
       await applyMove(t.shopId, l.batchId, l.quantityInBase, { type: 'SALE_CANCEL', refType: 'SALE', refId: s._id, refNumber: s.billNumber, reason, actor, at: now }, session);
     }
     await refreshRollups(t.shopId, [...new Set(s.lines.map((l) => String(l.productId)))].map(oid), session, now);
-    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: s.grandTotal, credit: s.dueAmount, visit: true }, session);
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} cancelled ${s.billNumber} · ${inr(s.grandTotal)} · reason: ${reason}`, ip }, session);
-    return { id: String(s._id), billNumber: s.billNumber };
+    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: s.toPay, credit: s.dueAmount, visit: true }, session);
+    // Cancel is only before any return, so the whole bill's points move.
+    const moved = await loyalty.takeBack(t, await loyalty.rules(t, session), s, { reverse: earned - (s.loyaltyPointsReversed ?? 0), restore: redeemed - (s.loyaltyPointsRestored ?? 0), refType: 'SALE', refId: s._id, refNumber: s.billNumber, reason: 'Bill cancelled', actor, at: now }, session);
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} cancelled ${s.billNumber} · ${inr(s.grandTotal)} · reason: ${reason}${moved.reversed || moved.restored ? ` · points −${String(moved.reversed)} / +${String(moved.restored)}` : ''}`, ip }, session);
+    return { id: String(s._id), billNumber: s.billNumber, pointsReversed: moved.reversed, pointsRestored: moved.restored };
   });
 }
 

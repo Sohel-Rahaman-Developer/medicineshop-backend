@@ -137,6 +137,8 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
   totals.push(['Taxable', rupees(s.taxableAmount), false], ['CGST', rupees(s.cgst), false], ['SGST', rupees(s.sgst), false]);
   if (s.roundOff) totals.push(['Round off', rupees(s.roundOff), false]);
   totals.push(['TOTAL', rupees(s.grandTotal), true]);
+  if (s.loyaltyDiscountAmount) totals.push([`Points used (${String(s.loyaltyPointsRedeemed)} pts)`, rupees(-s.loyaltyDiscountAmount), false], ['TO PAY', rupees(s.toPay), true]);
+  const points = s.customerId && (s.loyaltyPointsEarned || s.loyaltyPointsRedeemed) ? [`Points: +${String(s.loyaltyPointsEarned)} on this bill${s.loyaltyBalanceAfter !== null ? ` · balance ${String(s.loyaltyBalanceAfter)} pts` : ''}`] : [];
   const cancelled = s.status === 'cancelled';
   const pdf = await paper(t, {
     title: cancelled ? 'CANCELLED' : 'TAX INVOICE',
@@ -162,7 +164,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     }),
     hsn: hsnSummary(s.lines),
     totals,
-    foot: [`Paid: ${s.payments.length ? s.payments.map((p) => `${p.mode} ${rupees(p.amount)}`).join(' + ') : '—'}`, `Billed by ${s.createdByName}. Returns as per the shop’s policy.`],
+    foot: [`Paid: ${s.payments.length ? s.payments.map((p) => `${p.mode} ${rupees(p.amount)}`).join(' + ') : '—'}`, ...points, `Billed by ${s.createdByName}. Returns as per the shop’s policy.`],
     alert: cancelled ? `Cancelled by ${s.cancelledBy ?? ''}: ${s.cancelReason ?? ''}` : undefined,
     qr: qrText(s.billNumber, istIsoDay(s.billDate), s.grandTotal),
   });
@@ -176,7 +178,9 @@ export async function returnPdf(t: TenantContext, userId: string, id: string) {
   const lines = r.lines.map((l) => ({ ...l, taxableAmount: l.taxable }));
   const totals: Total[] = [['Taxable', rupees(r.taxableAmount), false], ['CGST', rupees(r.cgst), false], ['SGST', rupees(r.sgst), false]];
   if (r.roundOff) totals.push(['Round off', rupees(r.roundOff), false]);
-  totals.push(['REFUND', rupees(r.total), true]);
+  const money = r.total - r.loyaltyRestoredValue;
+  if (r.loyaltyRestoredValue) totals.push(['TOTAL', rupees(r.total), true], [`Points back (${String(r.loyaltyPointsRestored)} pts)`, rupees(-r.loyaltyRestoredValue), false]);
+  totals.push(['REFUND', rupees(money), true]);
   const number = r.creditNoteNumber ?? r.returnNumber;
   const pdf = await paper(t, {
     title: 'CREDIT NOTE',
@@ -195,7 +199,7 @@ export async function returnPdf(t: TenantContext, userId: string, id: string) {
     })),
     hsn: hsnSummary(lines),
     totals,
-    foot: [`Refund: ${r.refundMode === 'CASH' ? 'cash' : `credit note ${number}`} ${rupees(r.total)}`, `Taken back by ${r.createdByName}.`],
+    foot: [`Refund: ${r.refundMode === 'CASH' ? 'cash' : r.refundMode === 'ADJUST_CREDIT' ? 'against udhaar' : `credit note ${number}`} ${rupees(money)}`, `Taken back by ${r.createdByName}.`],
   });
   return { pdf, name: `CreditNote-${number}` };
 }

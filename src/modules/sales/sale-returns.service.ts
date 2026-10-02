@@ -10,6 +10,7 @@ import { audit } from '../audit/audit.model';
 import { nextNumber } from '../counters/counter.model';
 import { seesCost } from '../products/products.service';
 import * as customers from '../customers/customers.service';
+import * as loyalty from '../loyalty/loyalty.service';
 import { ShopModel } from '../shops/shop.model';
 import { BatchModel } from '../stock/batch.model';
 import { daysLeftOut, hasExpiry } from '../stock/stock.domain';
@@ -82,8 +83,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     const sum = (k: 'amount' | 'taxable' | 'cgst' | 'sgst' | 'igst' | 'tax' | 'lineCost') => lines.reduce((a, l) => a + l[k], 0);
     const total = sum('amount') + roundOff;
     if (input.refundMode === 'ADJUST_CREDIT' && !s.dueAmount) throw AppError.validation(`${s.billNumber} has no udhaar left to set off`, [{ field: 'body.refundMode', message: 'No udhaar on this bill' }]);
+    const pts = loyalty.returnShares(s, taken, total);
+    const money = total - pts.restoreValue;
     // Only this bill's own udhaar is written off; the rest goes back in cash.
-    const adjusted = input.refundMode === 'ADJUST_CREDIT' ? Math.min(total, s.dueAmount) : 0;
+    const adjusted = input.refundMode === 'ADJUST_CREDIT' ? Math.min(money, s.dueAmount) : 0;
     if (input.expectedTotal !== undefined && input.expectedTotal !== total) {
       throw AppError.conflict(`The refund is now ${inr(total)} — the bill changed. Check and save again.`, { reason: 'TOTAL_CHANGED', total });
     }
@@ -98,7 +101,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     const due = s.dueAmount - adjusted;
     const done = await SaleModel.updateOne(
       { shopId: t.shopId, _id: s._id, status: { $in: ['completed', 'partially_returned'] }, dueAmount: s.dueAmount, ...cond },
-      { $inc: { ...inc, dueAmount: -adjusted }, $set: { status: complete ? 'returned' : 'partially_returned', ...(adjusted ? { paymentStatus: due ? 'partial' : 'paid' } : {}) } },
+      { $inc: { ...inc, dueAmount: -adjusted, loyaltyPointsReversed: pts.reverse, loyaltyPointsRestored: pts.restore }, $set: { status: complete ? 'returned' : 'partially_returned', ...(adjusted ? { paymentStatus: due ? 'partial' : 'paid' } : {}) } },
       { session },
     );
     if (!done.modifiedCount) throw AppError.conflict(`${s.billNumber} changed meanwhile — reload`);
@@ -111,7 +114,8 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       await applyMove(t.shopId, l.batchId, l.quantity, { type: 'SALE_RETURN', refType: 'SALE_RETURN', refId: id, refNumber: returnNumber, reason: `${s.billNumber} · ${l.reason}`, actor, at: now }, session);
     }
     await refreshRollups(t.shopId, [...new Set(lines.map((l) => String(l.productId)))].map(oid), session, now);
-    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: total, credit: adjusted, visit: false }, session);
+    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: money, credit: adjusted, visit: false }, session);
+    const moved = await loyalty.takeBack(t, await loyalty.rules(t, session), s, { reverse: pts.reverse, restore: pts.restore, refType: 'RETURN', refId: id, refNumber: returnNumber, reason: `Return of ${s.billNumber}`, actor, at: now }, session);
     const age = ageDays(s.billDate, now);
     const outsideWindow = age > windowDays;
     await SaleReturnModel.create(
@@ -144,8 +148,11 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
           roundOff,
           total,
           refundMode: input.refundMode,
-          cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : total - adjusted,
+          cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
           adjusted,
+          loyaltyPointsRestored: moved.restored,
+          loyaltyRestoredValue: pts.restoreValue,
+          loyaltyPointsReversed: moved.reversed,
           totalCost: sum('lineCost'),
           createdBy: oid(actor.id),
           createdByName: actor.name,
@@ -155,10 +162,24 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     );
     const flags = [outsideWindow ? `${String(age)} days after the bill (window ${String(windowDays)})` : '', lines.some((l) => l.expired) ? 'expired item taken back' : ''].filter(Boolean);
     await audit(
-      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)} ${input.refundMode === 'CASH' ? 'cash' : input.refundMode === 'ADJUST_CREDIT' ? `${inr(adjusted)} off udhaar${total > adjusted ? `, ${inr(total - adjusted)} cash` : ''}` : `credit note ${creditNoteNumber ?? ''}`}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
+      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)}${pts.restoreValue ? ` (${String(moved.restored)} points back = ${inr(pts.restoreValue)})` : ''} ${input.refundMode === 'CASH' ? 'cash' : input.refundMode === 'ADJUST_CREDIT' ? `${inr(adjusted)} off udhaar${money > adjusted ? `, ${inr(money - adjusted)} cash` : ''}` : `credit note ${creditNoteNumber ?? ''}`}${moved.reversed ? ` · ${String(moved.reversed)} earned points taken back` : ''}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
       session,
     );
-    return { id: String(id), returnNumber, creditNoteNumber: creditNoteNumber ?? null, billNumber: s.billNumber, saleId: String(s._id), total, refundMode: input.refundMode, outsideWindow, adjusted, cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : total - adjusted };
+    return {
+      id: String(id),
+      returnNumber,
+      creditNoteNumber: creditNoteNumber ?? null,
+      billNumber: s.billNumber,
+      saleId: String(s._id),
+      total,
+      refundMode: input.refundMode,
+      outsideWindow,
+      adjusted,
+      cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
+      pointsRestored: moved.restored,
+      pointsRestoredValue: pts.restoreValue,
+      pointsReversed: moved.reversed,
+    };
   });
 }
 
@@ -217,6 +238,9 @@ function shape(r: ReturnLean, cost: boolean) {
     refundMode: r.refundMode,
     cashBack: r.cashBack,
     adjusted: r.adjusted,
+    loyaltyPointsRestored: r.loyaltyPointsRestored ?? 0,
+    loyaltyRestoredValue: r.loyaltyRestoredValue ?? 0,
+    loyaltyPointsReversed: r.loyaltyPointsReversed ?? 0,
     createdByName: r.createdByName,
     ...(cost ? { totalCost: r.totalCost } : {}),
   };

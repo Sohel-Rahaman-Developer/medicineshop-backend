@@ -4,8 +4,9 @@ import { tenantScoped } from '../../core/tenant-scope';
 // CREDIT = udhaar: needs a customer with a limit (PLAN §14, §16).
 export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD', 'CREDIT'] as const;
 export type SalePayMode = (typeof SALE_PAY_MODES)[number];
-// ADVANCE is an order's advance coming off its bill (PLAN §35.1); the server adds it, the client never sends it.
-const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE'] as const;
+// The server adds these, the client never sends them: ADVANCE is an order's advance (PLAN §35.1),
+// POINTS is loyalty redeemed — a settlement line, not a discount, until the CA decides (PLAN §14, Q17).
+const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE', 'POINTS'] as const;
 
 // One line per batch: a cart line that spans two batches is two bill lines, each at its own MRP (PLAN §14).
 const lineSchema = new Schema(
@@ -42,6 +43,8 @@ const lineSchema = new Schema(
     lineCost: { type: Number, required: true },
     lineProfit: { type: Number, required: true },
     returnedQuantity: { type: Number, required: true, default: 0 },
+    // An excluded category earns no points, so a return of it takes none back.
+    noPoints: { type: Boolean },
   },
   { _id: false },
 );
@@ -83,7 +86,15 @@ const saleSchema = new Schema(
     totalTax: { type: Number, required: true },
     roundOff: { type: Number, required: true },
     grandTotal: { type: Number, required: true },
+    // grandTotal less points redeemed; an order's advance is a payment inside it.
     toPay: { type: Number, required: true },
+    loyaltyPointsRedeemed: { type: Number },
+    loyaltyDiscountAmount: { type: Number },
+    loyaltyPointsEarned: { type: Number },
+    loyaltyBalanceAfter: { type: Number },
+    // No default: bills from before B5b have none. Running totals so the next return and the cancel move only the rest.
+    loyaltyPointsReversed: { type: Number },
+    loyaltyPointsRestored: { type: Number },
     payments: { type: [paymentSchema], default: [] },
     paymentMode: { type: String, enum: [...STORED_MODES, 'SPLIT', 'NONE'], required: true },
     cashReceived: { type: Number },

@@ -37,6 +37,8 @@ export const saleSchema = z
     customerId: objectId.optional(),
     payments: z.array(z.object({ mode: z.enum(SALE_PAY_MODES, 'Choose cash, UPI, card or udhaar'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
     cashReceived: paise('Cash received').optional(),
+    /** Loyalty points to use on this bill (needs a customer and loyalty:create). */
+    redeemPoints: z.number('Points must be a number').int('Points must be whole').min(0).max(10_000_000).default(0),
     /** Billing a customer order: its advance comes off this bill. */
     orderId: objectId.optional(),
     /** What the cashier saw; a different server total means stock or prices changed meanwhile (409). */

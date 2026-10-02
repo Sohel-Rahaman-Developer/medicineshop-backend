@@ -29,6 +29,32 @@ const settingsSchema = new Schema(
       autoFefo: { type: Boolean, default: true },
       allowBatchOverride: { type: Boolean, default: true },
     },
+    // PLAN §16. A new shop starts with points off until the owner says what a point is worth (sandbox).
+    loyalty: {
+      enabled: { type: Boolean, default: false },
+      configured: { type: Boolean, default: false },
+      earnRate: { type: Number, default: 1 },
+      earnPerAmount: { type: Number, default: 10_000 },
+      minBillForEarning: { type: Number, default: 0 },
+      excludedCategories: { type: [String], default: [] },
+      earnOnDiscountedAmount: { type: Boolean, default: true },
+      pointValue: { type: Number, default: 100 },
+      minPointsToRedeem: { type: Number, default: 100 },
+      maxRedeemPercent: { type: Number, default: 20 },
+      redeemMultipleOf: { type: Number, default: 10 },
+      pointExpiryMonths: { type: Number, default: 12 },
+      expiryWarningDays: { type: Number, default: 30 },
+      tiers: {
+        type: [new Schema({ name: { type: String, required: true }, minLifetimePoints: { type: Number, required: true }, earnMultiplier: { type: Number, required: true } }, { _id: false })],
+        default: () => [
+          { name: 'Silver', minLifetimePoints: 0, earnMultiplier: 1 },
+          { name: 'Gold', minLifetimePoints: 1000, earnMultiplier: 1.25 },
+          { name: 'Platinum', minLifetimePoints: 5000, earnMultiplier: 1.5 },
+        ],
+      },
+      birthdayBonusPoints: { type: Number, default: 100 },
+      signupBonusPoints: { type: Number, default: 50 },
+    },
     notifications: {
       dailySummaryTime: { type: String, default: '22:00' },
       alertDigestTime: { type: String, default: '08:00' },

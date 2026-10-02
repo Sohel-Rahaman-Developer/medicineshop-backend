@@ -66,6 +66,10 @@ const saleReturnSchema = new Schema(
     refundMode: { type: String, enum: REFUND_MODES, required: true },
     cashBack: { type: Number, required: true, default: 0 },
     adjusted: { type: Number, required: true, default: 0 },
+    // Redeemed points go back as points, never as cash; `total` less their value is the money refund.
+    loyaltyPointsRestored: { type: Number },
+    loyaltyRestoredValue: { type: Number },
+    loyaltyPointsReversed: { type: Number },
     totalCost: { type: Number, required: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },

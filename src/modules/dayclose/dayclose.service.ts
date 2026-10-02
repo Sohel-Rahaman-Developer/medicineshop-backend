@@ -80,6 +80,7 @@ export async function cashDay(t: TenantContext, day: string) {
     upi: pay('UPI'),
     card: pay('CARD'),
     advanceUsed: pay('ADVANCE'),
+    points: pay('POINTS'),
     udhaar: pay('CREDIT'),
     bills: billed.length,
     byUser: [...byUser.entries()].map(([name, cash]) => ({ name, cash })).sort((a, b) => b.cash - a.cash),

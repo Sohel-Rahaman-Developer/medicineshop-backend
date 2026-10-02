@@ -3,10 +3,12 @@ import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
+import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
 import { nextNumber } from '../counters/counter.model';
+import * as loyalty from '../loyalty/loyalty.service';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import type { Actor } from '../user/actor';
@@ -56,6 +58,7 @@ export function shape(c: CustomerLean) {
 }
 
 export async function list(t: TenantContext, q: CustomerListQuery) {
+  await loyalty.expireDue(t);
   const filter: Record<string, unknown> = { shopId: t.shopId };
   if (q.q) {
     const digits = q.q.replace(/\D/g, '');
@@ -90,9 +93,15 @@ export async function create(t: TenantContext, actor: Actor, input: CustomerInpu
   const same = await CustomerModel.findOne({ shopId: t.shopId, phone: input.phone }).select('name').lean();
   if (same) throw AppError.conflict(`${input.phone} is already ${same.name}`, { reason: 'PHONE_TAKEN', id: String(same._id), name: same.name });
   try {
-    const c = await CustomerModel.create({ ...input, dob: input.dob ?? null, shopId: t.shopId, nameLower: input.name.toLowerCase(), createdBy: oid(actor.id), createdByName: actor.name });
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: c.name, text: `${actor.name} added customer ${c.name}${input.creditLimit ? ` · udhaar limit ${inr(input.creditLimit)}` : ''}`, ip });
-    return shape(await load(t, String(c._id)));
+    // The signup bonus (PLAN §16) lands with the customer or not at all.
+    const id = await inTransaction(async (session) => {
+      const [c] = await CustomerModel.create([{ ...input, dob: input.dob ?? null, shopId: t.shopId, nameLower: input.name.toLowerCase(), createdBy: oid(actor.id), createdByName: actor.name }], { session });
+      if (!c) throw AppError.internal();
+      const bonus = await loyalty.signup(t, c, actor, session);
+      await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: c.name, text: `${actor.name} added customer ${c.name}${input.creditLimit ? ` · udhaar limit ${inr(input.creditLimit)}` : ''}${bonus ? ` · ${String(bonus)} signup points` : ''}`, ip }, session);
+      return String(c._id);
+    });
+    return shape(await load(t, id));
   } catch (err) {
     if (isDuplicate(err)) throw AppError.conflict(`${input.phone} is already a customer`, { reason: 'PHONE_TAKEN' });
     throw err;
@@ -100,6 +109,7 @@ export async function create(t: TenantContext, actor: Actor, input: CustomerInpu
 }
 
 export async function get(t: TenantContext, id: string) {
+  await loyalty.expireOne(t, oid(id));
   return shape(await load(t, id));
 }
 

@@ -123,19 +123,25 @@ async function main() {
     // The server prices a bill; an expectedTotal of 0 makes it say the total (409) before anything is saved.
     const sell = async (c: Client, items: Record<string, unknown>[], extra: Record<string, unknown> = {}, mode = 'CASH') => {
       const quote = await c.post('/sales', { clientRequestId: randomUUID(), items, payments: [], expectedTotal: 0, ...extra });
-      const total = (quote.json.error as { details?: { total?: number } } | undefined)?.details?.total ?? 0;
+      // Points pay ₹1 each (the rules below), so the payment is the rest.
+      const total = ((quote.json.error as { details?: { total?: number } } | undefined)?.details?.total ?? 0) - Number(extra.redeemPoints ?? 0) * 100;
       return ok<{ id: string; billNumber: string }>('bill', c.post('/sales', { clientRequestId: randomUUID(), items, payments: total ? [{ mode, amount: total, reference: mode === 'UPI' ? 'UPI8812' : '' }] : [], ...extra }));
     };
     const cashier = team.get('cashier') ?? owner;
+    // Points on with the PLAN §16 rules: ₹100 earns 1, a point is ₹1, up to 20 % of a bill, 50 on signup.
+    const rules = await ok<Record<string, unknown>>('loyalty', owner.get('/loyalty/settings'));
+    delete rules.configured;
+    await ok('loyalty', owner.patch('/loyalty/settings', { ...rules, enabled: true }));
     const ratna = await ok<{ id: string }>('customer', owner.post('/customers', { name: 'Ratna Sen', phone: '98300 12345', creditLimit: 200_000 }));
     const kakoli = await ok<{ id: string }>('customer', owner.post('/customers', { name: 'Kakoli Ghosh', phone: '98310 55667' }));
     const doctor = await ok<{ id: string }>('doctor', owner.post('/doctors', { name: 'Dr. S. Banerjee', specialization: 'Physician', registrationNumber: 'WBMC 4471' }));
     await ok('doctor', owner.post('/doctors', { name: 'Dr. A. Mukherjee', specialization: 'Paediatrics' }));
+    await ok('points', owner.post('/loyalty/adjust', { clientRequestId: randomUUID(), customerId: ratna.id, points: 300, reason: 'Opening balance from old software' }));
     const b1 = await sell(owner, [{ productId: pid('Dolo 650'), quantity: 2, unit: 'STRIP' }, { productId: pid('Mox 500'), quantity: 1, unit: 'STRIP' }], { customerId: ratna.id });
     await sell(owner, [{ productId: pid('Alprax'), quantity: 1, unit: 'STRIP' }], { rx: { doctorId: doctor.id, patientName: 'Amit Das', rxNumber: 'RX-88' } });
     await sell(owner, [{ productId: pid('Dolo 650'), quantity: 3, unit: 'STRIP' }, { productId: pid('Benadryl'), quantity: 1, unit: 'BOTTLE' }], { customerId: ratna.id }, 'CREDIT');
     await sell(owner, [{ productId: pid('Benadryl'), quantity: 1, unit: 'BOTTLE' }, { productId: pid('Cadbury'), quantity: 2, unit: 'BAR' }], {}, 'UPI');
-    await sell(owner, [{ productId: pid('Omron'), quantity: 1, unit: 'PIECE', price: 230_000 }]);
+    await sell(owner, [{ productId: pid('Omron'), quantity: 1, unit: 'PIECE', price: 230_000 }], { customerId: ratna.id, redeemPoints: 300 });
     await sell(owner, [{ productId: pid('Betadine'), quantity: 1, unit: 'TUBE' }], { billDiscount: { type: 'pct', value: 25 } });
     await sell(cashier, [{ productId: pid('Coca-Cola'), quantity: 3, unit: 'CAN' }, { productId: pid('Dolo 650'), quantity: 5, unit: 'TABLET' }]);
     await sell(cashier, [{ productId: pid("Johnson's"), quantity: 1, unit: 'BOTTLE' }], { customerId: kakoli.id }, 'UPI');
@@ -143,7 +149,8 @@ async function main() {
     await ok('cancel', owner.post(`/sales/${gone.id}/cancel`, { reason: 'Customer changed mind' }));
     await ok('return', owner.post('/sale-returns', { clientRequestId: randomUUID(), saleId: b1.id, items: [{ line: 0, quantity: 7, reason: 'Bought extra by mistake' }], refundMode: 'CREDIT_NOTE' }));
     await ok('order', owner.post('/orders', { clientRequestId: randomUUID(), customer: { name: 'Kakoli Ghosh', phone: '98310 55667' }, items: [{ productId: pid('Huminsulin'), qty: 2 }, { name: 'Nurokind Gold Capsule', qty: 1 }], advance: 20_000, advanceMode: 'CASH', note: 'Call after 5 pm' }));
-    process.stdout.write('Customers: 2 (Ratna with a ₹2,000 udhaar limit) · doctors: 2 · an open order with ₹200 advance\n');
+    process.stdout.write('Customers: 2 (Ratna with a ₹2,000 udhaar limit and points) · doctors: 2 · an open order with ₹200 advance\n');
+    process.stdout.write('Loyalty: on (₹100 = 1 point, 1 point = ₹1) · Ratna got 300 by hand and used them on the Omron bill\n');
     process.stdout.write('Bills: 9 (udhaar, H1 with a listed doctor, UPI, typed price, 25 % discount, cashier, 1 cancelled) · 1 return with a credit note\n');
 
     const pad = (s: string) => s.padEnd(24);
