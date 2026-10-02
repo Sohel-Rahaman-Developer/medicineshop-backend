@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { clientRequestId, istDay, LIMIT, objectId, paise } from '../../core/zod';
 import { ALL_UNITS } from '../../utils/units';
 import { phone } from '../shops/shops.validation';
+import { REFUND_MODES } from './sale-return.model';
 import { SALE_PAY_MODES } from './sale.model';
 
 const discount = z.discriminatedUnion('type', [
@@ -63,6 +64,42 @@ export const posSearchSchema = z
   .strict();
 export const cancelSaleSchema = z.object({ reason: z.string().trim().min(3, 'A reason is required').max(200) }).strict();
 
+export const saleReturnSchema = z
+  .object({
+    clientRequestId,
+    saleId: objectId,
+    /** `line` is the bill line's index; quantity is in base units (tablets, ml…). */
+    items: z
+      .array(
+        z
+          .object({
+            line: z.number('Choose a line').int().min(0).max(299),
+            quantity: z.number('Quantity must be a number').int('Quantity must be a whole number').min(1, 'Quantity must be at least 1').max(100_000, 'Quantity is too large'),
+            reason: text('Reason', 80).min(3, 'A reason is required'),
+          })
+          .strict(),
+      )
+      .min(1, 'Choose what came back')
+      .max(100)
+      .refine((v) => new Set(v.map((x) => x.line)).size === v.length, 'A line is in the return twice'),
+    refundMode: z.enum(REFUND_MODES, 'Choose cash or credit note'),
+    expectedTotal: paise('Total').optional(),
+  })
+  .strict();
+
+export const returnListSchema = z
+  .object({
+    from: istDay.optional(),
+    to: istDay.optional(),
+    saleId: objectId.optional(),
+    q: z.string().trim().max(40).optional(),
+    cursor: z.string().max(400).optional(),
+    limit: LIMIT,
+  })
+  .strict();
+
 export type SaleInput = z.infer<typeof saleSchema>;
+export type SaleReturnInput = z.infer<typeof saleReturnSchema>;
+export type ReturnListQuery = z.infer<typeof returnListSchema>;
 export type SaleItem = z.infer<typeof itemSchema>;
 export type SaleListQuery = z.infer<typeof saleListSchema>;

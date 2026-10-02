@@ -86,6 +86,8 @@ async function main() {
   check('credentials allowed for the shop', shopPre.headers.get('access-control-allow-credentials') === 'true');
   check('X-CSRF-Token is an allowed header', /x-csrf-token/i.test(shopPre.headers.get('access-control-allow-headers') ?? ''));
   check('no wildcard origin anywhere', evilPre.headers.get('access-control-allow-origin') !== '*');
+  const get = await fetch(`${h.base}/auth/csrf`, { headers: { origin: SHOP_ORIGIN } });
+  check('the app can read a download’s file name (Content-Disposition exposed)', /content-disposition/i.test(get.headers.get('access-control-expose-headers') ?? ''));
 
   section('5. Security headers');
   const me = await web.get('/auth/me');

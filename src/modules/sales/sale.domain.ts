@@ -88,3 +88,21 @@ export const floorOf = (minPrice: number | null | undefined, qtyBase: number, sa
 
 /** The bill QR (PLAN §35.7): number, IST day and total in paise — the return screen opens the bill from it. */
 export const qrText = (billNumber: string, billDay: string, grandTotal: number) => `${billNumber}|${billDay}|${String(grandTotal)}`;
+
+/** A return's share of a bill line (PLAN §15): cumulative rounding, so returning it all gives back exactly the line. */
+export function returnShare(l: { quantityInBase: number; totalAmount: number; cgst: number; sgst: number; igst: number }, already: number, qty: number) {
+  const part = (v: number) => rhu(v * (already + qty), l.quantityInBase) - rhu(v * already, l.quantityInBase);
+  const amount = part(l.totalAmount);
+  const cgst = part(l.cgst);
+  const sgst = part(l.sgst);
+  const igst = part(l.igst);
+  return { amount, cgst, sgst, igst, tax: cgst + sgst + igst, taxable: amount - cgst - sgst - igst };
+}
+
+/** "2 STRIP + 3 TABLET" from base units, as printed on the bill. */
+export function packLabel(base: number, pack: number, sale: string, baseUnit: string) {
+  if (pack <= 1) return `${String(base)} ${sale}`;
+  const full = Math.floor(base / pack);
+  const loose = base % pack;
+  return [full ? `${String(full)} ${sale}` : '', loose ? `${String(loose)} ${baseUnit}` : ''].filter(Boolean).join(' + ');
+}

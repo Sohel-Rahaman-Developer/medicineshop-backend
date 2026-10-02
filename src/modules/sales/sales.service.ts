@@ -19,6 +19,8 @@ import { allocate, daysLeftOut, fefo, hasExpiry, type BatchLike } from '../stock
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { floorOf, priceSale, splitLine, type Part } from './sale.domain';
+import { SaleReturnModel } from './sale-return.model';
+import { ageDays } from './sale-returns.service';
 import { SaleModel } from './sale.model';
 import type { SaleInput, SaleListQuery } from './sales.validation';
 
@@ -384,7 +386,14 @@ function shape(s: SaleLean, cost: boolean) {
 export async function get(t: TenantContext, userId: string, id: string) {
   const s = await findSale(t, userId, id);
   if (!s) throw AppError.notFound('Bill not found');
-  return shape(s, seesCost(t));
+  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing.saleReturnWindowDays').lean();
+  const rets = await SaleReturnModel.find({ shopId: t.shopId, saleId: s._id }).sort({ returnDate: 1 }).select('returnNumber creditNoteNumber returnDate total refundMode createdByName').lean();
+  return {
+    ...shape(s, seesCost(t)),
+    ageDays: ageDays(s.billDate, new Date()),
+    returnWindowDays: shop?.settings.billing?.saleReturnWindowDays ?? 7,
+    returns: rets.map((r) => ({ id: String(r._id), returnNumber: r.returnNumber, creditNoteNumber: r.creditNoteNumber ?? null, returnDate: r.returnDate, total: r.total, refundMode: r.refundMode, createdByName: r.createdByName })),
+  };
 }
 
 const dayEnd = (d: Date) => new Date(d.getTime() + DAY - 1);
@@ -398,7 +407,11 @@ function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'fr
   if (q.flag === 'discount') filter.discountAboveLimit = true;
   if (q.flag === 'aboveMrp') filter.aboveMrpAmount = { $gt: 0 };
   if (q.flag === 'belowMin') filter.belowMinPrice = true;
-  if (q.q) filter.billNumber = { $regex: `${escape(q.q.toUpperCase())}$` };
+  // Digits only can also be the customer's phone (return lookup, PLAN §15).
+  if (q.q) {
+    const bill = { billNumber: { $regex: `${escape(q.q.toUpperCase())}$` } };
+    filter.$or = /^\d{4,}$/.test(q.q) ? [bill, { customerPhone: { $regex: escape(q.q) } }] : [bill];
+  }
   if (q.from || q.to) filter.billDate = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lte: dayEnd(q.to) } : {}) };
   return filter;
 }

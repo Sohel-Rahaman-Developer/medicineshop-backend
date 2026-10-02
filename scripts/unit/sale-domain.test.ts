@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { floorOf, hsnSummary, priceSale, splitLine, type Part } from '../../src/modules/sales/sale.domain';
+import { floorOf, hsnSummary, packLabel, priceSale, returnShare, splitLine, type Part } from '../../src/modules/sales/sale.domain';
 import { distribute, gstInclusive } from '../../src/utils/money';
 
 const part = (o: Partial<Part>): Part => ({ mrp: 3000, qtyBase: 15, salePack: 15, gstRate: 12, sell: null, discount: null, ...o });
@@ -74,4 +74,16 @@ void test('distribute always adds up; hsnSummary sums lines; floorOf per sale un
   assert.deepEqual(s, [{ hsn: '3004', rate: 12, taxable: 150, cgst: 9, sgst: 9, igst: 0 }]);
   assert.equal(floorOf(2500, 30, 15), 5000);
   assert.equal(floorOf(null, 30, 15), null);
+});
+
+void test('returnShare: one by one adds up to the line exactly, tax included (PLAN §15)', () => {
+  const l = { quantityInBase: 5, totalAmount: 1117, cgst: 60, sgst: 59, igst: 0 };
+  const parts = [0, 1, 2, 3, 4].map((done) => returnShare(l, done, 1));
+  assert.deepEqual(parts.map((p) => p.amount), [223, 224, 223, 224, 223]);
+  assert.equal(parts.reduce((s, p) => s + p.amount, 0), 1117);
+  assert.equal(parts.reduce((s, p) => s + p.cgst, 0), 60);
+  assert.equal(parts.reduce((s, p) => s + p.taxable, 0), 1117 - 119);
+  assert.deepEqual(returnShare(l, 0, 5), { amount: 1117, cgst: 60, sgst: 59, igst: 0, tax: 119, taxable: 998 });
+  assert.equal(packLabel(23, 15, 'STRIP', 'TABLET'), '1 STRIP + 8 TABLET');
+  assert.equal(packLabel(3, 1, 'PIECE', 'PIECE'), '3 PIECE');
 });

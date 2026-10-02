@@ -20,7 +20,7 @@ import { staffRouter } from './modules/staff/staff.routes';
 import { stockRouter } from './modules/stock/stock.routes';
 import { demandsRouter } from './modules/demands/demands.routes';
 import { purchasesRouter, returnsRouter } from './modules/purchases/purchases.routes';
-import { posRouter, salesRouter } from './modules/sales/sales.routes';
+import { posRouter, saleReturnsRouter, salesRouter } from './modules/sales/sales.routes';
 import { searchRouter } from './modules/search/search.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
@@ -53,6 +53,8 @@ export function createApp() {
       // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
       credentials: true,
       allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id'],
+      // PDF / Excel names come in Content-Disposition; unexposed, every download was "medshop-file".
+      exposedHeaders: ['Content-Disposition'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
       maxAge: 600,
     }),
@@ -101,6 +103,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/search`, searchRouter);
   app.use(`${env.API_PREFIX}/pos`, posRouter);
   app.use(`${env.API_PREFIX}/sales`, salesRouter);
+  app.use(`${env.API_PREFIX}/sale-returns`, saleReturnsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

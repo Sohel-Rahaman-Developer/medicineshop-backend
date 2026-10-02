@@ -1,4 +1,4 @@
-// B4 billing checks: PLAN §14 bill, FEFO split, GST, discounts, typed price (D56), lowest price flag (D57), H1, cancel, isolation.
+// B4 billing checks: PLAN §14 bill, FEFO split, GST, discounts, typed price (D56), lowest price flag (D57), H1, cancel, return, isolation.
 import { randomUUID } from 'node:crypto';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
@@ -22,8 +22,9 @@ const shopBody = (name: string) => ({
 });
 
 interface Saved { id: string; billNumber: string; grandTotal: number; change: number }
-interface Line { batchNumber: string; quantityInBase: number; mrp: number; gross: number; discountAmount: number; aboveMrpAmount: number; belowMinPrice: boolean; typedPrice: boolean; taxableAmount: number; cgst: number; sgst: number; totalAmount: number; expiryDate: string | null; lineCost?: number }
+interface Line { batchNumber: string; quantityInBase: number; mrp: number; gross: number; discountAmount: number; aboveMrpAmount: number; belowMinPrice: boolean; typedPrice: boolean; taxableAmount: number; cgst: number; sgst: number; totalAmount: number; expiryDate: string | null; lineCost?: number; returnedQuantity: number }
 interface Sale { id: string; billNumber: string; status: string; lines: Line[]; subtotal: number; totalDiscount: number; taxableAmount: number; cgst: number; sgst: number; totalTax: number; roundOff: number; grandTotal: number; discountAboveLimit: boolean; aboveMrpAmount: number; belowMinPrice: boolean; doctorName: string; paymentMode: string; totalCost?: number; createdByName: string }
+interface Ret { id: string; returnNumber: string; creditNoteNumber: string | null; total: number; refundMode: string; outsideWindow: boolean }
 interface Hit { id: string; sellable: number; batches: { batchNumber: string; costPerBaseUnit?: number }[] }
 
 const units15 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };
@@ -229,6 +230,91 @@ async function main() {
   check('cashier summary: own bills only', data<{ bills: number }>(await cashier.get(`/sales/summary?from=${today}&to=${today}`)).bills === 1);
   check('SALE movements written for every bill line', (await MovementModel.countDocuments({ shopId: shop1, type: 'SALE' })) > 15);
   check('Dolo lastSoldAt set', Boolean((await ProductModel.findOne({ shopId: shop1, _id: dolo }).lean())?.lastSoldAt));
+
+  section('11. Sale return (PLAN §15)');
+  const { SaleModel } = await import('../src/modules/sales/sale.model.js');
+  const ret = (saleId: string, items: { line: number; quantity: number; reason?: string }[], over: Record<string, unknown> = {}) => ({
+    clientRequestId: randomUUID(),
+    saleId,
+    items: items.map((x) => ({ reason: 'Customer returned', ...x })),
+    refundMode: 'CASH',
+    ...over,
+  });
+  const dl24 = await stockOf('DL2401');
+  const rb = ret(b1.id, [{ line: 0, quantity: 7 }], { expectedTotal: 1400 });
+  const r11 = await owner.post('/sale-returns', rb);
+  const rt1 = data<Ret>(r11);
+  check(`7 of 30 Dolo tablets back → SR-${fy}-0001 · ₹14 cash`, r11.status === 201 && rt1.returnNumber === `SR-${fy}-0001` && rt1.total === 1400 && rt1.creditNoteNumber === null, code(r11));
+  check('the same batch DL2401 gets the 7 tablets', (await stockOf('DL2401')) === dl24 + 7);
+  const rb1 = data<Sale & { returns: unknown[] }>(await owner.get(`/sales/${b1.id}`));
+  check('bill: partially returned · 7 returned on the line · return listed', rb1.status === 'partially_returned' && rb1.lines[0]?.returnedQuantity === 7 && rb1.returns.length === 1);
+  const rep = await owner.post('/sale-returns', rb);
+  check('same clientRequestId → 200, same return, stock not added twice', rep.status === 200 && data<Ret>(rep).id === rt1.id && (await stockOf('DL2401')) === dl24 + 7, code(rep));
+  check('24 when 23 are left → 422', (await owner.post('/sale-returns', ret(b1.id, [{ line: 0, quantity: 24 }]))).status === 422);
+  check('a line that isn’t on the bill → 422', (await owner.post('/sale-returns', ret(b1.id, [{ line: 9, quantity: 1 }]))).status === 422);
+  check('the same line twice → 422', (await owner.post('/sale-returns', ret(b1.id, [{ line: 1, quantity: 1 }, { line: 1, quantity: 1 }]))).status === 422);
+  check('refund by card (not offered) → 422', (await owner.post('/sale-returns', ret(b1.id, [{ line: 1, quantity: 1 }], { refundMode: 'CARD' }))).status === 422);
+  const tcr = await owner.post('/sale-returns', ret(b1.id, [{ line: 1, quantity: 10 }], { expectedTotal: 1 }));
+  check('saw another refund → 409 TOTAL_CHANGED', tcr.status === 409 && details(tcr).reason === 'TOTAL_CHANGED' && details(tcr).total === 9200, code(tcr));
+  check('cancel a bill with a return → 409', (await owner.post(`/sales/${b1.id}/cancel`, { reason: 'Changed mind' })).status === 409);
+  const r12 = await owner.post('/sale-returns', ret(b1.id, [{ line: 0, quantity: 23 }, { line: 1, quantity: 10 }], { refundMode: 'CREDIT_NOTE' }));
+  const rt2 = data<Ret>(r12);
+  check(`the rest as a credit note → CN-${fy}-0001 · ₹138`, r12.status === 201 && rt2.creditNoteNumber === `CN-${fy}-0001` && rt2.total === 13_800, code(r12));
+  check('both returns add up to the bill exactly (₹14 + ₹138 = ₹152) · status returned', rt1.total + rt2.total === b1.grandTotal && data<Sale>(await owner.get(`/sales/${b1.id}`)).status === 'returned');
+  check('a fully returned bill → 409', (await owner.post('/sale-returns', ret(b1.id, [{ line: 1, quantity: 1 }]))).status === 409);
+  check('a cancelled bill → 409', (await owner.post('/sale-returns', ret(d2.id, [{ line: 0, quantity: 1 }]))).status === 409);
+
+  // 5 loose tablets: ₹11.17 billed ₹11 (−0.17). Rounding each return on its own would give back ₹11.15.
+  const lb = data<Saved>(loose);
+  const parts: number[] = [];
+  for (let i = 0; i < 5; i++) parts.push(data<Ret>(await owner.post('/sale-returns', ret(lb.id, [{ line: 0, quantity: 1 }]))).total);
+  check('5 single-tablet returns add up to ₹11.17; the last gives back the −0.17 round off → ₹11 paid', parts.join() === '223,224,223,224,206' && parts.reduce((a, b) => a + b, 0) === lb.grandTotal, parts.join());
+
+  // Old bill and an expired line: a warning only (D27), never a block.
+  const ob = data<Saved>(await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: cash(9200), customer: { name: 'Ratna Sen', phone: '98300 12345' } })));
+  await SaleModel.updateOne({ shopId: shop1, _id: ob.id }, { $set: { billDate: new Date(Date.now() - 10 * 86_400_000), 'lines.0.expiryDate': new Date(Date.now() - 86_400_000) } });
+  const ro = await owner.post('/sale-returns', ret(ob.id, [{ line: 0, quantity: 2, reason: 'Side effect — doctor stopped it' }]));
+  const rod = data<Ret & { ageDays: number; lines: { expired: boolean }[] }>(await owner.get(`/sale-returns/${data<Ret>(ro).id}`));
+  check('10-day-old bill (window 7) with an expired line → saved, flagged outside window + expired', ro.status === 201 && rod.outsideWindow && rod.ageDays === 10 && rod.lines[0]?.expired === true, code(ro));
+  check('audit says how late', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: rod.returnNumber, text: /10 days after the bill/ })) === 1);
+  check('find the bill by the customer’s phone', data<{ id: string }[]>(await owner.get('/sales?q=12345')).some((x) => x.id === ob.id));
+
+  // A batch that went back to the supplier comes alive again when a customer returns from it.
+  await BatchModel.updateOne({ shopId: shop1, productId: thermo }, { $set: { status: 'returned' } });
+  const rth = await owner.post('/sale-returns', ret(dth.id, [{ line: 0, quantity: 1 }]));
+  const tb = await BatchModel.findOne({ shopId: shop1, productId: thermo }).lean();
+  check('thermometer back → its batch active again with 1', rth.status === 201 && tb?.status === 'active' && tb.quantity === 1, code(rth));
+
+  const pinId = data<Saved>(pin).id;
+  const am6Before = await stockOf('AM6000');
+  const race = await Promise.all([1, 2].map(() => owner.post('/sale-returns', ret(pinId, [{ line: 0, quantity: 10 }]))));
+  check('two returns of the whole strip at once → one 201, one refused', race.filter((r) => r.status === 201).length === 1 && race.filter((r) => r.status === 409 || r.status === 422).length === 1, race.map(code).join(' | '));
+  check('AM6000 gets the strip back once', (await stockOf('AM6000')) === am6Before + 10);
+
+  const cbId = data<Saved>(cb).id;
+  check('cashier by default (no sales: create) → 403', (await cashier.post('/sale-returns', ret(cbId, [{ line: 0, quantity: 5 }]))).status === 403);
+  // PLAN §15: given sales: create, the cashier returns only own bills (record scope, D20).
+  const roleId = roles.find((r) => r.key === 'cashier')?.id;
+  const member = data<{ members: { id: string; email: string }[] }>(await owner.get('/staff')).members.find((m) => m.email === 'sunita@sale1.test')?.id ?? '';
+  const version = data<{ version: number }>(await owner.get(`/staff/${member}`)).version;
+  check('owner grants the cashier sales: create', (await owner.put(`/staff/${member}`, { roleId, grants: { sales: ['create'] }, version })).status === 200);
+  const crt = await cashier.post('/sale-returns', ret(cbId, [{ line: 0, quantity: 5 }]));
+  check('cashier returns own bill → 201', crt.status === 201, code(crt));
+  check('cashier returns the owner’s bill → 404', (await cashier.post('/sale-returns', ret(ob.id, [{ line: 0, quantity: 1 }]))).status === 404);
+  check('accountant can’t return (no sales: create) → 403', (await accountant.post('/sale-returns', ret(cbId, [{ line: 0, quantity: 1 }]))).status === 403);
+  const cl = data<{ id: string }[]>(await cashier.get('/sale-returns'));
+  check('cashier list: only returns on own bills', cl.length === 1 && cl[0]?.id === data<Ret>(crt).id);
+  check('cashier opens the owner’s return → 404 · its PDF → 404', (await cashier.get(`/sale-returns/${rt1.id}`)).status === 404 && (await cashier.get(`/sale-returns/${rt1.id}/pdf`)).status === 404);
+  check('cashier: no cost on own return', data<{ totalCost?: number }>(await cashier.get(`/sale-returns/${data<Ret>(crt).id}`)).totalCost === undefined);
+  check('owner sees the cost', data<{ totalCost?: number }>(await owner.get(`/sale-returns/${rt1.id}`)).totalCost === 7 * 127);
+  check('accountant sees every return', data<unknown[]>(await accountant.get('/sale-returns?limit=100')).length === 11);
+  check('list by bill', data<{ id: string }[]>(await owner.get(`/sale-returns?saleId=${b1.id}`)).length === 2);
+  check('search by credit note number', data<{ id: string }[]>(await owner.get(`/sale-returns?q=CN-${fy}-0001`))[0]?.id === rt2.id);
+  const cn = await owner.get(`/sale-returns/${rt2.id}/pdf`);
+  check('credit note PDF', cn.status === 200 && cn.headers.get('content-type') === 'application/pdf' && cn.text.startsWith('%PDF'), code(cn));
+  check('SALE_RETURN movements carry the return number', (await MovementModel.countDocuments({ shopId: shop1, type: 'SALE_RETURN', refNumber: /^SR-/ })) === 12);
+  check('shop 2: return shop 1’s bill → 404', (await other.post('/sale-returns', ret(cbId, [{ line: 0, quantity: 1 }]))).status === 404);
+  check('shop 2: shop 1 return → 404 · its PDF → 404 · list empty', (await other.get(`/sale-returns/${rt1.id}`)).status === 404 && (await other.get(`/sale-returns/${rt1.id}/pdf`)).status === 404 && data<unknown[]>(await other.get('/sale-returns')).length === 0);
 
   await ledgerEqualsStock('end');
   await h.close();

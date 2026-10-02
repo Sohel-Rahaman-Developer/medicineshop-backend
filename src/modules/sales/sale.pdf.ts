@@ -4,23 +4,38 @@ import { BOLD, FONT, dayTime, mmyy, rupees } from '../../core/export';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { istIsoDay } from '../../utils/date';
 import { ShopModel } from '../shops/shop.model';
-import { hsnSummary, qrText } from './sale.domain';
+import * as returns from './sale-returns.service';
+import { hsnSummary, packLabel, qrText } from './sale.domain';
 import { forPdf } from './sales.service';
 
-const qtyLabel = (base: number, pack: number, sale: string, baseUnit: string) => {
-  if (pack <= 1) return `${String(base)} ${sale}`;
-  const full = Math.floor(base / pack);
-  const loose = base % pack;
-  return [full ? `${String(full)} ${sale}` : '', loose ? `${String(loose)} ${baseUnit}` : ''].filter(Boolean).join(' + ');
-};
-
 type Total = [label: string, value: string, bold: boolean];
+interface Row {
+  name: string;
+  qty: string;
+  mrp: number;
+  disc: string;
+  gstRate: number;
+  amount: number;
+  sub: string;
+}
+interface Paper {
+  title: string;
+  danger: boolean;
+  number: string;
+  at: Date;
+  head: string[];
+  rows: Row[];
+  hsn: ReturnType<typeof hsnSummary>;
+  totals: Total[];
+  foot: string[];
+  alert?: string;
+  qr?: string;
+}
 
-/** A5 tax invoice — the sandbox exporter.invoice layout, with the bill QR (PLAN §14, §35.7). */
-export async function billPdf(t: TenantContext, userId: string, id: string) {
-  const s = await forPdf(t, userId, id);
-  const shop = await ShopModel.findById(t.shopId).select('name address phone gstin drugLicenseNumber settings.tax.showHsnOnBill').lean();
-  const doc = new PDFDocument({ size: 'A5', margin: 24, bufferPages: true, info: { Title: `Bill ${s.billNumber}`, Producer: 'MedShop' } });
+/** A5 tax invoice / credit note — the sandbox exporter.invoice layout (PLAN §14, §15, §35.7). */
+async function paper(t: TenantContext, p: Paper) {
+  const shop = await ShopModel.findById(t.shopId).select('name address phone gstin drugLicenseNumber').lean();
+  const doc = new PDFDocument({ size: 'A5', margin: 24, bufferPages: true, info: { Title: `${p.title} ${p.number}`, Producer: 'MedShop' } });
   doc.registerFont('r', FONT);
   doc.registerFont('b', BOLD);
   const chunks: Buffer[] = [];
@@ -36,11 +51,10 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
   doc.font('r').fontSize(7).fillColor('#555').text(addr, { width: width - 120 });
   doc.text([shop?.gstin ? `GSTIN ${shop.gstin}` : '', shop ? `DL ${shop.drugLicenseNumber}` : ''].filter(Boolean).join(' · '), { width: width - 120 });
   const headEnd = doc.y;
-  doc.font('b').fontSize(10).fillColor(s.status === 'cancelled' ? '#b42318' : '#000').text(s.status === 'cancelled' ? 'CANCELLED' : 'TAX INVOICE', left + width - 120, 24, { width: 120, align: 'right' });
-  doc.font('r').fontSize(7.5).fillColor('#000').text(s.billNumber, { width: 120, align: 'right' }).text(dayTime(s.billDate), { width: 120, align: 'right' });
+  doc.font('b').fontSize(10).fillColor(p.danger ? '#b42318' : '#000').text(p.title, left + width - 120, 24, { width: 120, align: 'right' });
+  doc.font('r').fontSize(7.5).fillColor('#000').text(p.number, { width: 120, align: 'right' }).text(dayTime(p.at), { width: 120, align: 'right' });
   doc.y = Math.max(doc.y, headEnd) + 8;
-  doc.font('b').fontSize(8).text(`Bill to: ${s.customerName}${s.customerPhone ? ` · ${s.customerPhone}` : ''}`, left, doc.y, { width });
-  if (s.doctorName || s.patientName) doc.font('r').text(`Doctor: ${s.doctorName || '—'} · Patient: ${s.patientName || '—'}${s.rxNumber ? ` · Rx ${s.rxNumber}` : ''}`, { width });
+  p.head.forEach((h, i) => doc.font(i ? 'r' : 'b').fontSize(8).fillColor('#000').text(h, left, doc.y, { width }));
   doc.moveDown(0.4);
 
   const cols = [
@@ -51,7 +65,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     { label: 'GST', w: 0.6, num: true },
     { label: 'Amount', w: 1.1, num: true },
   ];
-  const sum = cols.reduce((a, c) => a + c.w, 0);
+  const sum = cols.reduce((s, c) => s + c.w, 0);
   const widths = cols.map((c) => (width * c.w) / sum);
   const row = (cells: string[], head: boolean, sub?: string) => {
     doc.font(head ? 'b' : 'r').fontSize(7.5);
@@ -69,28 +83,17 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     doc.y = y + h;
   };
   row(cols.map((c) => c.label), true);
-  for (const l of s.lines) {
-    const rx = l.schedule === 'H1' || l.schedule === 'X' ? ` · Sch ${l.schedule}` : '';
-    const hsn = shop?.settings.tax?.showHsnOnBill && l.hsn ? ` · HSN ${l.hsn}` : '';
-    const disc = l.discountAmount ? rupees(l.discountAmount) : l.aboveMrpAmount ? `+${rupees(l.aboveMrpAmount)}` : '—';
-    row([l.productName, qtyLabel(l.quantityInBase, l.salePack, l.unit, l.baseUnit), rupees(l.mrp), disc, `${String(l.gstRate)}%`, rupees(l.totalAmount)], false, `${l.batchNumber} · Exp ${l.expiryDate ? mmyy(l.expiryDate) : 'none'}${rx}${hsn}`);
-  }
+  for (const r of p.rows) row([r.name, r.qty, rupees(r.mrp), r.disc, `${String(r.gstRate)}%`, rupees(r.amount)], false, r.sub);
 
   doc.moveDown(0.5);
   if (doc.y + 110 > bottom()) doc.addPage();
   const top = doc.y;
   doc.font('b').fontSize(6.8).fillColor('#000').text('HSN · rate · taxable · CGST · SGST', left, top, { width: width / 2 - 8 });
   doc.font('r');
-  for (const h of hsnSummary(s.lines)) doc.text(`${h.hsn || '—'} · ${String(h.rate)}% · ${rupees(h.taxable)} · ${rupees(h.cgst)} · ${rupees(h.sgst)}`, { width: width / 2 - 8 });
+  for (const h of p.hsn) doc.text(`${h.hsn || '—'} · ${String(h.rate)}% · ${rupees(h.taxable)} · ${rupees(h.cgst)} · ${rupees(h.sgst)}`, { width: width / 2 - 8 });
   const hsnEnd = doc.y;
-  const totals: Total[] = [['Subtotal (MRP)', rupees(s.subtotal), false]];
-  if (s.totalDiscount) totals.push(['Discount', rupees(-s.totalDiscount), false]);
-  if (s.aboveMrpAmount) totals.push(['Above MRP', rupees(s.aboveMrpAmount), false]);
-  totals.push(['Taxable', rupees(s.taxableAmount), false], ['CGST', rupees(s.cgst), false], ['SGST', rupees(s.sgst), false]);
-  if (s.roundOff) totals.push(['Round off', rupees(s.roundOff), false]);
-  totals.push(['TOTAL', rupees(s.grandTotal), true]);
   let ty = top;
-  for (const [k, v, bold] of totals) {
+  for (const [k, v, bold] of p.totals) {
     doc.font(bold ? 'b' : 'r').fontSize(bold ? 9 : 7.5).fillColor('#000').text(k, left + width / 2, ty, { width: width / 4 });
     doc.text(v, left + (width * 3) / 4, ty, { width: width / 4, align: 'right' });
     ty += bold ? 13 : 10;
@@ -98,19 +101,21 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
   doc.y = Math.max(hsnEnd, ty) + 8;
   if (doc.y + 70 > bottom()) doc.addPage();
   const y = doc.y;
-  const paid = s.payments.length ? s.payments.map((p) => `${p.mode} ${rupees(p.amount)}`).join(' + ') : '—';
-  doc.font('r').fontSize(7.2).fillColor('#333').text(`Paid: ${paid}`, left, y, { width: width - 80 });
-  doc.text(`Billed by ${s.createdByName}. Returns as per the shop’s policy.`, { width: width - 80 });
-  if (s.status === 'cancelled') doc.font('b').fillColor('#b42318').text(`Cancelled by ${s.cancelledBy ?? ''}: ${s.cancelReason ?? ''}`, { width: width - 80 });
+  const textWidth = p.qr ? width - 80 : width;
+  doc.font('r').fontSize(7.2).fillColor('#333');
+  for (const f of p.foot) doc.text(f, left, doc.y, { width: textWidth });
+  if (p.alert) doc.font('b').fillColor('#b42318').text(p.alert, { width: textWidth });
 
-  const q = qrcode(0, 'M');
-  q.addData(qrText(s.billNumber, istIsoDay(s.billDate), s.grandTotal));
-  q.make();
-  const n = q.getModuleCount();
-  const cell = 64 / n;
-  const qx = left + width - 64;
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) doc.rect(qx + c * cell, y + r * cell, cell + 0.15, cell + 0.15);
-  doc.fill('#0f172a');
+  if (p.qr) {
+    const q = qrcode(0, 'M');
+    q.addData(p.qr);
+    q.make();
+    const n = q.getModuleCount();
+    const cell = 64 / n;
+    const qx = left + width - 64;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) doc.rect(qx + c * cell, y + r * cell, cell + 0.15, cell + 0.15);
+    doc.fill('#0f172a');
+  }
 
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
@@ -118,5 +123,79 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     doc.font('r').fontSize(6.5).fillColor('#777').text(`MedShop · page ${String(i + 1)} of ${String(range.count)}`, left, doc.page.height - 30, { width, align: 'right', lineBreak: false });
   }
   doc.end();
-  return { pdf: await done, name: `Bill-${s.billNumber}` };
+  return done;
+}
+
+const showHsn = async (t: TenantContext) => (await ShopModel.findById(t.shopId).select('settings.tax.showHsnOnBill').lean())?.settings.tax?.showHsnOnBill ?? true;
+
+export async function billPdf(t: TenantContext, userId: string, id: string) {
+  const s = await forPdf(t, userId, id);
+  const hsnOn = await showHsn(t);
+  const totals: Total[] = [['Subtotal (MRP)', rupees(s.subtotal), false]];
+  if (s.totalDiscount) totals.push(['Discount', rupees(-s.totalDiscount), false]);
+  if (s.aboveMrpAmount) totals.push(['Above MRP', rupees(s.aboveMrpAmount), false]);
+  totals.push(['Taxable', rupees(s.taxableAmount), false], ['CGST', rupees(s.cgst), false], ['SGST', rupees(s.sgst), false]);
+  if (s.roundOff) totals.push(['Round off', rupees(s.roundOff), false]);
+  totals.push(['TOTAL', rupees(s.grandTotal), true]);
+  const cancelled = s.status === 'cancelled';
+  const pdf = await paper(t, {
+    title: cancelled ? 'CANCELLED' : 'TAX INVOICE',
+    danger: cancelled,
+    number: s.billNumber,
+    at: s.billDate,
+    head: [
+      `Bill to: ${s.customerName}${s.customerPhone ? ` · ${s.customerPhone}` : ''}`,
+      ...(s.doctorName || s.patientName ? [`Doctor: ${s.doctorName || '—'} · Patient: ${s.patientName || '—'}${s.rxNumber ? ` · Rx ${s.rxNumber}` : ''}`] : []),
+    ],
+    rows: s.lines.map((l) => {
+      const rx = l.schedule === 'H1' || l.schedule === 'X' ? ` · Sch ${l.schedule}` : '';
+      const hsn = hsnOn && l.hsn ? ` · HSN ${l.hsn}` : '';
+      return {
+        name: l.productName,
+        qty: packLabel(l.quantityInBase, l.salePack, l.unit, l.baseUnit),
+        mrp: l.mrp,
+        disc: l.discountAmount ? rupees(l.discountAmount) : l.aboveMrpAmount ? `+${rupees(l.aboveMrpAmount)}` : '—',
+        gstRate: l.gstRate,
+        amount: l.totalAmount,
+        sub: `${l.batchNumber} · Exp ${l.expiryDate ? mmyy(l.expiryDate) : 'none'}${rx}${hsn}`,
+      };
+    }),
+    hsn: hsnSummary(s.lines),
+    totals,
+    foot: [`Paid: ${s.payments.length ? s.payments.map((p) => `${p.mode} ${rupees(p.amount)}`).join(' + ') : '—'}`, `Billed by ${s.createdByName}. Returns as per the shop’s policy.`],
+    alert: cancelled ? `Cancelled by ${s.cancelledBy ?? ''}: ${s.cancelReason ?? ''}` : undefined,
+    qr: qrText(s.billNumber, istIsoDay(s.billDate), s.grandTotal),
+  });
+  return { pdf, name: `Bill-${s.billNumber}` };
+}
+
+/** Credit note for a sale return (PLAN §15): the lines that came back, against the original bill. */
+export async function returnPdf(t: TenantContext, userId: string, id: string) {
+  const r = await returns.forPdf(t, userId, id);
+  const hsnOn = await showHsn(t);
+  const lines = r.lines.map((l) => ({ ...l, taxableAmount: l.taxable }));
+  const totals: Total[] = [['Taxable', rupees(r.taxableAmount), false], ['CGST', rupees(r.cgst), false], ['SGST', rupees(r.sgst), false]];
+  if (r.roundOff) totals.push(['Round off', rupees(r.roundOff), false]);
+  totals.push(['REFUND', rupees(r.total), true]);
+  const number = r.creditNoteNumber ?? r.returnNumber;
+  const pdf = await paper(t, {
+    title: 'CREDIT NOTE',
+    danger: false,
+    number,
+    at: r.returnDate,
+    head: [`Customer: ${r.customerName}${r.customerPhone ? ` · ${r.customerPhone}` : ''}`, `Against bill ${r.billNumber} of ${dayTime(r.billDate)} · return ${r.returnNumber}`],
+    rows: r.lines.map((l) => ({
+      name: l.productName,
+      qty: packLabel(l.quantity, l.salePack, l.unit, l.baseUnit),
+      mrp: l.mrp,
+      disc: '—',
+      gstRate: l.gstRate,
+      amount: l.amount,
+      sub: `${l.batchNumber} · Exp ${l.expiryDate ? mmyy(l.expiryDate) : 'none'}${hsnOn && l.hsn ? ` · HSN ${l.hsn}` : ''} · ${l.reason}`,
+    })),
+    hsn: hsnSummary(lines),
+    totals,
+    foot: [`Refund: ${r.refundMode === 'CASH' ? 'cash' : `credit note ${number}`} ${rupees(r.total)}`, `Taken back by ${r.createdByName}.`],
+  });
+  return { pdf, name: `CreditNote-${number}` };
 }

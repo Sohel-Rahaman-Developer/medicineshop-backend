@@ -9,9 +9,21 @@ import { idParams } from '../../core/zod';
 import { AppError } from '../../core/errors';
 import { rangeSchema } from '../purchases/purchases.validation';
 import { actorOf } from '../user/actor';
-import { billPdf } from './sale.pdf';
+import * as returns from './sale-returns.service';
+import { billPdf, returnPdf } from './sale.pdf';
 import * as svc from './sales.service';
-import { cancelSaleSchema, posSearchSchema, saleListSchema, saleSchema, type SaleInput, type SaleListQuery } from './sales.validation';
+import {
+  cancelSaleSchema,
+  posSearchSchema,
+  returnListSchema,
+  saleListSchema,
+  saleReturnSchema,
+  saleSchema,
+  type ReturnListQuery,
+  type SaleInput,
+  type SaleListQuery,
+  type SaleReturnInput,
+} from './sales.validation';
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 const userOf = (req: Request) => {
@@ -102,5 +114,50 @@ salesRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const r = await svc.cancel(tenantOf(req), await actorOf(req), idOf(req), (req.body as { reason: string }).reason, req.ip);
     sent(res, r, `${r.billNumber} cancelled — stock is back on the shelf`);
+  }),
+);
+
+export const saleReturnsRouter = Router();
+saleReturnsRouter.use(requireAuth, tenant);
+
+// PLAN §15: sales:create starts a return (an accountant can't); the record scope applies to the bill.
+saleReturnsRouter.post(
+  '/',
+  requirePermission('sales', 'create'),
+  validate({ body: saleReturnSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { result, replayed } = await returns.create(tenantOf(req), await actorOf(req), req.body as SaleReturnInput, req.ip);
+    const msg = `${result.returnNumber} saved — stock is back in its batch`;
+    if (replayed) sent(res, result, msg);
+    else created(res, result, msg);
+  }),
+);
+
+saleReturnsRouter.get(
+  '/',
+  view,
+  validate({ query: returnListSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { items, meta } = await returns.list(tenantOf(req), userOf(req), req.query as unknown as ReturnListQuery);
+    fetched(res, items, meta);
+  }),
+);
+
+saleReturnsRouter.get(
+  '/:id',
+  view,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await returns.get(tenantOf(req), userOf(req), idOf(req)));
+  }),
+);
+
+saleReturnsRouter.get(
+  '/:id/pdf',
+  view,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { pdf, name } = await returnPdf(tenantOf(req), userOf(req), idOf(req));
+    sendFile(res, pdf, name, 'pdf');
   }),
 );
