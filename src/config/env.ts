@@ -50,6 +50,8 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   MAIL_FROM_NAME: z.string().default('Medicine Shop'),
   MAIL_FROM_EMAIL: z.string().default('no-reply@example.com'),
+  /** Local login without reading the terminal: every OTP is this code. Refused outside development. */
+  DEV_STATIC_OTP: z.string().optional().transform((v) => v || undefined),
 
   // Trial and Terms until the admin app owns them (B8 / B9)
   TRIAL_DAYS: z.coerce.number().int().positive().default(14),
@@ -71,6 +73,14 @@ const parsed = schema
   .refine((e) => e.CSRF_SECRET !== e.JWT_ACCESS_SECRET, {
     path: ['CSRF_SECRET'],
     message: 'must differ from JWT_ACCESS_SECRET',
+  })
+  .refine((e) => !e.DEV_STATIC_OTP || e.NODE_ENV === 'development', {
+    path: ['DEV_STATIC_OTP'],
+    message: 'is allowed only with NODE_ENV=development — remove it',
+  })
+  .refine((e) => !e.DEV_STATIC_OTP || (/^\d+$/.test(e.DEV_STATIC_OTP) && e.DEV_STATIC_OTP.length === e.OTP_LENGTH), {
+    path: ['DEV_STATIC_OTP'],
+    message: 'must be OTP_LENGTH digits',
   })
   .safeParse(process.env);
 

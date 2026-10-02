@@ -17,6 +17,7 @@
     "smoke:purchase": "tsx scripts/smoke-purchase.ts",
     "smoke:sale": "tsx scripts/smoke-sale.ts",
     "e2e:server": "tsx scripts/e2e-server.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
     "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale"
   },
   "keywords": [],

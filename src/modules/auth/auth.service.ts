@@ -36,7 +36,8 @@ export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise
     { $set: { consumedAt: new Date() } },
   );
 
-  const otp = generateNumericOtp(env.OTP_LENGTH);
+  // Development only (env refuses it elsewhere); attempts and rate limits still apply.
+  const otp = env.DEV_STATIC_OTP ?? generateNumericOtp(env.OTP_LENGTH);
   const expiresAt = new Date(Date.now() + env.OTP_TTL_MINUTES * 60 * 1000);
 
   await OtpTokenModel.create({

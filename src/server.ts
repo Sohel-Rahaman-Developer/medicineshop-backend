@@ -9,6 +9,7 @@ async function main() {
   const app = createApp();
   const server = app.listen(env.PORT, () => {
     logger.info(`🚀 API ready → http://localhost:${env.PORT}${env.API_PREFIX}  [${env.NODE_ENV}]`);
+    if (env.DEV_STATIC_OTP) logger.warn(`DEV_STATIC_OTP is on — every login code is ${env.DEV_STATIC_OTP} (development only)`);
   });
 
   const shutdown = (signal: string) => {

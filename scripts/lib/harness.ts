@@ -193,6 +193,7 @@ export async function startHarness(opts: { port?: number } = {}): Promise<Harnes
     CSRF_SECRET: 'smoke-test-csrf-secret-0123456789abcdefgh',
     COOKIE_SECURE: 'false',
     SMTP_HOST: '',
+    DEV_STATIC_OTP: '',
   });
 
   const { connectDb, disconnectDb } = await import('../../src/config/db.js');
