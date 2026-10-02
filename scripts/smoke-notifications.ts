@@ -187,6 +187,29 @@ async function main() {
   check('a new shop sees its own alerts only — no expiry, no discount event from shop 1', !types(ol).some((x) => x.startsWith('EXP') || x === 'LARGE_DISCOUNT' || x === 'LOYALTY_TIER_UP'), types(ol).join(','));
   check('reading shop 1’s key from shop 2 changes nothing in shop 1', (await other.post('/notifications/read', { keys: [kExp] })).status === 200 && (await get(keeper)).items.find((i) => i.key === kExp)?.unread === true);
 
+  section('9. Audit log (S76: Owner and Manager only, read-only)');
+  interface Entry { id: string; userName: string; action: string; module: string; text: string }
+  const page1 = await owner.get('/audit?limit=2');
+  const e1 = data<Entry[]>(page1);
+  const next = (page1.json as { meta?: { nextCursor?: string; hasMore?: boolean } }).meta;
+  check('owner reads the log, newest first, 2 a page with more after', page1.status === 200 && e1.length === 2 && next?.hasMore === true, code(page1));
+  const e2 = data<Entry[]>(await owner.get(`/audit?limit=2&cursor=${encodeURIComponent(next?.nextCursor ?? '')}`));
+  check('the next page has other entries', e2.length === 2 && !e2.some((x) => e1.some((y) => y.id === x.id)));
+  const mgrRes = await manager.get('/audit?module=settings');
+  check('manager filters by module: only the alert-settings changes', mgrRes.status === 200 && data<Entry[]>(mgrRes).length >= 1 && data<Entry[]>(mgrRes).every((x) => x.module === 'settings'), code(mgrRes));
+  const filt = data<{ users: { id: string; name: string }[]; modules: string[] }>(await owner.get('/audit/filters'));
+  const vikram = filt.users.find((u) => u.name.startsWith('vikram'));
+  check('filters list the people and modules in the log', Boolean(vikram) && filt.modules.includes('sales') && filt.modules.includes('settings'), JSON.stringify(filt.users.map((u) => u.name)));
+  const byUser = data<Entry[]>(await owner.get(`/audit?userId=${vikram?.id ?? ''}&action=update`));
+  check('by person and action: only the manager’s updates', byUser.length >= 1 && byUser.every((x) => x.userName.startsWith('vikram') && x.action === 'update'));
+  const future = new Date(Date.now() + 3 * DAY).toISOString().slice(0, 10);
+  check('a day with nothing → empty', data<Entry[]>(await owner.get(`/audit?from=${future}&to=${future}`)).length === 0);
+  check('cashier, stock keeper and accountant → 403', (await cashier.get('/audit')).status === 403 && (await keeper.get('/audit')).status === 403 && (await accountant.get('/audit')).status === 403);
+  check('no way to write or delete: POST / DELETE → 404', (await owner.post('/audit', {})).status === 404 && (await owner.del(`/audit/${e1[0]?.id ?? ''}`)).status === 404);
+  check('a bad action filter → 422', (await owner.get('/audit?action=hack')).status === 422);
+  const theirs = data<Entry[]>(await other.get('/audit?limit=100'));
+  check('another shop’s log has none of shop 1’s entries', !theirs.some((x) => /Shri Ram|vikram|sunita/.test(x.text)), String(theirs.length));
+
   await h.close();
   finish();
 }
