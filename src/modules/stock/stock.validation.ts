@@ -69,7 +69,9 @@ export const expiryQuerySchema = z
 
 export const rackBatchesQuerySchema = z.object({ rack: rackCode.refine((v) => v !== '', 'Choose a rack') }).strict();
 
-export const reorderQuerySchema = z.object({ target: z.coerce.number().int().refine((v) => [15, 30, 45].includes(v), 'Target is 15, 30 or 45 days').default(30) }).strict();
+const target = z.coerce.number().int().refine((v) => [15, 30, 45].includes(v), 'Target is 15, 30 or 45 days').default(30);
+export const reorderQuerySchema = z.object({ target }).strict();
+export const reorderPdfQuerySchema = z.object({ target, supplierId: objectId.optional() }).strict();
 
 export type OpeningInput = z.infer<typeof openingSchema>;
 export type AdjustmentInput = z.infer<typeof adjustmentSchema>;

@@ -9,7 +9,9 @@ import { purchasePack, salePack, toUnits, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import { CategoryModel } from '../categories/category.model';
 import { can } from '../rbac/permissions';
+import { PurchaseModel } from '../purchases/purchase.model';
 import { BatchModel } from '../stock/batch.model';
+import { MovementModel } from '../stock/movement.model';
 import { bucketOf, daysLeft, fefo, type BatchLike } from '../stock/stock.domain';
 import { ensureRack, refreshRollups, refreshStale } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
@@ -233,22 +235,39 @@ export async function batchesOf(t: TenantContext, id: string) {
     }));
 }
 
-/** Every lot that came in, newest first — opening stock now, purchases from B3. */
+/** Every receipt, newest first, from the ledger — a purchase merged into an older batch still shows up. */
 export async function received(t: TenantContext, id: string) {
   const p = await load(t, id);
   const cost = seesCost(t);
-  const batches = await BatchModel.find({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).limit(100).lean();
-  return batches.map((b) => ({
-    id: String(b._id),
-    batchNumber: b.batchNumber,
-    receivedAt: b.receivedAt,
-    source: b.source,
-    invoiceNumber: b.purchaseInvoiceNumber ?? null,
-    quantity: b.initialQuantity,
-    mrp: b.mrp,
-    expiryDate: b.expiryDate,
-    ...(cost ? { purchaseRate: b.purchaseRate, purchaseUnit: b.purchaseUnit } : {}),
-  }));
+  const moves = await MovementModel.find({ shopId: t.shopId, productId: p._id, type: { $in: ['OPENING', 'PURCHASE'] } }).sort({ at: -1, _id: -1 }).limit(100).lean();
+  const [batches, purchases] = await Promise.all([
+    BatchModel.find({ shopId: t.shopId, _id: { $in: moves.map((m) => m.batchId) } }).select('batchNumber expiryDate mrp purchaseRate purchaseUnit').lean(),
+    PurchaseModel.find({ shopId: t.shopId, _id: { $in: moves.flatMap((m) => (m.type === 'PURCHASE' && m.refId ? [m.refId] : [])) } }).select('purchaseNumber invoiceNumber supplierName status lines').lean(),
+  ]);
+  const bmap = new Map(batches.map((b) => [String(b._id), b]));
+  const pmap = new Map(purchases.map((x) => [String(x._id), x]));
+  return moves.map((m) => {
+    const b = bmap.get(String(m.batchId));
+    const pur = m.type === 'PURCHASE' && m.refId ? pmap.get(String(m.refId)) : undefined;
+    const line = pur?.lines.find((l) => String(l.batchId) === String(m.batchId));
+    return {
+      id: String(m._id),
+      batchId: String(m.batchId),
+      batchNumber: line?.batchNumber ?? b?.batchNumber ?? '',
+      receivedAt: m.at,
+      source: m.type === 'PURCHASE' ? 'purchase' : 'opening',
+      invoiceNumber: pur?.invoiceNumber ?? null,
+      purchaseId: pur ? String(pur._id) : null,
+      purchaseNumber: pur?.purchaseNumber ?? null,
+      supplierName: pur?.supplierName ?? null,
+      cancelled: pur?.status === 'cancelled',
+      quantity: m.quantity,
+      freeQuantity: line?.freeInBase ?? 0,
+      mrp: line?.mrp ?? b?.mrp ?? 0,
+      expiryDate: line?.expiryDate ?? b?.expiryDate ?? null,
+      ...(cost ? { purchaseRate: line?.rate ?? b?.purchaseRate ?? 0, purchaseUnit: line?.unit ?? b?.purchaseUnit ?? '' } : {}),
+    };
+  });
 }
 
 /** Same salt + strength + category with sellable stock; the pharmacist confirms (PLAN O20). */

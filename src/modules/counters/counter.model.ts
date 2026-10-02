@@ -14,7 +14,7 @@ counterSchema.plugin(tenantScoped);
 
 export const CounterModel = model('Counter', counterSchema);
 
-const KINDS = { adjustment: ['ADJ', 4] } as const satisfies Record<string, readonly [string, number]>;
+const KINDS = { adjustment: ['ADJ', 4], purchase: ['PUR', 4], purchaseReturn: ['PR', 4], supplierPayment: ['PAY', 4] } as const satisfies Record<string, readonly [string, number]>;
 export type CounterKind = keyof typeof KINDS;
 
 /** Atomic per-shop, per-FY number — never count()+1 (PLAN §26): ADJ-2026-27-0001. */

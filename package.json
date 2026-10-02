@@ -14,8 +14,9 @@
     "smoke:security": "tsx scripts/smoke-security.ts",
     "smoke:tenancy": "tsx scripts/smoke-tenancy.ts",
     "smoke:stock": "tsx scripts/smoke-stock.ts",
+    "smoke:purchase": "tsx scripts/smoke-purchase.ts",
     "e2e:server": "tsx scripts/e2e-server.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock"
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "dejavu-fonts-ttf": "^2.37.3",
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "express-rate-limit": "^8.6.2",
@@ -33,9 +35,11 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.2",
     "nodemailer": "^10.0.13",
+    "pdfkit": "^0.20.2",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "sharp": "^0.35.5",
+    "write-excel-file": "^4.1.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -46,6 +50,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.2.0",
     "@types/nodemailer": "^8.0.1",
+    "@types/pdfkit": "^0.17.6",
     "eslint": "^10.11.0",
     "eslint-plugin-security": "^4.2.0",
     "mongodb-memory-server": "^11.2.0",

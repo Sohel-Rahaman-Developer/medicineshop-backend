@@ -20,3 +20,14 @@ export const paise = (label: string, max = 10_000_000) =>
   z.number(`${label} must be a number`).int(`${label} must be in whole paise`).min(0, `${label} can’t be negative`).max(max, `${label} is too large`);
 
 export const LIMIT = z.coerce.number().int().min(1).max(100).default(30);
+
+/** "2026-10-02" → 00:00 IST that day; invoice and payment dates are calendar days in India. */
+export const istDay = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'Use a valid date')
+  .transform((v, ctx) => {
+    const [y = 0, m = 0, d = 0] = v.split('-').map(Number);
+    const at = new Date(Date.UTC(y, m - 1, d) - 5.5 * 60 * 60 * 1000);
+    if (new Date(at.getTime() + 5.5 * 60 * 60 * 1000).getUTCDate() !== d) ctx.addIssue({ code: 'custom', message: 'Use a valid date' });
+    return at;
+  });

@@ -63,8 +63,6 @@ const productSchema = new Schema(
     },
     stock: { type: stockSchema, default: () => ({}) },
     lastMrp: { type: Number },
-    lastPurchaseRate: { type: Number },
-    lastPurchasedAt: { type: Date },
     lastSoldAt: { type: Date },
     isActive: { type: Boolean, required: true, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

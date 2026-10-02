@@ -5,7 +5,11 @@ import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenan
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
+import { sendFile } from '../../core/export';
+import { attach, photoOf } from '../attachments/attachments.service';
+import { movementsXlsx, reorderPdf } from '../exports/exports.service';
 import { seesCost } from '../products/products.service';
+import { photoSchema } from '../purchases/purchases.routes';
 import { actorOf } from '../user/actor';
 import * as svc from './stock.service';
 import {
@@ -16,6 +20,7 @@ import {
   idsQuerySchema,
   movementsQuerySchema,
   openingSchema,
+  reorderPdfQuerySchema,
   reorderQuerySchema,
   type AdjustmentInput,
   type ExpiryQuery,
@@ -90,6 +95,15 @@ stockRouter.get(
 );
 
 stockRouter.get(
+  '/movements/export',
+  requirePermission('stock', 'export'),
+  validate({ query: movementsQuerySchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sendFile(res, await movementsXlsx(tenantOf(req), req.query as unknown as MovementsQuery), 'Stock-movements', 'xlsx');
+  }),
+);
+
+stockRouter.get(
   '/movements/people',
   view,
   asyncHandler(async (req: Request, res: Response) => {
@@ -147,5 +161,34 @@ stockRouter.get(
   validate({ query: reorderQuerySchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.reorder(tenantOf(req), (req.query as unknown as { target: number }).target));
+  }),
+);
+
+stockRouter.get(
+  '/adjustments/:id/photo',
+  view,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await photoOf(tenantOf(req), 'StockAdjustment', idOf(req)));
+  }),
+);
+
+stockRouter.post(
+  '/adjustments/:id/photo',
+  requirePermission('stock', 'edit'),
+  validate({ params: idParams, body: photoSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await attach(tenantOf(req), await actorOf(req), 'StockAdjustment', idOf(req), (req.body as { photo: string }).photo, req.ip), 'Photo attached');
+  }),
+);
+
+stockRouter.get(
+  '/reorder/pdf',
+  view,
+  validate({ query: reorderPdfQuerySchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as { target: number; supplierId?: string };
+    const out = await reorderPdf(tenantOf(req), q.target, q.supplierId);
+    sendFile(res, out.pdf, out.name, 'pdf');
   }),
 );

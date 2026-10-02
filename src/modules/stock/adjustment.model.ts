@@ -32,6 +32,7 @@ const adjustmentSchema = new Schema(
     reason: { type: String, required: true },
     notes: { type: String, default: '' },
     approvedBy: { type: String },
+    hasPhoto: { type: Boolean, required: true, default: false },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },
   },

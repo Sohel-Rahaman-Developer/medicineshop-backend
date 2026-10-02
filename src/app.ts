@@ -17,6 +17,12 @@ import { rolesRouter } from './modules/roles/roles.routes';
 import { shopRouter, shopsRouter } from './modules/shops/shops.routes';
 import { staffRouter } from './modules/staff/staff.routes';
 import { stockRouter } from './modules/stock/stock.routes';
+import { demandsRouter } from './modules/demands/demands.routes';
+import { purchasesRouter, returnsRouter } from './modules/purchases/purchases.routes';
+import { searchRouter } from './modules/search/search.routes';
+import { suppliersRouter } from './modules/suppliers/suppliers.routes';
+
+const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
 
 export function createApp() {
   const app = express();
@@ -48,6 +54,12 @@ export function createApp() {
     }),
   );
 
+  // Document photos (supplier invoice, damaged stock) are the only bodies allowed past 100 KB.
+  const photoJson = express.json({ limit: '850kb' });
+  app.use(env.API_PREFIX, (req, res, next) => {
+    if (PHOTO_PATH.test(req.path)) photoJson(req, res, next);
+    else next();
+  });
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
@@ -78,6 +90,11 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/racks`, racksRouter);
   app.use(`${env.API_PREFIX}/products`, productsRouter);
   app.use(`${env.API_PREFIX}/stock`, stockRouter);
+  app.use(`${env.API_PREFIX}/suppliers`, suppliersRouter);
+  app.use(`${env.API_PREFIX}/purchases`, purchasesRouter);
+  app.use(`${env.API_PREFIX}/purchase-returns`, returnsRouter);
+  app.use(`${env.API_PREFIX}/demands`, demandsRouter);
+  app.use(`${env.API_PREFIX}/search`, searchRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

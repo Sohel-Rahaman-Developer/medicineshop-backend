@@ -2,7 +2,7 @@ import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
 export const MOVEMENT_TYPES = [
-  'PURCHASE', 'SALE', 'SALE_RETURN', 'SALE_CANCEL', 'PURCHASE_RETURN', 'ADJUST_IN', 'ADJUST_OUT',
+  'PURCHASE', 'SALE', 'SALE_RETURN', 'SALE_CANCEL', 'PURCHASE_RETURN', 'PURCHASE_CANCEL', 'ADJUST_IN', 'ADJUST_OUT',
   'DAMAGE', 'EXPIRY_WRITE_OFF', 'SELF_USE', 'RACK_MOVE', 'OPENING',
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];

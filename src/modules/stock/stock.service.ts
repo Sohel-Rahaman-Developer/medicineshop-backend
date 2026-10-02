@@ -18,6 +18,9 @@ import { RackModel } from '../racks/rack.model';
 import { can } from '../rbac/permissions';
 import type { Actor } from '../user/actor';
 import { UserModel } from '../user/user.model';
+import { askedCounts } from '../demands/demands.service';
+import { PurchaseModel } from '../purchases/purchase.model';
+import { SupplierModel } from '../suppliers/supplier.model';
 import { AdjustmentModel, type AdjustmentType } from './adjustment.model';
 import { BatchModel } from './batch.model';
 import { MovementModel, type MovementType } from './movement.model';
@@ -57,30 +60,66 @@ export interface Receive {
 
 type ProductForStock = { _id: Types.ObjectId; name: string; units?: unknown; storageType: string; defaultRack: string };
 
+/** Where received stock came from: the ledger entry and the batch's purchase trail. */
+export interface ReceiveSource {
+  source: 'opening' | 'purchase';
+  /** Base units, free goods included. */
+  quantity: number;
+  freeQuantity: number;
+  purchaseRate: number;
+  purchaseUnit: string;
+  costPerBaseUnit: number;
+  supplierId?: Types.ObjectId;
+  purchaseId?: Types.ObjectId;
+  invoiceNumber?: string;
+  refNumber?: string;
+}
+
+/** Batch the PLAN §9 merge rule would add to: same product, batch number and expiry. */
+export const mergeTarget = (shopId: Types.ObjectId, productId: Types.ObjectId, batchNumber: string, expiry: Date, session?: ClientSession) =>
+  BatchModel.findOne({ shopId, productId, batchNumberUpper: batchNumber.toUpperCase(), expiryDate: expiry, status: { $ne: 'returned' } }).session(session ?? null);
+
+export const mrpDiffers = (b: { _id: Types.ObjectId; batchNumber: string; expiryDate: Date; mrp: number }, mrp: number, extra: Record<string, unknown> = {}) =>
+  AppError.conflict(`Batch ${b.batchNumber} (exp ${monthLabel(b.expiryDate)}) is already in stock at MRP ${inr(b.mrp)}, not ${inr(mrp)}.`, {
+    reason: 'MRP_DIFFERS',
+    batch: { id: String(b._id), batchNumber: b.batchNumber, mrp: b.mrp },
+    ...extra,
+  });
+
 /** Opening stock into a batch with the PLAN §9 merge rule. Runs inside the caller's transaction. */
 export async function receiveOpening(shopId: Types.ObjectId, p: ProductForStock, input: Receive, actor: Actor, session: ClientSession, now = new Date()) {
+  const pack = salePack(p.units as Units);
+  const src: ReceiveSource = { source: 'opening', quantity: input.quantity, freeQuantity: 0, purchaseRate: input.purchaseRate, purchaseUnit: (p.units as Units).sale, costPerBaseUnit: rhu(input.purchaseRate, pack) };
+  return receiveBatch(shopId, p, input, src, actor, session, now);
+}
+
+/** Puts received stock into a batch (merge, MRP update, or a new -A batch) and writes the ledger entry. */
+export async function receiveBatch(shopId: Types.ObjectId, p: ProductForStock, input: Omit<Receive, 'quantity' | 'purchaseRate'>, src: ReceiveSource, actor: Actor, session: ClientSession, now = new Date()) {
   const units = p.units as Units;
   const pack = salePack(units);
-  const cost = rhu(input.purchaseRate, pack);
+  const cost = src.costPerBaseUnit;
   const rack = input.rack || p.defaultRack;
   await ensureRack(shopId, rack, p.storageType === 'COLD' ? 'COLD' : 'NORMAL', session);
 
   const upper = input.batchNumber.toUpperCase();
-  const same = await BatchModel.findOne({ shopId, productId: p._id, batchNumberUpper: upper, expiryDate: input.expiry, status: { $ne: 'returned' } }).session(session);
+  const same = await mergeTarget(shopId, p._id, upper, input.expiry, session);
   let batchId: Types.ObjectId;
   let batchNumber = input.batchNumber;
   let how: 'new' | 'merged' | 'separate' = 'new';
+  const mrpBefore = same?.mrp ?? null;
   if (same && (same.mrp === input.mrp || input.mrpChoice === 'merge')) {
-    same.set({ costPerBaseUnit: mergedCost(same.quantity, same.costPerBaseUnit, input.quantity, cost), mrp: input.mrp, initialQuantity: same.initialQuantity + input.quantity });
+    same.set({
+      costPerBaseUnit: mergedCost(same.quantity, same.costPerBaseUnit, src.quantity, cost),
+      mrp: input.mrp,
+      initialQuantity: same.initialQuantity + src.quantity,
+      freeQuantity: same.freeQuantity + src.freeQuantity,
+    });
     await same.save({ session });
     batchId = same._id;
     batchNumber = same.batchNumber;
     how = 'merged';
   } else if (same && !input.mrpChoice) {
-    throw AppError.conflict(`Batch ${same.batchNumber} (exp ${monthLabel(same.expiryDate)}) is already in stock at MRP ${inr(same.mrp)}, not ${inr(input.mrp)}.`, {
-      reason: 'MRP_DIFFERS',
-      batch: { id: String(same._id), batchNumber: same.batchNumber, mrp: same.mrp },
-    });
+    throw mrpDiffers(same, input.mrp);
   } else {
     if (same) {
       batchNumber = `${input.batchNumber}-${await freeSuffix(shopId, p._id, upper, session)}`;
@@ -96,14 +135,18 @@ export async function receiveOpening(shopId: Types.ObjectId, p: ProductForStock,
           expiryDate: input.expiry,
           mfgDate: input.mfg,
           mrp: input.mrp,
-          purchaseRate: input.purchaseRate,
-          purchaseUnit: units.sale,
+          purchaseRate: src.purchaseRate,
+          purchaseUnit: src.purchaseUnit,
           salePack: pack,
           costPerBaseUnit: cost,
           quantity: 0,
-          initialQuantity: input.quantity,
+          initialQuantity: src.quantity,
+          freeQuantity: src.freeQuantity,
           rack,
-          source: 'opening',
+          source: src.source,
+          supplierId: src.supplierId,
+          purchaseId: src.purchaseId,
+          purchaseInvoiceNumber: src.invoiceNumber,
           receivedAt: now,
         },
       ],
@@ -113,9 +156,16 @@ export async function receiveOpening(shopId: Types.ObjectId, p: ProductForStock,
     batchId = b._id;
   }
 
-  await applyMove(shopId, batchId, input.quantity, { type: 'OPENING', refType: 'OPENING', refId: batchId, refNumber: batchNumber, actor, at: now }, session);
+  const purchase = src.source === 'purchase';
+  await applyMove(
+    shopId,
+    batchId,
+    src.quantity,
+    { type: purchase ? 'PURCHASE' : 'OPENING', refType: purchase ? 'PURCHASE' : 'OPENING', refId: purchase ? src.purchaseId : batchId, refNumber: src.refNumber ?? batchNumber, actor, at: now },
+    session,
+  );
   await ProductModel.updateOne({ shopId, _id: p._id }, { $set: { lastMrp: input.mrp } }, { session });
-  return { batchId: String(batchId), batchNumber, how };
+  return { batchId: String(batchId), batchNumber, how, mrpBefore };
 }
 
 export async function addOpening(t: TenantContext, actor: Actor, input: OpeningInput, ip?: string) {
@@ -274,6 +324,7 @@ export async function getAdjustment(t: TenantContext, id: string) {
     notes: a.notes,
     createdByName: a.createdByName,
     approvedBy: a.approvedBy ?? null,
+    hasPhoto: a.hasPhoto,
     ...(cost ? { totalValue: a.totalValue } : {}),
     lines: a.lines.map((l) => ({
       productId: String(l.productId),
@@ -395,6 +446,8 @@ export async function expiry(t: TenantContext, q: ExpiryQuery) {
     .lean();
   const { items, meta } = page(rows, q.limit, (r) => r.expiryDate);
   const products = await productNames(t.shopId, [...new Set(items.map((b) => String(b.productId)))].map(oid));
+  const sups = await SupplierModel.find({ shopId: t.shopId, _id: { $in: [...new Set(items.flatMap((b) => (b.supplierId ? [String(b.supplierId)] : [])))].map(oid) } }).select('name').lean();
+  const supName = new Map(sups.map((x) => [String(x._id), x.name]));
   return {
     summary: summary.map(({ match: _m, ...s }) => s),
     items: items.map((b) => {
@@ -411,6 +464,8 @@ export async function expiry(t: TenantContext, q: ExpiryQuery) {
         quantity: b.quantity,
         rack: b.rack,
         source: b.source,
+        supplierId: b.supplierId ? String(b.supplierId) : null,
+        supplierName: b.supplierId ? (supName.get(String(b.supplierId)) ?? '') : null,
         mrpValue: amountFor(b.mrp, b.quantity, b.salePack),
         ...(cost ? { value: b.quantity * b.costPerBaseUnit } : {}),
       };
@@ -469,13 +524,16 @@ export async function reorder(t: TenantContext, target: number) {
   await refreshStale(t.shopId);
   const cost = seesCost(t);
   const rows = await ProductModel.find({ shopId: t.shopId, isActive: true, 'stock.status': { $in: ['low', 'out'] } })
-    .select('name photo units stock.sellable stock.status reorderLevel reorderQuantity lastPurchaseRate')
+    .select('name photo units stock.sellable stock.status reorderLevel reorderQuantity')
     .limit(300)
     .lean();
+  const ids = rows.map((p) => p._id);
+  const [last, asked] = await Promise.all([lastPurchases(t.shopId, ids), askedCounts(t.shopId, ids)]);
   return rows
     .map((p) => {
       const u = p.units as Units;
       const pack = salePack(u);
+      const l = last.get(String(p._id));
       return {
         id: String(p._id),
         name: p.name,
@@ -488,8 +546,22 @@ export async function reorder(t: TenantContext, target: number) {
         perDay: 0,
         daysLeft: null,
         suggestion: suggestReorder({ reorderQuantity: p.reorderQuantity, salePack: pack }, p.stock.sellable, 0, target),
-        ...(cost ? { lastPurchaseRate: p.lastPurchaseRate ?? null } : {}),
+        lastSupplier: l ? { id: String(l.supplierId), name: l.supplierName } : null,
+        asked: asked.get(String(p._id)) ?? 0,
+        ...(cost ? { lastRate: l ? { rate: l.rate, unit: l.unit } : null } : {}),
       };
     })
     .sort((a, b) => a.sellable / Math.max(1, a.reorderLevel) - b.sellable / Math.max(1, b.reorderLevel) || a.name.localeCompare(b.name));
+}
+
+/** The newest active purchase line of each product: who sent it last and at what rate. */
+export async function lastPurchases(shopId: Types.ObjectId, productIds: Types.ObjectId[]) {
+  const rows = await PurchaseModel.aggregate<{ _id: Types.ObjectId; supplierId: Types.ObjectId; supplierName: string; rate: number; unit: string; at: Date }>([
+    { $match: { shopId, status: 'active', 'lines.productId': { $in: productIds } } },
+    { $sort: { invoiceDate: -1, createdAt: -1 } },
+    { $unwind: '$lines' },
+    { $match: { 'lines.productId': { $in: productIds } } },
+    { $group: { _id: '$lines.productId', supplierId: { $first: '$supplierId' }, supplierName: { $first: '$supplierName' }, rate: { $first: '$lines.rate' }, unit: { $first: '$lines.unit' }, at: { $first: '$invoiceDate' } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), r]));
 }
