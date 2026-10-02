@@ -9,6 +9,7 @@ import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
 import { nextNumber } from '../counters/counter.model';
 import { seesCost } from '../products/products.service';
+import * as customers from '../customers/customers.service';
 import { ShopModel } from '../shops/shop.model';
 import { BatchModel } from '../stock/batch.model';
 import { daysLeftOut, hasExpiry } from '../stock/stock.domain';
@@ -80,6 +81,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     const roundOff = complete ? s.roundOff : 0;
     const sum = (k: 'amount' | 'taxable' | 'cgst' | 'sgst' | 'igst' | 'tax' | 'lineCost') => lines.reduce((a, l) => a + l[k], 0);
     const total = sum('amount') + roundOff;
+    if (input.refundMode === 'ADJUST_CREDIT' && !s.dueAmount) throw AppError.validation(`${s.billNumber} has no udhaar left to set off`, [{ field: 'body.refundMode', message: 'No udhaar on this bill' }]);
+    // Only this bill's own udhaar is written off; the rest goes back in cash.
+    const adjusted = input.refundMode === 'ADJUST_CREDIT' ? Math.min(total, s.dueAmount) : 0;
     if (input.expectedTotal !== undefined && input.expectedTotal !== total) {
       throw AppError.conflict(`The refund is now ${inr(total)} — the bill changed. Check and save again.`, { reason: 'TOTAL_CHANGED', total });
     }
@@ -91,9 +95,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       cond[`lines.${String(l.lineIndex)}.returnedQuantity`] = s.lines[l.lineIndex]?.returnedQuantity ?? 0;
       inc[`lines.${String(l.lineIndex)}.returnedQuantity`] = l.quantity;
     }
+    const due = s.dueAmount - adjusted;
     const done = await SaleModel.updateOne(
-      { shopId: t.shopId, _id: s._id, status: { $in: ['completed', 'partially_returned'] }, ...cond },
-      { $inc: inc, $set: { status: complete ? 'returned' : 'partially_returned' } },
+      { shopId: t.shopId, _id: s._id, status: { $in: ['completed', 'partially_returned'] }, dueAmount: s.dueAmount, ...cond },
+      { $inc: { ...inc, dueAmount: -adjusted }, $set: { status: complete ? 'returned' : 'partially_returned', ...(adjusted ? { paymentStatus: due ? 'partial' : 'paid' } : {}) } },
       { session },
     );
     if (!done.modifiedCount) throw AppError.conflict(`${s.billNumber} changed meanwhile — reload`);
@@ -106,6 +111,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       await applyMove(t.shopId, l.batchId, l.quantity, { type: 'SALE_RETURN', refType: 'SALE_RETURN', refId: id, refNumber: returnNumber, reason: `${s.billNumber} · ${l.reason}`, actor, at: now }, session);
     }
     await refreshRollups(t.shopId, [...new Set(lines.map((l) => String(l.productId)))].map(oid), session, now);
+    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: total, credit: adjusted, visit: false }, session);
     const age = ageDays(s.billDate, now);
     const outsideWindow = age > windowDays;
     await SaleReturnModel.create(
@@ -121,6 +127,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
           billNumber: s.billNumber,
           billDate: s.billDate,
           saleCreatedBy: s.createdBy,
+          customerId: s.customerId,
           customerName: s.customerName,
           customerPhone: s.customerPhone,
           returnDate: now,
@@ -137,7 +144,8 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
           roundOff,
           total,
           refundMode: input.refundMode,
-          cashBack: input.refundMode === 'CASH' ? total : 0,
+          cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : total - adjusted,
+          adjusted,
           totalCost: sum('lineCost'),
           createdBy: oid(actor.id),
           createdByName: actor.name,
@@ -147,10 +155,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     );
     const flags = [outsideWindow ? `${String(age)} days after the bill (window ${String(windowDays)})` : '', lines.some((l) => l.expired) ? 'expired item taken back' : ''].filter(Boolean);
     await audit(
-      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)} ${input.refundMode === 'CASH' ? 'cash' : `credit note ${creditNoteNumber ?? ''}`}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
+      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)} ${input.refundMode === 'CASH' ? 'cash' : input.refundMode === 'ADJUST_CREDIT' ? `${inr(adjusted)} off udhaar${total > adjusted ? `, ${inr(total - adjusted)} cash` : ''}` : `credit note ${creditNoteNumber ?? ''}`}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
       session,
     );
-    return { id: String(id), returnNumber, creditNoteNumber: creditNoteNumber ?? null, billNumber: s.billNumber, saleId: String(s._id), total, refundMode: input.refundMode, outsideWindow };
+    return { id: String(id), returnNumber, creditNoteNumber: creditNoteNumber ?? null, billNumber: s.billNumber, saleId: String(s._id), total, refundMode: input.refundMode, outsideWindow, adjusted, cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : total - adjusted };
   });
 }
 
@@ -208,6 +216,7 @@ function shape(r: ReturnLean, cost: boolean) {
     total: r.total,
     refundMode: r.refundMode,
     cashBack: r.cashBack,
+    adjusted: r.adjusted,
     createdByName: r.createdByName,
     ...(cost ? { totalCost: r.totalCost } : {}),
   };

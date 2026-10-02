@@ -8,6 +8,7 @@ import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { conv, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
+import * as customers from '../customers/customers.service';
 import * as orders from '../orders/orders.service';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
@@ -171,7 +172,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       throw AppError.forbidden('Choosing a batch by hand needs stock edit permission — FEFO picks the batch.');
     }
     const rxNeeded = built.parts.some((x) => x.p.scheduleType === 'H1' || x.p.scheduleType === 'X');
-    if (rxNeeded && billing.enforceH1Prescription && (!input.rx?.doctorName || !input.rx.patientName)) {
+    // A doctor from the shop's list wins over a typed name (PLAN §14).
+    const doctor = input.rx?.doctorId ? await customers.doctorFor(t, input.rx.doctorId, session) : null;
+    const doctorName = doctor?.name ?? input.rx?.doctorName ?? '';
+    if (rxNeeded && billing.enforceH1Prescription && (!doctorName || !input.rx?.patientName)) {
       throw AppError.validation('Schedule H1 / X: doctor and patient name are required', [{ field: 'body.rx', message: 'Doctor and patient name are required' }]);
     }
 
@@ -188,6 +192,10 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       throw AppError.validation(`Payments add up to ${inr(paid)}, ${what}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
     }
     const payments = [...input.payments, ...(order && advanceUsed ? [{ mode: 'ADVANCE' as const, amount: advanceUsed, reference: order.orderNumber }] : [])];
+    // Udhaar: a customer with room under the limit; the bill's due is what was put on credit.
+    const credit = input.payments.filter((x) => x.mode === 'CREDIT').reduce((s, x) => s + x.amount, 0);
+    if (credit && !input.customerId) throw AppError.validation('Udhaar needs a customer — pick or add one first', [{ field: 'body.customerId', message: 'Pick a customer for udhaar' }]);
+    const customer = input.customerId ? await customers.forBill(t, input.customerId, credit, session) : null;
     const cash = input.payments.filter((x) => x.mode === 'CASH').reduce((s, x) => s + x.amount, 0);
     if (input.cashReceived !== undefined && input.cashReceived < cash) throw AppError.validation('Cash received is less than the cash part', [{ field: 'body.cashReceived', message: 'Less than the cash part' }]);
 
@@ -252,9 +260,11 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           clientRequestId: input.clientRequestId,
           billNumber,
           billDate: now,
-          customerName: input.customer?.name || 'Walk-in',
-          customerPhone: input.customer?.phone ?? '',
-          doctorName: input.rx?.doctorName ?? '',
+          customerId: customer?._id,
+          customerName: customer?.name ?? (input.customer?.name || 'Walk-in'),
+          customerPhone: customer?.phone ?? input.customer?.phone ?? '',
+          doctorId: doctor?._id,
+          doctorName,
           patientName: input.rx?.patientName ?? '',
           rxNumber: input.rx?.rxNumber ?? '',
           rxDate: input.rx?.rxDate,
@@ -281,9 +291,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           payments,
           paymentMode: modes.length > 1 ? 'SPLIT' : (modes[0] ?? 'NONE'),
           cashReceived: input.cashReceived,
-          paidAmount: paid + advanceUsed,
-          dueAmount: 0,
-          paymentStatus: 'paid',
+          paidAmount: paid - credit + advanceUsed,
+          dueAmount: credit,
+          paymentStatus: !credit ? 'paid' : credit === priced.grandTotal ? 'credit' : 'partial',
           totalCost,
           grossProfit: priced.taxable - totalCost,
           createdBy: oid(actor.id),
@@ -293,6 +303,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       { session },
     );
     if (order) await orders.complete(t, order, { id: saleId, billNumber, at: now, advanceUsed }, session);
+    if (customer) await customers.afterBill(t, customer, { total: priced.grandTotal, credit, at: now }, session);
     const productIds = [...new Set(lines.map((l) => String(l.productId)))].map(oid);
     await ProductModel.updateMany({ shopId: t.shopId, _id: { $in: productIds } }, { $set: { lastSoldAt: now } }, { session });
     await refreshRollups(t.shopId, productIds, session, now);
@@ -300,6 +311,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       discountAboveLimit ? `discount ${String(priced.discountPercent)}% is above the ${String(billing.maxDiscountPercent)}% limit` : '',
       priced.aboveMrp ? `${inr(priced.aboveMrp)} above MRP` : '',
       belowMinPrice ? 'sold under the lowest price' : '',
+      credit ? `udhaar ${inr(credit)} to ${customer?.name ?? ''}` : '',
       order ? `order ${order.orderNumber}${advanceUsed ? `, advance ${inr(advanceUsed)}` : ''}${order.advance > advanceUsed ? `, ${inr(order.advance - advanceUsed)} advance given back` : ''}` : '',
     ].filter(Boolean);
     await audit(
@@ -323,6 +335,7 @@ function shape(s: SaleLean, cost: boolean) {
     id: String(s._id),
     billNumber: s.billNumber,
     billDate: s.billDate,
+    customerId: s.customerId ? String(s.customerId) : null,
     customerName: s.customerName,
     customerPhone: s.customerPhone,
     doctorName: s.doctorName,
@@ -411,7 +424,7 @@ export async function get(t: TenantContext, userId: string, id: string) {
 
 const dayEnd = (d: Date) => new Date(d.getTime() + DAY - 1);
 
-function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'from' | 'to' | 'status' | 'paymentMode' | 'userId' | 'flag' | 'q'>) {
+function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'from' | 'to' | 'status' | 'paymentMode' | 'userId' | 'flag' | 'q' | 'customerId'>) {
   const filter: Record<string, unknown> = { shopId: t.shopId };
   if (ownOnly(t)) filter.createdBy = oid(userId);
   else if (q.userId) filter.createdBy = oid(q.userId);
@@ -420,6 +433,7 @@ function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'fr
   if (q.flag === 'discount') filter.discountAboveLimit = true;
   if (q.flag === 'aboveMrp') filter.aboveMrpAmount = { $gt: 0 };
   if (q.flag === 'belowMin') filter.belowMinPrice = true;
+  if (q.customerId) filter.customerId = oid(q.customerId);
   // Digits only can also be the customer's phone (return lookup, PLAN §15).
   if (q.q) {
     const bill = { billNumber: { $regex: `${escape(q.q.toUpperCase())}$` } };
@@ -490,12 +504,13 @@ export async function cancel(t: TenantContext, actor: Actor, id: string, reason:
     if (!s) throw AppError.notFound('Bill not found');
     if (s.status === 'cancelled') throw AppError.conflict(`${s.billNumber} is already cancelled`);
     if (s.status !== 'completed') throw AppError.conflict(`${s.billNumber} has a return — cancel isn’t possible now. Return the rest instead.`);
-    const done = await SaleModel.updateOne({ shopId: t.shopId, _id: s._id, status: 'completed' }, { $set: { status: 'cancelled', cancelReason: reason, cancelledBy: actor.name, cancelledAt: now } }, { session });
+    const done = await SaleModel.updateOne({ shopId: t.shopId, _id: s._id, status: 'completed', dueAmount: s.dueAmount }, { $set: { status: 'cancelled', cancelReason: reason, cancelledBy: actor.name, cancelledAt: now, cancelledDue: s.dueAmount, dueAmount: 0 } }, { session });
     if (!done.modifiedCount) throw AppError.conflict(`${s.billNumber} changed meanwhile — reload`);
     for (const l of s.lines) {
       await applyMove(t.shopId, l.batchId, l.quantityInBase, { type: 'SALE_CANCEL', refType: 'SALE', refId: s._id, refNumber: s.billNumber, reason, actor, at: now }, session);
     }
     await refreshRollups(t.shopId, [...new Set(s.lines.map((l) => String(l.productId)))].map(oid), session, now);
+    if (s.customerId) await customers.takeBack(t, s.customerId, { spend: s.grandTotal, credit: s.dueAmount, visit: true }, session);
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} cancelled ${s.billNumber} · ${inr(s.grandTotal)} · reason: ${reason}`, ip }, session);
     return { id: String(s._id), billNumber: s.billNumber };
   });

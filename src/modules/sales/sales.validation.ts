@@ -32,8 +32,10 @@ export const saleSchema = z
     items: z.array(itemSchema).min(1, 'Add at least one item').max(100, 'At most 100 lines in one bill'),
     billDiscount: discount.nullable().optional(),
     customer: z.object({ name: text('Name', 80).default(''), phone: z.union([phone('Phone'), z.literal('')]).default('') }).strict().optional(),
-    rx: z.object({ doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional() }).strict().optional(),
-    payments: z.array(z.object({ mode: z.enum(SALE_PAY_MODES, 'Choose cash, UPI or card'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
+    rx: z.object({ doctorId: objectId.optional(), doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional() }).strict().optional(),
+    /** A customer from the shop's list; udhaar (CREDIT) needs one. */
+    customerId: objectId.optional(),
+    payments: z.array(z.object({ mode: z.enum(SALE_PAY_MODES, 'Choose cash, UPI, card or udhaar'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
     cashReceived: paise('Cash received').optional(),
     /** Billing a customer order: its advance comes off this bill. */
     orderId: objectId.optional(),
@@ -50,6 +52,7 @@ export const saleListSchema = z
     paymentMode: z.enum([...SALE_PAY_MODES, 'SPLIT']).optional(),
     userId: objectId.optional(),
     flag: z.enum(['discount', 'aboveMrp', 'belowMin']).optional(),
+    customerId: objectId.optional(),
     q: z.string().trim().max(40).optional(),
     cursor: z.string().max(400).optional(),
     limit: LIMIT,
@@ -84,7 +87,7 @@ export const saleReturnSchema = z
       .min(1, 'Choose what came back')
       .max(100)
       .refine((v) => new Set(v.map((x) => x.line)).size === v.length, 'A line is in the return twice'),
-    refundMode: z.enum(REFUND_MODES, 'Choose cash or credit note'),
+    refundMode: z.enum(REFUND_MODES, 'Choose cash, credit note or against udhaar'),
     expectedTotal: paise('Total').optional(),
   })
   .strict();

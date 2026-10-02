@@ -10,6 +10,7 @@ const dayCloseSchema = new Schema(
     dayStart: { type: Date, required: true },
     opening: { type: Number, required: true },
     cashSales: { type: Number, required: true },
+    collected: { type: Number, required: true, default: 0 },
     advances: { type: Number, required: true },
     refunds: { type: Number, required: true },
     orderRefunds: { type: Number, required: true },
@@ -26,6 +27,7 @@ const dayCloseSchema = new Schema(
     upi: { type: Number, required: true },
     card: { type: Number, required: true },
     advanceUsed: { type: Number, required: true },
+    udhaar: { type: Number, required: true, default: 0 },
     bills: { type: Number, required: true },
     // Note counts by face value in paise, when counted note by note.
     denoms: { type: Map, of: Number },

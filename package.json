@@ -19,7 +19,8 @@
     "e2e:server": "tsx scripts/e2e-server.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "smoke:dayclose": "tsx scripts/smoke-dayclose.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose"
+    "smoke:customers": "tsx scripts/smoke-customers.ts",
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers"
   },
   "keywords": [],
   "author": "",

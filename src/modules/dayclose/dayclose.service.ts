@@ -8,6 +8,7 @@ import { istIsoDay } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
+import { CustomerPaymentModel } from '../customers/customer.model';
 import { OrderModel } from '../orders/order.model';
 import { SupplierPaymentModel } from '../purchases/purchase.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
@@ -46,7 +47,7 @@ export async function cashDay(t: TenantContext, day: string) {
   const d0 = startOf(day);
   const d1 = new Date(d0.getTime() + DAY);
   const inDay = { $gte: d0, $lt: d1 };
-  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, prev, shop] = await Promise.all([
+  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, prev, shop, collections] = await Promise.all([
     SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName').lean(),
     SaleModel.find({ shopId: t.shopId, status: 'cancelled', cancelledAt: inDay }).select('payments').lean(),
     SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack').lean(),
@@ -56,6 +57,7 @@ export async function cashDay(t: TenantContext, day: string) {
     SupplierPaymentModel.find({ shopId: t.shopId, paymentDate: inDay, paymentMode: 'CASH', fromDrawer: true }).select('amount').lean(),
     DayCloseModel.findOne({ shopId: t.shopId, dayStart: { $lt: d0 } }).sort({ dayStart: -1 }).select('day leftInDrawer').lean(),
     ShopModel.findById(t.shopId).select('settings.billing.openingFloat').lean(),
+    CustomerPaymentModel.find({ shopId: t.shopId, paymentDate: inDay, paymentMode: 'CASH' }).select('amount').lean(),
   ]);
   const pay = (mode: string) => sumOf(billed, (s) => sumOf(s.payments.filter((p) => p.mode === mode), (p) => p.amount));
   const byUser = new Map<string, number>();
@@ -68,6 +70,7 @@ export async function cashDay(t: TenantContext, day: string) {
     opening: prev ? prev.leftInDrawer : (shop?.settings.billing?.openingFloat ?? 0),
     openingFrom: prev?.day ?? null,
     cashSales: pay('CASH'),
+    collected: sumOf(collections, (p) => p.amount),
     advances: sumOf(advances, (o) => o.advance),
     refunds: sumOf(returns, (x) => x.cashBack),
     orderRefunds: sumOf(orderRefunds, (o) => o.refund?.amount ?? 0),
@@ -77,10 +80,11 @@ export async function cashDay(t: TenantContext, day: string) {
     upi: pay('UPI'),
     card: pay('CARD'),
     advanceUsed: pay('ADVANCE'),
+    udhaar: pay('CREDIT'),
     bills: billed.length,
     byUser: [...byUser.entries()].map(([name, cash]) => ({ name, cash })).sort((a, b) => b.cash - a.cash),
   };
-  const cashIn = r.cashSales + r.advances;
+  const cashIn = r.cashSales + r.collected + r.advances;
   const cashOut = r.refunds + r.orderRefunds + r.advanceBack + r.cancelled + r.suppliers;
   return { ...r, cashIn, cashOut, expected: r.opening + cashIn - cashOut };
 }
@@ -94,6 +98,7 @@ function shape(c: CloseLean) {
     day: c.day,
     opening: c.opening,
     cashSales: c.cashSales,
+    collected: c.collected,
     advances: c.advances,
     refunds: c.refunds,
     orderRefunds: c.orderRefunds,
@@ -110,6 +115,7 @@ function shape(c: CloseLean) {
     upi: c.upi,
     card: c.card,
     advanceUsed: c.advanceUsed,
+    udhaar: c.udhaar,
     bills: c.bills,
     note: c.note,
     byName: c.byName,
@@ -158,6 +164,7 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
           dayStart: startOf(input.day),
           opening: cash.opening,
           cashSales: cash.cashSales,
+          collected: cash.collected,
           advances: cash.advances,
           refunds: cash.refunds,
           orderRefunds: cash.orderRefunds,
@@ -174,6 +181,7 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
           upi: cash.upi,
           card: cash.card,
           advanceUsed: cash.advanceUsed,
+          udhaar: cash.udhaar,
           bills: cash.bills,
           denoms: input.denoms,
           note: input.note,

@@ -127,17 +127,24 @@ async function main() {
       return ok<{ id: string; billNumber: string }>('bill', c.post('/sales', { clientRequestId: randomUUID(), items, payments: total ? [{ mode, amount: total, reference: mode === 'UPI' ? 'UPI8812' : '' }] : [], ...extra }));
     };
     const cashier = team.get('cashier') ?? owner;
-    const b1 = await sell(owner, [{ productId: pid('Dolo 650'), quantity: 2, unit: 'STRIP' }, { productId: pid('Mox 500'), quantity: 1, unit: 'STRIP' }], { customer: { name: 'Ratna Sen', phone: '98300 12345' } });
-    await sell(owner, [{ productId: pid('Alprax'), quantity: 1, unit: 'STRIP' }], { rx: { doctorName: 'Dr. S. Banerjee', patientName: 'Amit Das', rxNumber: 'RX-88' } });
+    const ratna = await ok<{ id: string }>('customer', owner.post('/customers', { name: 'Ratna Sen', phone: '98300 12345', creditLimit: 200_000 }));
+    const kakoli = await ok<{ id: string }>('customer', owner.post('/customers', { name: 'Kakoli Ghosh', phone: '98310 55667' }));
+    const doctor = await ok<{ id: string }>('doctor', owner.post('/doctors', { name: 'Dr. S. Banerjee', specialization: 'Physician', registrationNumber: 'WBMC 4471' }));
+    await ok('doctor', owner.post('/doctors', { name: 'Dr. A. Mukherjee', specialization: 'Paediatrics' }));
+    const b1 = await sell(owner, [{ productId: pid('Dolo 650'), quantity: 2, unit: 'STRIP' }, { productId: pid('Mox 500'), quantity: 1, unit: 'STRIP' }], { customerId: ratna.id });
+    await sell(owner, [{ productId: pid('Alprax'), quantity: 1, unit: 'STRIP' }], { rx: { doctorId: doctor.id, patientName: 'Amit Das', rxNumber: 'RX-88' } });
+    await sell(owner, [{ productId: pid('Dolo 650'), quantity: 3, unit: 'STRIP' }, { productId: pid('Benadryl'), quantity: 1, unit: 'BOTTLE' }], { customerId: ratna.id }, 'CREDIT');
     await sell(owner, [{ productId: pid('Benadryl'), quantity: 1, unit: 'BOTTLE' }, { productId: pid('Cadbury'), quantity: 2, unit: 'BAR' }], {}, 'UPI');
     await sell(owner, [{ productId: pid('Omron'), quantity: 1, unit: 'PIECE', price: 230_000 }]);
     await sell(owner, [{ productId: pid('Betadine'), quantity: 1, unit: 'TUBE' }], { billDiscount: { type: 'pct', value: 25 } });
     await sell(cashier, [{ productId: pid('Coca-Cola'), quantity: 3, unit: 'CAN' }, { productId: pid('Dolo 650'), quantity: 5, unit: 'TABLET' }]);
-    await sell(cashier, [{ productId: pid("Johnson's"), quantity: 1, unit: 'BOTTLE' }], { customer: { name: 'Kakoli Ghosh', phone: '98310 55667' } }, 'UPI');
+    await sell(cashier, [{ productId: pid("Johnson's"), quantity: 1, unit: 'BOTTLE' }], { customerId: kakoli.id }, 'UPI');
     const gone = await sell(owner, [{ productId: pid('Surgical Gloves'), quantity: 4, unit: 'PAIR' }]);
     await ok('cancel', owner.post(`/sales/${gone.id}/cancel`, { reason: 'Customer changed mind' }));
     await ok('return', owner.post('/sale-returns', { clientRequestId: randomUUID(), saleId: b1.id, items: [{ line: 0, quantity: 7, reason: 'Bought extra by mistake' }], refundMode: 'CREDIT_NOTE' }));
-    process.stdout.write('Bills: 8 (H1, UPI, typed price, 25 % discount, cashier, 1 cancelled) · 1 return with a credit note\n');
+    await ok('order', owner.post('/orders', { clientRequestId: randomUUID(), customer: { name: 'Kakoli Ghosh', phone: '98310 55667' }, items: [{ productId: pid('Huminsulin'), qty: 2 }, { name: 'Nurokind Gold Capsule', qty: 1 }], advance: 20_000, advanceMode: 'CASH', note: 'Call after 5 pm' }));
+    process.stdout.write('Customers: 2 (Ratna with a ₹2,000 udhaar limit) · doctors: 2 · an open order with ₹200 advance\n');
+    process.stdout.write('Bills: 9 (udhaar, H1 with a listed doctor, UPI, typed price, 25 % discount, cashier, 1 cancelled) · 1 return with a credit note\n');
 
     const pad = (s: string) => s.padEnd(24);
     process.stdout.write(

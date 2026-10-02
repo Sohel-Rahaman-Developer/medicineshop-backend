@@ -1,7 +1,8 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
-export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD'] as const;
+// CREDIT = udhaar: needs a customer with a limit (PLAN §14, §16).
+export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD', 'CREDIT'] as const;
 export type SalePayMode = (typeof SALE_PAY_MODES)[number];
 // ADVANCE is an order's advance coming off its bill (PLAN §35.1); the server adds it, the client never sends it.
 const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE'] as const;
@@ -54,8 +55,10 @@ const saleSchema = new Schema(
     clientRequestId: { type: String, required: true },
     billNumber: { type: String, required: true },
     billDate: { type: Date, required: true },
+    customerId: { type: Schema.Types.ObjectId, ref: 'Customer' },
     customerName: { type: String, required: true, default: 'Walk-in' },
     customerPhone: { type: String, default: '' },
+    doctorId: { type: Schema.Types.ObjectId, ref: 'Doctor' },
     doctorName: { type: String, default: '' },
     patientName: { type: String, default: '' },
     rxNumber: { type: String, default: '' },
@@ -93,6 +96,8 @@ const saleSchema = new Schema(
     cancelReason: { type: String },
     cancelledBy: { type: String },
     cancelledAt: { type: Date },
+    // Udhaar still open when the bill was cancelled — the customer's statement credits it back.
+    cancelledDue: { type: Number },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },
   },
@@ -106,6 +111,8 @@ saleSchema.index({ shopId: 1, createdBy: 1, billDate: -1, _id: -1 });
 saleSchema.index({ shopId: 1, discountAboveLimit: 1, billDate: -1 }, { partialFilterExpression: { discountAboveLimit: true } });
 saleSchema.index({ shopId: 1, 'lines.batchId': 1 });
 saleSchema.index({ shopId: 1, fy: 1 });
+saleSchema.index({ shopId: 1, customerId: 1, billDate: -1 });
+saleSchema.index({ shopId: 1, customerId: 1, dueAmount: 1 }, { partialFilterExpression: { dueAmount: { $gt: 0 } } });
 saleSchema.plugin(tenantScoped);
 
 export const SaleModel = model('Sale', saleSchema);

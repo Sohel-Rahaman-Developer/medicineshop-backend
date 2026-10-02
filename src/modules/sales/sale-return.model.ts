@@ -1,8 +1,8 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
-// ADJUST_CREDIT (against udhaar) comes with udhaar in B4c.
-export const REFUND_MODES = ['CASH', 'CREDIT_NOTE'] as const;
+// ADJUST_CREDIT: off this bill's own udhaar first, anything above it back in cash (PLAN §35.11).
+export const REFUND_MODES = ['CASH', 'CREDIT_NOTE', 'ADJUST_CREDIT'] as const;
 export type RefundMode = (typeof REFUND_MODES)[number];
 
 const lineSchema = new Schema(
@@ -47,6 +47,7 @@ const saleReturnSchema = new Schema(
     billDate: { type: Date, required: true },
     // Record scope (D20): a cashier sees returns on own bills.
     saleCreatedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    customerId: { type: Schema.Types.ObjectId, ref: 'Customer' },
     customerName: { type: String, required: true },
     customerPhone: { type: String, default: '' },
     returnDate: { type: Date, required: true },
@@ -64,6 +65,7 @@ const saleReturnSchema = new Schema(
     total: { type: Number, required: true },
     refundMode: { type: String, enum: REFUND_MODES, required: true },
     cashBack: { type: Number, required: true, default: 0 },
+    adjusted: { type: Number, required: true, default: 0 },
     totalCost: { type: Number, required: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },
