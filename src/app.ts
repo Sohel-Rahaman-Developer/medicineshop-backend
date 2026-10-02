@@ -23,6 +23,7 @@ import { purchasesRouter, returnsRouter } from './modules/purchases/purchases.ro
 import { customersRouter, doctorsRouter } from './modules/customers/customers.routes';
 import { dayCloseRouter } from './modules/dayclose/dayclose.routes';
 import { loyaltyRouter } from './modules/loyalty/loyalty.routes';
+import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { ordersRouter } from './modules/orders/orders.routes';
 import { posRouter, saleReturnsRouter, salesRouter } from './modules/sales/sales.routes';
 import { searchRouter } from './modules/search/search.routes';
@@ -112,6 +113,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/day-close`, dayCloseRouter);
   app.use(`${env.API_PREFIX}/customers`, customersRouter);
   app.use(`${env.API_PREFIX}/loyalty`, loyaltyRouter);
+  app.use(`${env.API_PREFIX}/notifications`, notificationsRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
 
   app.use(notFoundHandler);

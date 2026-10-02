@@ -21,7 +21,8 @@
     "smoke:dayclose": "tsx scripts/smoke-dayclose.ts",
     "smoke:customers": "tsx scripts/smoke-customers.ts",
     "smoke:loyalty": "tsx scripts/smoke-loyalty.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty"
+    "smoke:notifications": "tsx scripts/smoke-notifications.ts",
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications"
   },
   "keywords": [],
   "author": "",

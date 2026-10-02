@@ -253,6 +253,30 @@ export async function signup(t: TenantContext, c: Who, actor: Actor, session: Cl
   return r.signupBonusPoints;
 }
 
+/** Birthday bonus (PLAN §16) for today's IST birthdays — once a year each, from the nightly job. */
+export async function birthdays(t: TenantContext, now: Date) {
+  const r = await rules(t);
+  if (!r.enabled || !r.birthdayBonusPoints) return 0;
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const tz = 'Asia/Kolkata';
+  const people = await CustomerModel.find({
+    shopId: t.shopId,
+    status: 'active',
+    dob: { $ne: null },
+    $expr: { $and: [{ $eq: [{ $month: { date: '$dob', timezone: tz } }, ist.getUTCMonth() + 1] }, { $eq: [{ $dayOfMonth: { date: '$dob', timezone: tz } }, ist.getUTCDate()] }] },
+  })
+    .select('name')
+    .lean();
+  const yearStart = new Date(Date.UTC(ist.getUTCFullYear(), 0, 1) - 5.5 * 60 * 60 * 1000);
+  let n = 0;
+  for (const c of people) {
+    if (await LoyaltyModel.exists({ shopId: t.shopId, customerId: c._id, type: 'BIRTHDAY', createdAt: { $gte: yearStart } })) continue;
+    await inTransaction((session) => post(t, c, { type: 'BIRTHDAY', points: r.birthdayBonusPoints, refType: 'BIRTHDAY', reason: 'Happy birthday', actor: { name: 'System' }, at: now }, r, session));
+    n++;
+  }
+  return n;
+}
+
 export async function getRules(t: TenantContext) {
   return rules(t);
 }

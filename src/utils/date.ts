@@ -31,3 +31,12 @@ export function istIsoDay(at: Date): string {
   const ist = new Date(at.getTime() + IST_OFFSET_MS);
   return `${String(ist.getUTCFullYear())}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
 }
+
+/** 00:00 IST of the day an instant falls in. */
+export const istDayStart = (at: Date) => new Date(Math.floor((at.getTime() + IST_OFFSET_MS) / 86_400_000) * 86_400_000 - IST_OFFSET_MS);
+
+/** "HH:MM" on the IST clock — shop settings keep digest times this way. */
+export function istClock(at: Date): string {
+  const ist = new Date(at.getTime() + IST_OFFSET_MS);
+  return `${String(ist.getUTCHours()).padStart(2, '0')}:${String(ist.getUTCMinutes()).padStart(2, '0')}`;
+}

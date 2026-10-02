@@ -10,6 +10,7 @@ import { conv, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import * as customers from '../customers/customers.service';
 import * as loyalty from '../loyalty/loyalty.service';
+import { emit } from '../notifications/notifications.service';
 import * as orders from '../orders/orders.service';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
@@ -325,6 +326,13 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const productIds = [...new Set(lines.map((l) => String(l.productId)))].map(oid);
     await ProductModel.updateMany({ shopId: t.shopId, _id: { $in: productIds } }, { $set: { lastSoldAt: now } }, { session });
     await refreshRollups(t.shopId, productIds, session, now);
+    // D43: no approval, but the owner hears of it; a tier up is news for whoever looks after customers.
+    if (discountAboveLimit) {
+      await emit(t.shopId, { key: `LARGE_DISCOUNT:${billNumber}`, type: 'LARGE_DISCOUNT', priority: 'medium', title: `${billNumber}: ${String(priced.discountPercent)}% discount — above the ${String(billing.maxDiscountPercent)}% limit`, body: `${actor.name} gave ${inr(priced.totalDiscount)} off a ${inr(priced.subtotal)} bill. It is in the discount register.`, route: `/sales/${String(saleId)}`, roles: ['owner'] }, session);
+    }
+    if (customer && pts?.tierUp) {
+      await emit(t.shopId, { key: `LOYALTY_TIER_UP:${String(customer._id)}:${pts.tierUp.to}`, type: 'LOYALTY_TIER_UP', priority: 'low', title: `${customer.name} moved up to ${pts.tierUp.to}`, body: `On ${billNumber} — earns more points from the next bill.`, route: `/customers/${String(customer._id)}`, perm: { module: 'customers', action: 'view' } }, session);
+    }
     const flags = [
       discountAboveLimit ? `discount ${String(priced.discountPercent)}% is above the ${String(billing.maxDiscountPercent)}% limit` : '',
       priced.aboveMrp ? `${inr(priced.aboveMrp)} above MRP` : '',

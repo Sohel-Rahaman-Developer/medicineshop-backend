@@ -46,6 +46,8 @@ const schema = z.object({
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: boolish(false),
+  /** The minute scheduler (mail queue, digests, nightly points); off for a second API process if wanted. */
+  JOBS_ENABLED: boolish(true),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM_NAME: z.string().default('Medicine Shop'),

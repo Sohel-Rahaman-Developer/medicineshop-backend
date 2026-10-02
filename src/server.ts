@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { connectDb, disconnectDb } from './config/db';
 import { env } from './config/env';
 import { logger } from './config/logger';
+import { startScheduler, stopScheduler } from './modules/notifications/jobs';
 
 async function main() {
   await connectDb();
@@ -9,11 +10,13 @@ async function main() {
   const app = createApp();
   const server = app.listen(env.PORT, () => {
     logger.info(`🚀 API ready → http://localhost:${env.PORT}${env.API_PREFIX}  [${env.NODE_ENV}]`);
+    startScheduler();
     if (env.DEV_STATIC_OTP) logger.warn(`DEV_STATIC_OTP is on — every login code is ${env.DEV_STATIC_OTP} (development only)`);
   });
 
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'Shutting down…');
+    stopScheduler();
     server.close(() => {
       void disconnectDb().finally(() => {
         logger.info('Bye 👋');
