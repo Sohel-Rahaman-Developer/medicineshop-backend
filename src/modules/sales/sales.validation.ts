@@ -53,7 +53,14 @@ export const saleListSchema = z
   })
   .strict();
 
-export const posSearchSchema = z.object({ q: z.string().trim().max(60).default(''), limit: z.coerce.number().int().min(1).max(30).default(12) }).strict();
+export const posSearchSchema = z
+  .object({
+    q: z.string().trim().max(60).default(''),
+    /** Fresh stock for the cart's products (reload, held bill). */
+    ids: z.string().max(25 * 60).transform((v) => v.split(',').filter(Boolean)).pipe(z.array(objectId).max(50)).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(12),
+  })
+  .strict();
 export const cancelSaleSchema = z.object({ reason: z.string().trim().min(3, 'A reason is required').max(200) }).strict();
 
 export type SaleInput = z.infer<typeof saleSchema>;

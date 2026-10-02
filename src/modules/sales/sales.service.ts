@@ -34,7 +34,7 @@ type SaleBatch = BatchLike & { _id: Types.ObjectId; productId: Types.ObjectId; b
 const ownOnly = (t: TenantContext) => t.scopes.sales === 'own';
 
 /** POS search (PLAN §14): sellable first, out-of-stock after with a flag; an exact barcode is marked so a scan adds it. */
-export async function posSearch(t: TenantContext, q: string, limit: number) {
+export async function posSearch(t: TenantContext, q: string, limit: number, ids?: string[]) {
   const now = new Date();
   const cost = seesCost(t);
   const filter: Record<string, unknown> = { shopId: t.shopId, isActive: true };
@@ -44,7 +44,8 @@ export async function posSearch(t: TenantContext, q: string, limit: number) {
     const hit = await ProductModel.findOne({ shopId: t.shopId, isActive: true, barcode: q }).select('_id').lean();
     if (hit) exactId = String(hit._id);
   }
-  if (exactId) filter._id = oid(exactId);
+  if (ids?.length) filter._id = { $in: ids.map(oid) };
+  else if (exactId) filter._id = oid(exactId);
   else if (tokens.length) filter.$and = tokens.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } }));
   else filter['stock.sellable'] = { $gt: 0 };
   const rows = await ProductModel.find(filter)
@@ -57,6 +58,7 @@ export async function posSearch(t: TenantContext, q: string, limit: number) {
     .lean<SaleBatch[]>();
   const byProduct = new Map<string, SaleBatch[]>();
   for (const b of batches) byProduct.set(String(b.productId), [...(byProduct.get(String(b.productId)) ?? []), b]);
+  const cats = new Map((await CategoryModel.find({ shopId: t.shopId }).select('name').lean()).map((c) => [String(c._id), c.name]));
   const items = rows.map((p) => {
     const u = p.units as Units;
     const list = fefo(byProduct.get(String(p._id)) ?? [], now);
@@ -65,6 +67,7 @@ export async function posSearch(t: TenantContext, q: string, limit: number) {
       name: p.name,
       company: p.company,
       salt: [p.salt, p.strength].filter(Boolean).join(' '),
+      category: cats.get(String(p.categoryId)) ?? '',
       scheduleType: p.scheduleType,
       gstRate: p.gstRate,
       units: { base: u.base, sale: u.sale, salePack: salePack(u), allowLooseSale: u.allowLooseSale },
@@ -87,6 +90,20 @@ export async function posSearch(t: TenantContext, q: string, limit: number) {
   });
   items.sort((a, b) => Number(b.sellable > 0) - Number(a.sellable > 0));
   return { items, exact: exactId };
+}
+
+/** What the counter needs to price a cart the way the server will (no settings: view needed). */
+export async function posSettings(t: TenantContext) {
+  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory').lean();
+  const billing = shop?.settings.billing;
+  const inv = shop?.settings.inventory;
+  return {
+    roundOff: billing?.roundOffEnabled ?? true,
+    maxDiscountPercent: billing?.maxDiscountPercent ?? 20,
+    enforceH1: billing?.enforceH1Prescription ?? true,
+    canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
+    seesCost: seesCost(t),
+  };
 }
 
 interface Built {

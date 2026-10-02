@@ -27,8 +27,16 @@ posRouter.get(
   requirePermission('pos', 'view'),
   validate({ query: posSearchSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const q = req.query as unknown as { q: string; limit: number };
-    fetched(res, await svc.posSearch(tenantOf(req), q.q, q.limit));
+    const q = req.query as unknown as { q: string; limit: number; ids?: string[] };
+    fetched(res, await svc.posSearch(tenantOf(req), q.q, q.ids?.length ? 50 : q.limit, q.ids));
+  }),
+);
+
+posRouter.get(
+  '/settings',
+  requirePermission('pos', 'view'),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await svc.posSettings(tenantOf(req)));
   }),
 );
 

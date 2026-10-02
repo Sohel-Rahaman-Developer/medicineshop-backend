@@ -103,7 +103,12 @@ async function main() {
   const cs = data<{ items: Hit[] }>(await cashier.get('/pos/search?q=dolo')).items[0];
   check('cashier: no cost in POS search', cs !== undefined && cs.batches.every((b) => b.costPerBaseUnit === undefined));
   check('barcode → exact product', data<{ exact: string | null }>(await owner.get('/pos/search?q=8901234567890')).exact === dolo);
+  check('ids → exactly those products (cart refresh)', data<{ items: Hit[] }>(await owner.get(`/pos/search?ids=${dolo},${thermo}`)).items.map((x) => x.id).sort().join() === [dolo, thermo].sort().join());
   check('empty search → in-stock products', data<{ items: Hit[] }>(await owner.get('/pos/search')).items.length === 4);
+  const ps = data<{ roundOff: boolean; maxDiscountPercent: number; enforceH1: boolean; canPickBatch: boolean; seesCost: boolean }>(await owner.get('/pos/settings'));
+  check('POS settings: round off, 20 % limit, H1 on, owner may pick a batch', ps.roundOff && ps.maxDiscountPercent === 20 && ps.enforceH1 && ps.canPickBatch && ps.seesCost);
+  const cps = data<{ canPickBatch: boolean; seesCost: boolean }>(await cashier.get('/pos/settings'));
+  check('POS settings for the cashier: no batch pick, no cost', !cps.canPickBatch && !cps.seesCost);
   check('accountant (no POS) → search 403', (await accountant.get('/pos/search?q=dolo')).status === 403);
 
   section('2. PLAN §14 bill — ₹152');
