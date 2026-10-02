@@ -147,6 +147,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     at: s.billDate,
     head: [
       `Bill to: ${s.customerName}${s.customerPhone ? ` · ${s.customerPhone}` : ''}`,
+      ...(s.buyerGstin ? [`Buyer: ${s.buyerName ?? s.customerName} · GSTIN ${s.buyerGstin}`] : []),
       ...(s.doctorName || s.patientName ? [`Doctor: ${s.doctorName || '—'} · Patient: ${s.patientName || '—'}${s.rxNumber ? ` · Rx ${s.rxNumber}` : ''}`] : []),
     ],
     rows: s.lines.map((l) => {

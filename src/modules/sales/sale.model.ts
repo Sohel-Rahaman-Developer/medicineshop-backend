@@ -61,6 +61,9 @@ const saleSchema = new Schema(
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer' },
     customerName: { type: String, required: true, default: 'Walk-in' },
     customerPhone: { type: String, default: '' },
+    // PLAN §35.10: a B2B buyer's GSTIN and business name, copied onto the bill (GSTR-1 lists them apart).
+    buyerGstin: { type: String },
+    buyerName: { type: String },
     doctorId: { type: Schema.Types.ObjectId, ref: 'Doctor' },
     doctorName: { type: String, default: '' },
     patientName: { type: String, default: '' },

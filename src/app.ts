@@ -31,6 +31,7 @@ import { searchRouter } from './modules/search/search.routes';
 import { taxRouter } from './modules/tax/tax.routes';
 import { expensesRouter } from './modules/expenses/expenses.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
@@ -122,6 +123,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/tax`, taxRouter);
   app.use(`${env.API_PREFIX}/expenses`, expensesRouter);
   app.use(`${env.API_PREFIX}/reports`, reportsRouter);
+  app.use(`${env.API_PREFIX}/dashboard`, dashboardRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
 
   app.use(notFoundHandler);
