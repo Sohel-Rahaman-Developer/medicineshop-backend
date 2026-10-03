@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 import security from 'eslint-plugin-security';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'eslint.config.mjs'] },
+  { ignores: ['dist/**', 'node_modules/**', 'eslint.config.mjs', 'deploy/**'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   security.configs.recommended,
