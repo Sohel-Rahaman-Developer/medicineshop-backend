@@ -17,6 +17,8 @@ export const ADMIN_PRE_COOKIE = 'ms_adm_pre';
 const FULL_MS = 8 * 60 * 60 * 1000;
 const PRE_MS = 10 * 60 * 1000;
 const TOTP_TRIES = 5;
+export const ADMIN_IDLE_MIN = 15;
+const UNLOCK_TRIES = 5;
 
 const cookie = (): CookieOptions => ({ httpOnly: true, secure: env.COOKIE_SECURE, sameSite: env.COOKIE_SAMESITE, path: `${env.API_PREFIX}/admin` });
 const totpKey = () => env.ADMIN_TOTP_KEY ?? env.JWT_ACCESS_SECRET;
@@ -54,7 +56,7 @@ export async function requestCode(rawEmail: string, ip?: string) {
 
 async function newSession(adminUserId: Types.ObjectId, stage: 'pre' | 'full', req: Request, extra: { setupSecretEnc?: string } = {}) {
   const token = generateOpaqueToken();
-  await AdminSessionModel.create({ adminUserId, tokenHash: sha256(token), stage, expiresAt: new Date(Date.now() + (stage === 'full' ? FULL_MS : PRE_MS)), ip: req.ip, userAgent: req.get('user-agent'), ...extra });
+  await AdminSessionModel.create({ adminUserId, tokenHash: sha256(token), stage, expiresAt: new Date(Date.now() + (stage === 'full' ? FULL_MS : PRE_MS)), lastUsedAt: new Date(), ip: req.ip, userAgent: req.get('user-agent'), ...extra });
   return token;
 }
 
@@ -104,7 +106,7 @@ export async function verifyTotp(req: Request, res: Response, code: string) {
   res.clearCookie(ADMIN_PRE_COOKIE, cookie());
   res.cookie(ADMIN_COOKIE, full, { ...cookie(), maxAge: FULL_MS });
   logger.info({ adminId: String(admin._id) }, 'Admin signed in');
-  return { id: String(admin._id), name: admin.name, email: admin.email, role: admin.role };
+  return { id: String(admin._id), name: admin.name, email: admin.email, role: admin.role, hasPin: Boolean(admin.pinHash), idleMinutes: ADMIN_IDLE_MIN };
 }
 
 export async function signOut(req: Request, res: Response) {
@@ -113,18 +115,90 @@ export async function signOut(req: Request, res: Response) {
   res.clearCookie(ADMIN_COOKIE, cookie());
 }
 
-/** Every /admin route but sign-in: a live full session of an active admin. */
+async function liveSession(req: Request) {
+  const raw = readCookie(req, ADMIN_COOKIE);
+  if (!raw) throw AppError.unauthenticated('Please sign in to MedShop Admin');
+  const s = await AdminSessionModel.findOne({ tokenHash: sha256(raw), stage: 'full', revokedAt: null });
+  if (!s || s.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('Your admin session has ended — sign in again');
+  const a = await AdminUserModel.findOne({ _id: s.adminUserId, status: 'active' });
+  if (!a?.totpEnabledAt) throw AppError.unauthenticated('Please sign in to MedShop Admin');
+  return { s, a };
+}
+
+/** Every /admin route but sign-in and unlock: a live, unlocked full session of an active admin. Idle 15 min → locked. */
 export const requireAdmin: RequestHandler = (req, _res, next) => {
   void (async () => {
-    const raw = readCookie(req, ADMIN_COOKIE);
-    if (!raw) throw AppError.unauthenticated('Please sign in to MedShop Admin');
-    const s = await AdminSessionModel.findOne({ tokenHash: sha256(raw), stage: 'full', revokedAt: null }).lean();
-    if (!s || s.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('Your admin session has ended — sign in again');
-    const a = await AdminUserModel.findOne({ _id: s.adminUserId, status: 'active' }).lean();
-    if (!a?.totpEnabledAt) throw AppError.unauthenticated('Please sign in to MedShop Admin');
+    const { s, a } = await liveSession(req);
+    const now = Date.now();
+    if (!s.lockedAt && now - (s.lastUsedAt ?? s.createdAt).getTime() > ADMIN_IDLE_MIN * 60_000) {
+      s.lockedAt = new Date(now);
+      await s.save();
+    }
+    if (s.lockedAt) throw AppError.locked(a.pinHash ? 'Locked — enter your PIN' : 'Locked — enter your authenticator code');
+    // A write at most every 30 s keeps the idle clock honest without a write per request.
+    if (now - (s.lastUsedAt ?? s.createdAt).getTime() > 30_000) await AdminSessionModel.updateOne({ _id: s._id }, { $set: { lastUsedAt: new Date(now) } });
     req.admin = { id: String(a._id), name: a.name, email: a.email, role: a.role };
   })().then(() => { next(); }, next);
 };
+
+/** "Lock now": the session stays, every page waits for the PIN. */
+export async function lockNow(req: Request) {
+  const { s } = await liveSession(req);
+  s.lockedAt = new Date();
+  await s.save();
+}
+
+/** PIN, or an authenticator code when there is no PIN (or it is forgotten). Five wrong → the session ends. */
+export async function unlock(req: Request, res: Response, body: { pin?: string; code?: string }) {
+  const { s, a } = await liveSession(req);
+  const wrong = async (message: string) => {
+    a.pinFails += 1;
+    if (a.pinFails >= UNLOCK_TRIES) {
+      a.pinFails = 0;
+      await a.save();
+      s.revokedAt = new Date();
+      await s.save();
+      res.clearCookie(ADMIN_COOKIE, cookie());
+      throw AppError.unauthenticated('Too many wrong tries — sign in again with your email code');
+    }
+    await a.save();
+    throw AppError.validation(`${message} — ${String(UNLOCK_TRIES - a.pinFails)} tries left`, [{ field: body.pin ? 'body.pin' : 'body.code', message }]);
+  };
+  if (body.pin) {
+    if (!a.pinHash) throw AppError.validation('No PIN set — use your authenticator code', [{ field: 'body.pin', message: 'No PIN set' }]);
+    if (!(await compareOtp(body.pin, a.pinHash))) await wrong('Wrong PIN');
+  } else {
+    const step = a.totpSecretEnc ? checkTotp(open(a.totpSecretEnc, totpKey()), body.code ?? '') : null;
+    if (step === null || step <= a.totpLastStep) await wrong('That authenticator code is wrong');
+    else a.totpLastStep = step;
+  }
+  a.pinFails = 0;
+  await a.save();
+  s.lockedAt = undefined;
+  s.lastUsedAt = new Date();
+  await s.save();
+  return { id: String(a._id), name: a.name, email: a.email, role: a.role, hasPin: Boolean(a.pinHash), idleMinutes: ADMIN_IDLE_MIN };
+}
+
+/** Setting a PIN needs a fresh authenticator code — a PIN is a shortcut, not a way in. */
+export async function setPin(adminId: string, pin: string, code: string) {
+  const a = await AdminUserModel.findById(adminId);
+  if (!a?.totpSecretEnc) throw AppError.unauthenticated();
+  const step = checkTotp(open(a.totpSecretEnc, totpKey()), code);
+  if (step === null || step <= a.totpLastStep) throw AppError.validation('That authenticator code is wrong', [{ field: 'body.code', message: 'Wrong code' }]);
+  a.set({ pinHash: await hashOtp(pin), pinFails: 0, totpLastStep: step });
+  await a.save();
+}
+
+export async function clearPin(adminId: string) {
+  await AdminUserModel.updateOne({ _id: adminId }, { $unset: { pinHash: 1 }, $set: { pinFails: 0 } });
+}
+
+export async function meOf(adminId: string) {
+  const a = await AdminUserModel.findById(adminId).select('name email role pinHash').lean();
+  if (!a) throw AppError.unauthenticated();
+  return { id: String(a._id), name: a.name, email: a.email, role: a.role, hasPin: Boolean(a.pinHash), idleMinutes: ADMIN_IDLE_MIN };
+}
 
 export const requireAdminRole =
   (...roles: AdminRole[]): RequestHandler =>

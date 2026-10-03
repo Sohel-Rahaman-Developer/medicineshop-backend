@@ -18,6 +18,9 @@ const adminUserSchema = new Schema(
     status: { type: String, enum: ['active', 'disabled'], required: true, default: 'active' },
     invitedBy: { type: String },
     lastLoginAt: { type: Date },
+    /** Quick unlock after the idle lock (bcrypt); sign-in still needs the email code + authenticator. */
+    pinHash: { type: String },
+    pinFails: { type: Number, default: 0 },
   },
   { timestamps: true, versionKey: false },
 );
@@ -34,6 +37,9 @@ const adminSessionSchema = new Schema(
     setupSecretEnc: { type: String },
     attempts: { type: Number, default: 0 },
     expiresAt: { type: Date, required: true },
+    lastUsedAt: { type: Date },
+    /** Set by "Lock now" or by the idle check; every route but unlock answers 423 until it clears. */
+    lockedAt: { type: Date },
     revokedAt: { type: Date },
     ip: { type: String },
     userAgent: { type: String },

@@ -5,7 +5,10 @@ import { validate } from '../../core/middleware/validate';
 import { fetched, sent } from '../../core/response';
 import { LIMIT, idParams, objectId } from '../../core/zod';
 import { ADMIN_ROLES } from './admin.model';
-import { adminOf, requestCode, requireAdmin, requireAdminRole, signOut, verifyCode, verifyTotp } from './admin-auth';
+import { adminOf, clearPin, lockNow, meOf, requestCode, requireAdmin, requireAdminRole, setPin, signOut, unlock, verifyCode, verifyTotp } from './admin-auth';
+import { otpVerifyLimiter } from '../../core/middleware/rate-limit';
+import { AdminAuditModel } from './admin.model';
+import { Types } from 'mongoose';
 import * as svc from './admin.service';
 import { platform } from './platform';
 import * as support from './support';
@@ -40,12 +43,28 @@ adminRouter.post('/auth/verify', validate({ body: z.object({ email, otp: z.strin
 adminRouter.post('/auth/totp', validate({ body: z.object({ code: z.string().regex(/^\d{6}$/, 'Six digits from your authenticator') }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await verifyTotp(req, res, (req.body as { code: string }).code), 'Signed in'); }));
 adminRouter.post('/auth/logout', asyncHandler(async (req: Request, res: Response) => { await signOut(req, res); sent(res, { ok: true }, 'Signed out'); }));
 
+adminRouter.post('/auth/lock', asyncHandler(async (req: Request, res: Response) => { await lockNow(req); sent(res, { locked: true }, 'Locked'); }));
+adminRouter.post('/auth/unlock', otpVerifyLimiter, validate({ body: z.object({ pin: z.string().regex(/^\d{4,6}$/).optional(), code: z.string().regex(/^\d{6}$/).optional() }).strict().refine((b) => Boolean(b.pin) !== Boolean(b.code), 'Send a PIN or an authenticator code') }), asyncHandler(async (req: Request, res: Response) => { sent(res, await unlock(req, res, req.body as { pin?: string; code?: string }), 'Unlocked'); }));
+
 adminRouter.use(requireAdmin);
 const shopsRole = requireAdminRole('super', 'support');
 const moneyRole = requireAdminRole('super', 'accounts');
 const superOnly = requireAdminRole('super');
 
-adminRouter.get('/me', (req: Request, res: Response) => { fetched(res, adminOf(req)); });
+adminRouter.get('/me', asyncHandler(async (req: Request, res: Response) => { fetched(res, await meOf(adminOf(req).id)); }));
+adminRouter.put('/me/pin', otpVerifyLimiter, validate({ body: z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits'), code: z.string().regex(/^\d{6}$/, 'Six digits from your authenticator') }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const a = adminOf(req);
+  const b = req.body as { pin: string; code: string };
+  await setPin(a.id, b.pin, b.code);
+  await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, action: 'pin_set', reason: 'own quick-unlock PIN', text: 'set a quick-unlock PIN', ip: req.ip });
+  sent(res, await meOf(a.id), 'PIN saved');
+}));
+adminRouter.delete('/me/pin', asyncHandler(async (req: Request, res: Response) => {
+  const a = adminOf(req);
+  await clearPin(a.id);
+  await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, action: 'pin_cleared', reason: 'own quick-unlock PIN', text: 'removed the quick-unlock PIN', ip: req.ip });
+  sent(res, await meOf(a.id), 'PIN removed');
+}));
 adminRouter.get('/overview', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.overview()); }));
 adminRouter.get('/shops', validate({ query: listQuery }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.shops(req.query as unknown as { q?: string; status?: string; cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 adminRouter.get('/shops/:id', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.shop((req.params as { id: string }).id)); }));
