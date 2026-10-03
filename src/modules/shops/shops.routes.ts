@@ -8,6 +8,14 @@ import { MembershipModel } from '../memberships/membership.model';
 import { RoleModel } from '../roles/role.model';
 import { actorOf } from '../user/actor';
 import * as svc from './shops.service';
+import { Types } from 'mongoose';
+import { z } from 'zod';
+import { env } from '../../config/env';
+import { AppError } from '../../core/errors';
+import { audit } from '../audit/audit.model';
+import * as retention from '../retention/retention';
+import { TermsAcceptanceModel } from './terms-acceptance.model';
+import { TERMS_POINTS } from './terms.content';
 import { createShopSchema, updateShopSchema, type CreateShopInput, type UpdateShopInput } from './shops.validation';
 
 export const shopsRouter = Router();
@@ -38,6 +46,31 @@ shopRouter.get(
       MembershipModel.findOne({ shopId: t.shopId, _id: t.membershipId }).select('designation').lean(),
     ]);
     fetched(res, svc.context(t, role?.name ?? '', m?.designation ?? ''));
+  }),
+);
+
+shopRouter.get('/data', requirePermission('subscription', 'view'), asyncHandler(async (req: Request, res: Response) => { fetched(res, await retention.plan(tenantOf(req).shopId)); }));
+
+shopRouter.get(
+  '/terms',
+  asyncHandler(async (req: Request, res: Response) => {
+    const t = tenantOf(req);
+    const last = await TermsAcceptanceModel.findOne({ shopId: t.shopId }).sort({ at: -1 }).lean();
+    fetched(res, { version: env.TERMS_VERSION, accepted: last?.version === env.TERMS_VERSION, acceptedVersion: last?.version ?? null, acceptedAt: last?.at ?? null, acceptedBy: last?.userName ?? null, points: TERMS_POINTS, canAccept: t.isOwner });
+  }),
+);
+
+shopRouter.post(
+  '/terms/accept',
+  validate({ body: z.object({ version: z.string().max(20) }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const t = tenantOf(req);
+    if (!t.isOwner) throw AppError.forbidden('Only the shop owner agrees to the Terms');
+    if ((req.body as { version: string }).version !== env.TERMS_VERSION) throw AppError.conflict('The Terms changed again — reload and read the latest');
+    const actor = await actorOf(req);
+    await TermsAcceptanceModel.create({ shopId: t.shopId, version: env.TERMS_VERSION, userId: new Types.ObjectId(actor.id), userName: actor.name, ip: req.ip, userAgent: req.get('user-agent') });
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'settings', entityId: String(t.shopId), entityName: 'Terms', text: `${actor.name} agreed to the Terms (${env.TERMS_VERSION})`, ip: req.ip });
+    sent(res, { version: env.TERMS_VERSION, accepted: true }, 'Thank you — Terms accepted');
   }),
 );
 

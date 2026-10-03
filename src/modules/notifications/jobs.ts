@@ -1,4 +1,5 @@
 import { Schema, model, type Types } from 'mongoose';
+import { summariseRecent } from '../retention/retention';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { contextFor, type TenantContext } from '../../core/middleware/tenant';
@@ -107,6 +108,8 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
 async function nightly(shopId: Types.ObjectId, ownerId: Types.ObjectId, now: Date) {
   const ctx = (await contextFor(shopId, ownerId)).ctx;
   await loyalty.expireDue(ctx, now);
+  // PLAN §36.3: the day lines that outlive bill detail.
+  await summariseRecent(shopId, now);
   return loyalty.birthdays(ctx, now);
 }
 

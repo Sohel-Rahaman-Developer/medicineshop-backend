@@ -7,7 +7,8 @@ import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
 import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
 import { plans as planList, plansFor, recordManual } from '../subscription/subscription.service';
-import { setPrices } from '../subscription/terms';
+import { ShopTermsModel, setPrices } from '../subscription/terms';
+import * as retention from '../retention/retention';
 import { EmailJobModel } from '../../services/mail-queue';
 import { JobRunModel } from '../notifications/jobs';
 import { WebhookEventModel } from '../subscription/billing.model';
@@ -152,6 +153,24 @@ export async function health(now = new Date()) {
     jobs: [...kinds.entries()].map(([kind, v]) => ({ kind, runs24h: v.runs, lastRun: v.last })),
     webhooks: hooks.map((w) => ({ id: String(w._id), event: w.event, valid: w.signatureValid, result: w.result, at: (w as { createdAt?: Date }).createdAt ?? null })),
   };
+}
+
+export async function retentionOf(id: string) {
+  const shopId = new Types.ObjectId(id);
+  if (!(await ShopModel.exists({ _id: shopId }))) throw AppError.notFound('Shop not found');
+  const [plan, preview] = await Promise.all([retention.plan(shopId), retention.dryRun({ shopId })]);
+  return { ...plan, preview };
+}
+
+/** PLAN §36.3: a longer tier applies now; a shorter one still waits the 90-day notice (the job checks). A hold needs the case name. */
+export async function setRetention(a: AdminActor, id: string, v: { tier: 'legal' | 'y10'; legalHold: boolean; legalHoldReason: string; reason: string }, ip?: string) {
+  const doc = await ShopModel.findById(id).select('name').lean();
+  if (!doc) throw AppError.notFound('Shop not found');
+  const before = await ShopTermsModel.findOne({ shopId: doc._id }).select('retention legalHold legalHoldReason').lean();
+  await ShopTermsModel.updateOne({ shopId: doc._id }, { $set: { retention: v.tier, legalHold: v.legalHold, legalHoldReason: v.legalHold ? v.legalHoldReason : '' } }, { upsert: true });
+  const what = [before?.retention !== v.tier ? `data kept: ${v.tier === 'y10' ? '10 years' : 'legal minimum'}` : '', Boolean(before?.legalHold) !== v.legalHold ? (v.legalHold ? `legal hold on (${v.legalHoldReason})` : 'legal hold off') : ''].filter(Boolean).join(' · ');
+  await log(a, 'retention_update', v.reason, what || 'saved data settings', { id: doc._id, name: doc.name }, { before, after: v }, ip);
+  return retentionOf(id);
 }
 
 export async function payments(q: { status?: string; cursor?: string; limit: number }) {

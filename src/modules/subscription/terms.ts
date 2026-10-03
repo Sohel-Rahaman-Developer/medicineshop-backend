@@ -11,6 +11,10 @@ const termsSchema = new Schema(
     before: { type: [{ _id: false, code: { type: String, required: true }, price: { type: Number, required: true } }], default: undefined },
     priceFrom: { type: Date },
     note: { type: String, default: '' },
+    /** PLAN §36.3: how long full bill detail stays; a legal hold stops every removal. */
+    retention: { type: String, enum: ['legal', 'y10'], default: 'legal' },
+    legalHold: { type: Boolean, default: false },
+    legalHoldReason: { type: String, default: '' },
     updatedBy: { type: String },
   },
   { timestamps: true, versionKey: false },
