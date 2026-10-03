@@ -6,7 +6,11 @@ import { audit } from '../audit/audit.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
 import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
-import { plans as planList, recordManual } from '../subscription/subscription.service';
+import { plans as planList, plansFor, recordManual } from '../subscription/subscription.service';
+import { setPrices } from '../subscription/terms';
+import { EmailJobModel } from '../../services/mail-queue';
+import { JobRunModel } from '../notifications/jobs';
+import { WebhookEventModel } from '../subscription/billing.model';
 import { SubscriptionModel, statusAt } from '../subscription/subscription.model';
 import { UserModel } from '../user/user.model';
 import { ADMIN_ROLES, AdminAuditModel, AdminUserModel, PlatformSettingsModel, type AdminRole } from './admin.model';
@@ -69,12 +73,13 @@ export async function shop(id: string, now = new Date()) {
   const shopId = new Types.ObjectId(id);
   const doc = await ShopModel.findById(shopId).lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const [sub, owner, members, pays, log] = await Promise.all([
+  const [sub, owner, members, pays, log, prices] = await Promise.all([
     SubscriptionModel.findOne({ shopId }).lean(),
     UserModel.findById(doc.ownerUserId).select('name email phone').lean(),
     MembershipModel.find({ shopId }).select('designation status lastActiveAt').lean(),
     SubscriptionPaymentModel.find({ shopId, status: { $in: ['paid', 'failed'] } }).sort({ createdAt: -1 }).limit(20).lean(),
     AdminAuditModel.find({ shopId }).sort({ createdAt: -1 }).limit(20).lean(),
+    plansFor(shopId, now),
   ]);
   return {
     id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null,
@@ -83,6 +88,7 @@ export async function shop(id: string, now = new Date()) {
     plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, startDate: sub.startDate, endDate: sub.endDate, maxUsers: sub.maxUsers, trialExtensions: sub.trialExtensions, cancelReason: sub.cancelReason ?? null } : null,
     users: { active: members.filter((m) => m.status === 'active').length, invited: members.filter((m) => m.status === 'invited').length },
     payments: pays.map((p) => ({ id: String(p._id), planName: p.planName, amount: p.amount, status: p.status, invoiceNumber: p.invoiceNumber ?? null, source: p.source, paidAt: p.paidAt ?? null, createdAt: (p as { createdAt?: Date }).createdAt ?? null })),
+    prices: prices.map((p) => ({ code: p.code, name: p.name, price: p.price, listPrice: p.listPrice, ownPrice: p.ownPrice, upcoming: p.upcoming })),
     log: log.map((l) => ({ id: String(l._id), at: (l as { createdAt?: Date }).createdAt ?? null, by: l.adminName, action: l.action, text: l.text, reason: l.reason })),
   };
 }
@@ -110,6 +116,42 @@ export async function extend(a: AdminActor, id: string, days: number, reason: st
   await sub.save();
   await log(a, 'plan_extend', reason, `added ${String(days)} days — now valid till ${end.toISOString().slice(0, 10)}`, { id: shopId, name: doc.name }, { before, after: end }, ip);
   return { endDate: end };
+}
+
+/** PLAN §36.1 Price & data: a shop's own price; cheaper now, dearer after 30 days. */
+export async function setShopPrices(a: AdminActor, id: string, input: { code: string; price: number | null }[], reason: string, ip?: string) {
+  const doc = await ShopModel.findById(id).select('name').lean();
+  if (!doc) throw AppError.notFound('Shop not found');
+  const lists = await planList();
+  if (input.some((i) => !lists.some((l) => l.code === i.code))) throw AppError.validation('Unknown plan');
+  const r = await setPrices(doc._id, input, lists, a.name);
+  if (!r.changes.length) throw AppError.conflict('Nothing changed');
+  const text = r.changes.map((c) => `${c.code} ${inr(c.from)} → ${inr(c.to)}${c.at === 'notice' ? ` from ${(r.priceFrom ?? new Date()).toISOString().slice(0, 10)}` : ' now'}`).join(' · ');
+  await log(a, 'price_update', reason, `set the shop's price: ${text}`, { id: doc._id, name: doc.name }, r.changes, ip);
+  return r;
+}
+
+/** SANDBOX A17: the email queue, the scheduler and Razorpay webhooks at a glance. */
+export async function health(now = new Date()) {
+  const day = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [mail, failed, runs, hooks] = await Promise.all([
+    EmailJobModel.aggregate<{ _id: string; n: number }>([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
+    EmailJobModel.find({ status: 'failed' }).sort({ updatedAt: -1 }).limit(10).select('kind to lastError attempts updatedAt').lean(),
+    JobRunModel.find({ at: { $gte: day } }).sort({ at: -1 }).limit(200).lean(),
+    WebhookEventModel.find({}).sort({ createdAt: -1 }).limit(20).lean(),
+  ]);
+  const by = (s: string) => mail.find((m) => m._id === s)?.n ?? 0;
+  const kinds = new Map<string, { runs: number; last: Date }>();
+  for (const r of runs) {
+    const k = r.key.split(':')[0] ?? r.key;
+    const v = kinds.get(k);
+    kinds.set(k, { runs: (v?.runs ?? 0) + 1, last: v && v.last > r.at ? v.last : r.at });
+  }
+  return {
+    mail: { pending: by('pending') + by('sending'), sent: by('sent'), failed: by('failed'), recentFailed: failed.map((f) => ({ id: String(f._id), kind: f.kind, to: f.to, error: f.lastError, attempts: f.attempts, at: (f as { updatedAt?: Date }).updatedAt ?? null })) },
+    jobs: [...kinds.entries()].map(([kind, v]) => ({ kind, runs24h: v.runs, lastRun: v.last })),
+    webhooks: hooks.map((w) => ({ id: String(w._id), event: w.event, valid: w.signatureValid, result: w.result, at: (w as { createdAt?: Date }).createdAt ?? null })),
+  };
 }
 
 export async function payments(q: { status?: string; cursor?: string; limit: number }) {

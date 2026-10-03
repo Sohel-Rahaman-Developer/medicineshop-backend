@@ -8,6 +8,11 @@ import { ADMIN_ROLES } from './admin.model';
 import { adminOf, requestCode, requireAdmin, requireAdminRole, signOut, verifyCode, verifyTotp } from './admin-auth';
 import * as svc from './admin.service';
 import { platform } from './platform';
+import * as support from './support';
+import { requireAuth } from '../../core/middleware/require-auth';
+import { tenant, tenantOf } from '../../core/middleware/tenant';
+import { actorOf } from '../user/actor';
+import { istDay } from '../../core/zod';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -57,8 +62,32 @@ adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Resp
 adminRouter.post('/team', superOnly, validate({ body: z.object({ email, name: z.string().trim().min(2).max(80), role: z.enum(ADMIN_ROLES), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; name: string; role: (typeof ADMIN_ROLES)[number]; reason: string }; sent(res, await svc.invite(adminOf(req), b, b.reason, req.ip), `${b.name} added`); }));
 adminRouter.patch('/team/:id', superOnly, validate({ params: idParams, body: z.object({ role: z.enum(ADMIN_ROLES).optional(), status: z.enum(['active', 'disabled']).optional(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { role?: (typeof ADMIN_ROLES)[number]; status?: 'active' | 'disabled'; reason: string }; sent(res, await svc.setMember(adminOf(req), (req.params as { id: string }).id, { ...(b.role ? { role: b.role } : {}), ...(b.status ? { status: b.status } : {}) }, b.reason, req.ip), 'Saved'); }));
 
+adminRouter.put('/shops/:id/prices', moneyRole, validate({ params: idParams, body: z.object({ prices: z.array(z.object({ code: z.string().min(2).max(20), price: z.number().int().min(100).max(10_000_000).nullable() }).strict()).min(1).max(6), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { prices: { code: string; price: number | null }[]; reason: string }; await svc.setShopPrices(adminOf(req), (req.params as { id: string }).id, b.prices, b.reason, req.ip); sent(res, await svc.shop((req.params as { id: string }).id), 'Price saved'); }));
+adminRouter.get('/health', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.health()); }));
+
+// SANDBOX A16: support asks, the owner decides in the shop app, then read-only reports for the hours given.
+adminRouter.post('/shops/:id/support', shopsRole, validate({ params: idParams, body: z.object({ hours: z.union([z.literal(1), z.literal(4), z.literal(24)]), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { hours: number; reason: string }; sent(res, await support.request(adminOf(req), (req.params as { id: string }).id, b.hours, b.reason, req.ip), 'Request sent to the owner'); }));
+adminRouter.get('/support', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await support.forAdmin()); }));
+adminRouter.get(
+  '/support/:id/r/:key',
+  shopsRole,
+  validate({ params: z.object({ id: objectId, key: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(), query: z.object({ from: istDay.optional(), to: istDay.optional(), month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as { from?: Date; to?: Date; month?: string };
+    const p = req.params as { id: string; key: string };
+    const now = new Date();
+    fetched(res, await support.runReport(adminOf(req), p.id, p.key, { from: q.from ?? new Date(now.getTime() - 29 * 86_400_000), to: q.to ?? now, month: q.month ?? new Date(now.getTime() + 19_800_000).toISOString().slice(0, 7) }, req.ip));
+  }),
+);
+
 adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.auditLog(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 
 /** Public: the shop app shows the maintenance banner and support contacts from here. */
 export const platformRouter = Router();
 platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone }); }));
+
+/** Shop side (owner): see MedShop's requests, approve / deny / stop. */
+export const supportAccessRouter = Router();
+supportAccessRouter.use(requireAuth, tenant);
+supportAccessRouter.get('/', asyncHandler(async (req: Request, res: Response) => { fetched(res, await support.forShop(tenantOf(req))); }));
+supportAccessRouter.post('/:id/:decision', validate({ params: z.object({ id: objectId, decision: z.enum(['approve', 'deny', 'revoke']) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const p = req.params as { id: string; decision: 'approve' | 'deny' | 'revoke' }; sent(res, await support.decide(tenantOf(req), await actorOf(req), p.id, p.decision, req.ip), p.decision === 'approve' ? 'Access given' : p.decision === 'deny' ? 'Request denied' : 'Access stopped'); }));

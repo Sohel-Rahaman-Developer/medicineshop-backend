@@ -23,8 +23,20 @@ async function main() {
     }
   };
 
+  const { ShopModel } = await import('../src/modules/shops/shop.model.js');
+  const { SupportAccessModel } = await import('../src/modules/admin/support.js');
+  const { emit } = await import('../src/modules/notifications/notifications.service.js');
+  /** Shop suite: MedShop support asks to look at the named shop (as the admin console would). */
+  const seedSupport = async (b: { shopName?: string }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop) throw new Error('shop not found');
+    const admin = await AdminUserModel.findOneAndUpdate({ email: 'support@medshop.test' }, { $setOnInsert: { email: 'support@medshop.test', name: 'Sara (support)', role: 'support' } }, { upsert: true, returnDocument: 'after' });
+    const d = await SupportAccessModel.create({ shopId: shop._id, adminUserId: admin._id, agentName: admin.name, reason: 'Owner asked about a bill total', hours: 4 });
+    await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: 'MedShop support asks to look at your shop for 4 h', body: 'Approve or deny in Settings → Support access.', route: '/settings/support', roles: ['owner'] });
+  };
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || (req.url !== '/otp' && req.url !== '/admin')) {
+    if (req.method !== 'POST' || (req.url !== '/otp' && req.url !== '/admin' && req.url !== '/support')) {
       res.writeHead(404).end();
       return;
     }
@@ -32,7 +44,7 @@ async function main() {
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
       const body = JSON.parse(raw) as { email: string; code: string; shopName?: string };
-      (req.url === '/admin' ? seedAdmin(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

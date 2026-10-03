@@ -13,6 +13,7 @@ import { MembershipModel } from '../memberships/membership.model';
 import type { Actor } from '../user/actor';
 import { DEFAULT_PLANS, PlanModel, PlatformCounterModel, SubscriptionPaymentModel, WebhookEventModel } from './billing.model';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
+import { priceFor } from './terms';
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysBetween = (a: Date, b: Date) => Math.ceil((b.getTime() - a.getTime()) / DAY);
@@ -28,10 +29,19 @@ function shapePayment(p: { _id: Types.ObjectId; planName: string; amount: number
   return { id: String(p._id), planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, orderId: p.razorpayOrderId, paymentId: p.razorpayPaymentId ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, invoiceNumber: p.invoiceNumber ?? null, source: p.source, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null };
 }
 
+/** The plans at this shop's own prices (PLAN §36.1) — the list price shows beside its own. */
+export async function plansFor(shopId: Types.ObjectId, now = new Date()) {
+  const list = await plans();
+  return Promise.all(list.map(async (p) => {
+    const f = await priceFor(shopId, p.code, p.price, now);
+    return { ...p, price: f.price, listPrice: p.price, ownPrice: f.own, upcoming: f.upcoming, perMonth: Math.round((f.price * 30) / p.durationDays) };
+  }));
+}
+
 export async function current(t: TenantContext, now = new Date()) {
   const [sub, list, users, last] = await Promise.all([
     SubscriptionModel.findOne({ shopId: t.shopId }).lean(),
-    plans(),
+    plansFor(t.shopId, now),
     MembershipModel.countDocuments({ shopId: t.shopId, status: { $in: ['active', 'invited'] } }),
     SubscriptionPaymentModel.findOne({ shopId: t.shopId, status: { $in: ['paid', 'failed'] } }).sort({ createdAt: -1 }).lean(),
   ]);
@@ -57,7 +67,7 @@ export async function current(t: TenantContext, now = new Date()) {
 
 /** Step 1 of PLAN §8: an order at the plan's price, snapshotted with its 18% GST. */
 export async function order(t: TenantContext, actor: Actor, planCode: string) {
-  const plan = (await plans()).find((p) => p.code === planCode);
+  const plan = (await plansFor(t.shopId)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   const receipt = `${String(t.shopId).slice(-8)}-${Date.now().toString(36)}`;
   const orderId = await createOrder(plan.price, receipt, { shopId: String(t.shopId), planCode: plan.code });
@@ -109,7 +119,7 @@ async function markPaid(orderId: string, paymentId: string, amount: number | nul
 
 /** B9 accounts desk: money taken outside Razorpay — the same extension and invoice through markPaid. */
 export async function recordManual(shopId: Types.ObjectId, planCode: string, reference: string, by: { id: string; name: string }) {
-  const plan = (await plans()).find((p) => p.code === planCode);
+  const plan = (await plansFor(shopId)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   const id = `manual_${randomBytes(9).toString('hex')}`;
   await SubscriptionPaymentModel.create({ shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount: plan.price, gst: plan.price - rhu(plan.price * 100, 118), razorpayOrderId: id, status: 'created', source: 'manual', reference, createdBy: new Types.ObjectId(by.id), createdByName: by.name });

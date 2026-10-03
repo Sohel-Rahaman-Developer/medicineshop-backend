@@ -33,7 +33,7 @@ import { expensesRouter } from './modules/expenses/expenses.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { plansRouter, razorpayWebhook, subscriptionRouter } from './modules/subscription/subscription.routes';
-import { adminRouter, platformRouter } from './modules/admin/admin.routes';
+import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
@@ -133,6 +133,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/subscription`, subscriptionRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
+  app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
 
   app.use(notFoundHandler);
