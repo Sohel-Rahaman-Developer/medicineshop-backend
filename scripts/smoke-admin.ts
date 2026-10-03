@@ -1,5 +1,5 @@
 // B9a checks: email code + TOTP, admin and shop sessions never mix, roles, every action needs a reason and is audited twice.
-import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
+import { check, crash, finish, section, startHarness, type Res, unzip } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -134,8 +134,13 @@ async function main() {
   const view = await root.get(`/admin/support/${acc.id}/r/sales-register?${range}`);
   check('support reads the sales register', view.status === 200 && Array.isArray(data<{ rows: unknown[] }>(view).rows), code(view));
   check('the shop’s audit shows “MedShop Support (Root) viewed Sales register”', Boolean(await AuditLogModel.exists({ shopId, text: 'MedShop Support (Root) viewed Sales register' })));
+  const zr = await root.get(`/admin/support/${acc.id}/files.zip`);
+  const zipNames = zr.status === 200 ? [...unzip(zr.body).keys()] : [];
+  check('support downloads the shop’s photos as a ZIP, one folder <name>_<id>/', zr.status === 200 && zr.headers.get('content-type') === 'application/zip' && zipNames.length > 0 && zipNames.every((n) => n.split('/')[0]?.endsWith('_' + shopId)) && zipNames.some((n) => n.endsWith('/index.csv')), code(zr) + ' ' + zipNames.join(' | '));
+  check('the ZIP is on the shop’s audit and the admin audit', Boolean(await AuditLogModel.exists({ shopId, entityName: 'Photos ZIP', text: /^MedShop Support \(Root\) downloaded/ })) && Boolean(await AdminAuditModel.exists({ shopId, action: 'support_files' })));
+  check('ZIP: accounts / viewer → 403, another admin → 404', (await amit.get(`/admin/support/${acc.id}/files.zip`)).status === 403 && (await vee.get(`/admin/support/${acc.id}/files.zip`)).status === 403 && (await sara.get(`/admin/support/${acc.id}/files.zip`)).status === 404);
   check('accounts and viewer can’t use it → 403; another admin’s access → 404', (await amit.get(`/admin/support/${acc.id}/r/sales-register?${range}`)).status === 403 && (await vee.get(`/admin/support/${acc.id}/r/sales-register?${range}`)).status === 403 && (await sara.get(`/admin/support/${acc.id}/r/sales-register?${range}`)).status === 404);
-  check('the owner stops it → 403 at once', (await owner.post(`/support-access/${acc.id}/revoke`, {})).status === 200 && (await root.get(`/admin/support/${acc.id}/r/sales-register?${range}`)).status === 403);
+  check('the owner stops it → 403 at once', (await owner.post(`/support-access/${acc.id}/revoke`, {})).status === 200 && (await root.get(`/admin/support/${acc.id}/r/sales-register?${range}`)).status === 403 && (await root.get(`/admin/support/${acc.id}/files.zip`)).status === 403);
   const acc2 = data<{ id: string }>(await root.post(`/admin/shops/${shopId}/support`, { hours: 1, reason: 'Second look at stock' }));
   await owner.post(`/support-access/${acc2.id}/approve`, {});
   await SupportAccessModel.updateOne({ shopId, _id: acc2.id }, { $set: { endsAt: new Date(Date.now() - 1000) } });

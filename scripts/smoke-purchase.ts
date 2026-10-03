@@ -1,7 +1,7 @@
 // B3 purchase checks: PLAN §13 invoice, merge rule, supplier ledger (payments, returns, advance, cancel), isolation, exports.
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
+import { check, crash, finish, section, startHarness, unzip, type Client, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -398,6 +398,26 @@ async function main() {
   const adj = data<{ id: string }>(await owner.post('/stock/adjustments', { clientRequestId: randomUUID(), type: 'DAMAGE', reason: 'Wet box', lines: [{ batchId: String(bm?._id), quantity: 1 }] }));
   check('damage adjustment photo', (await owner.post(`/stock/adjustments/${adj.id}/photo`, { photo: `data:image/jpeg;base64,${small.toString('base64')}` })).status === 200);
   check('cashier can’t attach a damage photo → 403', (await cashier.post(`/stock/adjustments/${adj.id}/photo`, { photo: 'data:image/jpeg;base64,AA==' })).status === 403);
+  const { ProductModel } = await import('../src/modules/products/product.model.js');
+  const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
+  const thumb = await sharp({ create: { width: 96, height: 96, channels: 3, background: '#1b7f8c' } }).webp().toBuffer();
+  await ProductModel.updateOne({ shopId: shop1, _id: dolo }, { $set: { photo: { data: thumb, bytes: thumb.length, updatedAt: new Date() } } });
+  const fileCount = data<{ files: number; products: number; papers: number }>(await owner.get('/shop/files'));
+  check('photos count: 1 product + 2 papers', fileCount.files === 3 && fileCount.products === 1 && fileCount.papers === 2, JSON.stringify(fileCount));
+  const zr = await owner.get('/shop/files.zip');
+  const files = zr.status === 200 ? unzip(zr.body) : new Map<string, Buffer>();
+  const names = [...files.keys()];
+  const folder = `Shri-Ram-Medical-Store_${shop1}/`;
+  check('owner downloads a real ZIP named after the shop', zr.status === 200 && zr.headers.get('content-type') === 'application/zip' && /medshop-files-Shri-Ram-Medical-Store-\d{4}-\d{2}-\d{2}\.zip/.test(zr.headers.get('content-disposition') ?? ''), code(zr));
+  check('one folder per shop: <name>_<id>/ holds everything', names.length === 4 && names.every((n) => n.startsWith(folder)), names.join(' | '));
+  check('product photo, supplier invoice, damage photo in their own folders', names.some((n) => n === `${folder}products/Dolo-650-Tablet_${dolo}.webp`) && names.some((n) => /\/purchases\/\d{4}-\d{2}\/PUR-.+_Sharma-Distributors-invoice-.+\.webp$/.test(n)) && names.some((n) => /\/stock\/\d{4}-\d{2}\/.+_DAMAGE\.webp$/.test(n)), names.join(' | '));
+  check('bytes come back exactly as stored', files.get(`${folder}products/Dolo-650-Tablet_${dolo}.webp`)?.equals(thumb) === true && [...files.values()].filter((b) => b.subarray(8, 12).toString('latin1') === 'WEBP').length === 3);
+  const idx = files.get(`${folder}index.csv`)?.toString('utf8') ?? '';
+  check('index.csv lists all three with kind and size', idx.startsWith('\uFEFF"path"') && idx.split('\r\n').filter(Boolean).length === 4 && idx.includes('"Supplier invoice"') && idx.includes('"Stock adjustment"'), idx.slice(0, 200));
+  check('the download is on the shop’s audit', Boolean(await AuditLogModel.exists({ shopId: shop1, entityName: 'Photos ZIP', text: /downloaded all photos \(3 files\)/ })));
+  check('only the owner: cashier → 403 for the ZIP and the count', (await cashier.get('/shop/files.zip')).status === 403 && (await cashier.get('/shop/files')).status === 403);
+  const oz = await other.get('/shop/files.zip');
+  check('shop 2’s ZIP holds none of shop 1’s files', oz.status === 200 && [...unzip(oz.body).keys()].every((n) => !n.includes(shop1)) && unzip(oz.body).size === 1, code(oz));
 
   section('14. Expiry centre knows the supplier');
   const soon = new Date(Date.now() + IST + 40 * 86_400_000).toISOString().slice(0, 7);
@@ -413,7 +433,6 @@ async function main() {
   check('expiry aging: 6 months, the expiring Pan batches counted at cost in their month', aging.months.length === 6 && aging.basis === 'cost' && soonIdx > 0 && aging.series.reduce((a, s) => a + (s.data[soonIdx] ?? 0), 0) >= soonValue && soonValue > 0, JSON.stringify(aging));
   check('cashier aging is at MRP', data<{ basis: string }>(await cashier.get('/stock/expiry/aging')).basis === 'mrp');
   section('15. Not only medicines: no-expiry devices, lots for non-medicines, lowest price (D57, D59)');
-  const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
   const cats = data<{ id: string; name: string }[]>(await owner.get('/categories'));
   check('new shops get Chocolate & snacks, Drinks, Baby care, Personal care, Nutrition', ['Chocolate & snacks', 'Drinks', 'Baby care', 'Personal care', 'Nutrition'].every((n) => cats.some((c) => c.name === n)));
   const catOf = (n: string) => cats.find((c) => c.name === n)?.id ?? '';

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
-import { day, pdfTable, rupees } from '../../core/export';
+import { day, rupees } from '../../core/export';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
@@ -12,7 +12,10 @@ import { audit } from '../audit/audit.model';
 import type { Actor } from '../user/actor';
 import { AUTOPAY_STATUSES, AutopayModel, PlatformCounterModel, RzpPlanModel, SubscriptionPaymentModel, type AutopayStatus } from './billing.model';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
-import { buyerOf, issuerOf, markPaid, plansFor, supplier, taxRows } from './subscription.service';
+import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, markPaid, placeOf, plansFor, supplier } from './subscription.service';
+import { platform } from '../admin/platform';
+import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
+import { rupeesInWords } from '../../utils/words';
 
 const DAY = 24 * 60 * 60 * 1000;
 /** These stop a second autopay; `created` (never approved) and `halted` (retries ran out) are replaced instead. */
@@ -334,17 +337,20 @@ export async function creditNotePdf(t: TenantContext, paymentId: string, refundI
   const gst = r.amount - rhu(r.amount * 100, 118);
   const from = p.invoiceFrom ?? supplier();
   const to = p.invoiceTo ?? (await buyerOf(p.shopId));
-  const lines = taxRows(gst, from, to);
-  const rows: [string, string][] = [
-    ...lines.slice(0, 4),
-    ['Against invoice', `${p.invoiceNumber ?? ''} dated ${p.paidAt ? day(p.paidAt) : ''}`],
-    ['Service', `MedShop software subscription — ${p.planName}`],
-    ['Taxable value', rupees(r.amount - gst)],
-    ...lines.slice(4),
-    ['Total refunded', rupees(r.amount)],
-    ['Plan days removed', String(r.daysRemoved)],
-    ['Reason', r.reason],
-  ];
-  const buf = await pdfTable({ shopId: t.shopId, issuer: issuerOf(from), title: `Credit note ${r.creditNote}`, sub: `Date ${day(r.at)} · computer-generated`, columns: [{ label: 'Item', get: (x: [string, string]) => x[0], w: 1 }, { label: 'Detail', get: (x: [string, string]) => x[1], w: 2 }], rows });
+  const support = (await platform()).supportEmail;
+  const buf = await invoiceDoc({
+    size: 'A4',
+    title: 'CREDIT NOTE',
+    meta: [['Credit note', r.creditNote], ['Date', day(r.at)], ['Against invoice', p.invoiceNumber ?? ''], ['Invoice date', p.paidAt ? day(p.paidAt) : ''], ['Place of supply', placeOf(to)]],
+    issuer: issuerOf(from, support),
+    logo: true,
+    parties: [billedTo(to), { label: 'Refund', lines: [`${rupees(r.amount)} of ${rupees(p.amount)} paid`, `Reason: ${r.reason}`, r.daysRemoved ? `${String(r.daysRemoved)} plan days removed` : 'Plan days unchanged'] }],
+    columns: SUB_COLUMNS,
+    rows: [{ cells: ['1', `Refund — MedShop software subscription (${p.planName})`, env.BILLING_SAC, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
+    totals: [{ label: 'Taxable value', value: rupees(r.amount - gst) }, ...gstLines(gst, from, to), { label: 'Refunded', value: rupees(r.amount), strong: true }],
+    words: rupeesInWords(r.amount),
+    notes: [`This credit note reduces invoice ${p.invoiceNumber ?? ''}; the invoice itself stays as issued.`, ...(support ? [`Questions: ${support}`] : [])],
+    footer: `Computer-generated credit note — no signature needed · ${from.name ?? 'MedShop'}`,
+  });
   return { buf, name: r.creditNote };
 }

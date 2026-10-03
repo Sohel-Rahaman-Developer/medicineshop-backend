@@ -9,6 +9,7 @@ import { adminOf, requestCode, requireAdmin, requireAdminRole, signOut, verifyCo
 import * as svc from './admin.service';
 import { platform } from './platform';
 import * as support from './support';
+import { sendFilesZip } from '../attachments/files-zip';
 import { requireAuth } from '../../core/middleware/require-auth';
 import { tenant, tenantOf } from '../../core/middleware/tenant';
 import { actorOf } from '../user/actor';
@@ -83,6 +84,8 @@ adminRouter.get(
     fetched(res, await support.runReport(adminOf(req), p.id, p.key, { from: q.from ?? new Date(now.getTime() - 29 * 86_400_000), to: q.to ?? now, month: q.month ?? new Date(now.getTime() + 19_800_000).toISOString().slice(0, 7) }, req.ip));
   }),
 );
+
+adminRouter.get('/support/:id/files.zip', shopsRole, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { const r = await support.filesZip(adminOf(req), (req.params as { id: string }).id, req.ip); await sendFilesZip(res, r.shopId, r); }));
 
 adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.auditLog(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 

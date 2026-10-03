@@ -2,14 +2,17 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
-import { day, pdfTable, rupees } from '../../core/export';
+import { day, rupees } from '../../core/export';
+import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
 import { inr, rhu } from '../../utils/money';
+import { rupeesInWords } from '../../utils/words';
 import { stateCodeOf } from '../../utils/india';
 import { checkPayment, checkWebhook, createOrder, fetchPayment, paymentSignature } from '../../services/razorpay';
 import { ShopModel } from '../shops/shop.model';
+import { platform } from '../admin/platform';
 import { audit } from '../audit/audit.model';
 import { autopayEvent, autopayOf, disputeEvent, refundEvent, stopAutopay, type DisputeEntity, type PayEntity, type RefundEntity, type SubEntity } from './autopay';
 import { MembershipModel } from '../memberships/membership.model';
@@ -103,23 +106,16 @@ export async function buyerOf(shopId: Types.ObjectId, session?: ClientSession): 
   return { name: s.legalName || s.name, address: [a.line1, a.line2, a.city, `${a.state} ${a.pincode}`].filter(Boolean).join(', '), gstin: s.gstin ?? '', state: a.state, stateCode: a.stateCode };
 }
 
-/**
- * CGST Rule 46 rows for MedShop's invoice or credit note. Place of supply is the shop's state (IGST Act s.12(2)):
- * the same state as MedShop → CGST + SGST, another state → IGST.
- */
-export function taxRows(gst: number, from: Party, to: Party): [string, string][] {
+/** CGST Rule 46: place of supply is the shop's state (IGST Act s.12(2)) — MedShop's own state → CGST + SGST, else IGST. */
+export function gstLines(gst: number, from: Party, to: Party) {
   const intra = Boolean(from.stateCode) && from.stateCode === to.stateCode;
   const cgst = Math.floor(gst / 2);
-  return [
-    ['Supplier', `${from.name ?? ''}, ${from.address ?? ''} · GSTIN ${from.gstin || '—'}`],
-    ['Recipient', `${to.name ?? ''}, ${to.address ?? ''} · ${to.gstin ? `GSTIN ${to.gstin}` : 'Unregistered'}`],
-    ['Place of supply', `${to.state ?? ''} (${to.stateCode ?? ''})`],
-    ['SAC', env.BILLING_SAC],
-    ...(intra ? ([['CGST 9%', rupees(cgst)], ['SGST 9%', rupees(gst - cgst)]] as [string, string][]) : ([['IGST 18%', rupees(gst)]] as [string, string][])),
-    ['Tax on reverse charge', 'No'],
-  ];
+  return intra ? [{ label: 'CGST 9%', value: rupees(cgst) }, { label: 'SGST 9%', value: rupees(gst - cgst) }] : [{ label: 'IGST 18%', value: rupees(gst) }];
 }
-export const issuerOf = (from: Party) => ({ name: from.name ?? 'MedShop', line: [from.address, from.gstin ? `GSTIN ${from.gstin}` : ''].filter(Boolean).join(' · ') });
+export const placeOf = (to: Party) => `${to.state ?? ''} (${to.stateCode ?? ''})`;
+export const issuerOf = (from: Party, email: string) => ({ name: from.name ?? 'MedShop', lines: [from.address ?? '', [`GSTIN ${from.gstin || '—'}`, email].filter(Boolean).join(' · ')].filter(Boolean) });
+export const billedTo = (to: Party) => ({ label: 'Billed to', lines: [to.name ?? '', to.address ?? '', to.gstin ? `GSTIN ${to.gstin}` : 'Unregistered'] });
+export const SUB_COLUMNS = [{ label: '#', w: 0.4 }, { label: 'Description', w: 4 }, { label: 'SAC', w: 1, num: true }, { label: 'Taxable', w: 1.2, num: true }, { label: 'GST', w: 0.7, num: true }, { label: 'Amount', w: 1.2, num: true }];
 
 /**
  * The one place a payment turns into time on the plan — Checkout's verify and the webhook both land here, so it runs
@@ -242,23 +238,30 @@ export async function payments(t: TenantContext) {
   return rows.map(shapePayment);
 }
 
-/** A tax invoice for a paid plan (PLAN §8). MedShop's own GSTIN arrives with the platform settings (B9). */
+/** MedShop's tax invoice for a paid plan (CGST Rule 46), on the shared invoice layout. */
 export async function invoicePdf(t: TenantContext, id: string) {
   const p = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!p?.invoiceNumber || !p.periodStart || !p.periodEnd) throw AppError.notFound('Invoice not found');
   const from = p.invoiceFrom ?? supplier();
   const to = p.invoiceTo ?? (await buyerOf(p.shopId));
-  const [parties, tax] = [taxRows(p.gst, from, to).slice(0, 4), taxRows(p.gst, from, to).slice(4)];
-  const rows: [string, string][] = [
-    ...parties,
-    ['Service', `MedShop software subscription — ${p.planName} · ${String(p.durationDays)} days · up to ${String(p.maxUsers)} users`],
-    ['Period', `${day(p.periodStart)} – ${day(p.periodEnd)}`],
-    ['Taxable value', rupees(p.amount - p.gst)],
-    ...tax,
-    ['Total', rupees(p.amount)],
-    ['Payment', `${p.source === 'test' ? 'Test payment' : p.source === 'manual' ? `Paid outside Razorpay ${p.reference ?? ''}` : 'Razorpay'} ${p.razorpayPaymentId ?? ''}`.trim()],
-  ];
-  const buf = await pdfTable({ shopId: t.shopId, issuer: issuerOf(from), title: `Tax invoice ${p.invoiceNumber}`, sub: `Date ${day(p.paidAt ?? new Date())} · computer-generated`, columns: [{ label: 'Item', get: (r: [string, string]) => r[0], w: 1 }, { label: 'Detail', get: (r: [string, string]) => r[1], w: 2 }], rows });
+  const support = (await platform()).supportEmail;
+  const period = `${day(p.periodStart)} – ${day(p.periodEnd)}`;
+  const how = p.source === 'test' ? 'Test payment' : p.source === 'manual' ? `Paid outside Razorpay${p.reference ? ` · ${p.reference}` : ''}` : `Paid by ${p.method ?? 'Razorpay'}${p.razorpayPaymentId ? ` · ${p.razorpayPaymentId}` : ''}`;
+  const buf = await invoiceDoc({
+    size: 'A4',
+    title: 'TAX INVOICE',
+    meta: [['Invoice no.', p.invoiceNumber], ['Date', day(p.paidAt ?? new Date())], ['Place of supply', placeOf(to)], ['Reverse charge', 'No']],
+    stamp: 'PAID',
+    issuer: issuerOf(from, support),
+    logo: true,
+    parties: [billedTo(to), { label: 'Subscription', lines: [`${p.planName} plan · up to ${String(p.maxUsers)} users`, `Period ${period}`, how] }],
+    columns: SUB_COLUMNS,
+    rows: [{ cells: ['1', `MedShop software subscription — ${p.planName}`, env.BILLING_SAC, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}` }],
+    totals: [{ label: 'Taxable value', value: rupees(p.amount - p.gst) }, ...gstLines(p.gst, from, to), { label: 'Total', value: rupees(p.amount), strong: true }],
+    words: rupeesInWords(p.amount),
+    notes: ['Thank you for running your shop on MedShop.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
+    footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedShop'}`,
+  });
   return { buf, name: p.invoiceNumber };
 }
 

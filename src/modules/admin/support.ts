@@ -5,6 +5,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { tenantScoped } from '../../core/tenant-scope';
 import { audit } from '../audit/audit.model';
 import { emit } from '../notifications/notifications.service';
+import { filesZipPlan } from '../attachments/files-zip';
 import { reportByKey, type Params } from '../reports/catalog';
 import { ShopModel } from '../shops/shop.model';
 import type { Actor } from '../user/actor';
@@ -101,4 +102,16 @@ export async function runReport(a: AdminActor, id: string, key: string, p: Param
   const total = rows.at(-1)?.__total ? rows.at(-1) : null;
   const body = total ? rows.slice(0, -1) : rows;
   return { name: r.name, cols: r.cols, rows: body.slice(0, 300), total: total ?? null, count: body.length, endsAt: d.endsAt ?? null };
+}
+
+/** The shop's photos as one ZIP — same gate as a report: approved, still running, only the one who asked; on both logs. */
+export async function filesZip(a: AdminActor, id: string, ip?: string) {
+  const d = await SupportAccessModel.findOne({ _id: new Types.ObjectId(id) }).setOptions(ALL).lean<Doc & { adminUserId: Types.ObjectId }>();
+  if (!d || String(d.adminUserId) !== a.id) throw AppError.notFound('Support access not found');
+  if (live(d) !== 'approved') throw AppError.forbidden('This support access is not running — ask the owner again');
+  const plan = await filesZipPlan(d.shopId);
+  await SupportAccessModel.updateOne({ shopId: d.shopId, _id: d._id }, { $inc: { views: 1 } });
+  await audit({ shopId: d.shopId, userId: a.id, userName: `MedShop Support · ${a.name}`, action: 'share_initiated', module: 'settings', entityId: id, entityName: 'Photos ZIP', text: `MedShop Support (${a.name}) downloaded the shop's photos (${String(plan.files)} files)`, ip });
+  await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, shopId: d.shopId, shopName: plan.shopName, action: 'support_files', reason: d.reason, text: `downloaded ${String(plan.files)} photos as a ZIP (support access)`, ip });
+  return { shopId: d.shopId, ...plan };
 }

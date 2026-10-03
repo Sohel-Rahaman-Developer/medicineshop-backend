@@ -31,6 +31,7 @@
     "smoke:pin": "tsx scripts/smoke-pin.ts",
     "smoke:retention": "tsx scripts/smoke-retention.ts",
     "smoke:autopay": "tsx scripts/smoke-autopay.ts",
+    "preview:invoices": "tsx scripts/preview-invoices.ts",
     "admin:create": "tsx scripts/admin-create.ts",
     "load:pos": "tsx scripts/load-pos.ts",
     "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay"

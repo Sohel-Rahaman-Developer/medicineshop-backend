@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync } from 'node:fs';
+import { crc32 as zlibCrc32 } from 'node:zlib';
 import type { Server } from 'node:http';
 
 export const SHOP_ORIGIN = 'http://localhost:3000';
@@ -29,9 +31,10 @@ export interface Res {
     success?: boolean;
     data?: unknown;
     message?: string;
-    error?: { code: string; message?: string };
+    error?: { code: string; message?: string; details?: unknown };
   };
   text: string;
+  body: Buffer;
 }
 
 interface StoredCookie {
@@ -131,14 +134,15 @@ export class Client {
     });
     const setCookies = res.headers.getSetCookie();
     this.jar.store(setCookies);
-    const text = await res.text();
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const text = bytes.toString('utf8');
     let json: Res['json'] = {};
     try {
       json = JSON.parse(text) as Res['json'];
     } catch {
       // Non-JSON body — tests read `text` instead.
     }
-    return { status: res.status, headers: res.headers, setCookies, json, text };
+    return { status: res.status, headers: res.headers, setCookies, json, text, body: bytes };
   }
 
   async send(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body: unknown = {}): Promise<Res> {
@@ -177,11 +181,17 @@ export interface Harness {
 }
 
 /** Must run before anything imports src/config/env — env is read once at import. */
-export async function startHarness(opts: { port?: number } = {}): Promise<Harness> {
+/** `dbPath`: a fixed folder, wiped first — for servers that get killed before they can clean up (e2e on Windows). */
+export async function startHarness(opts: { port?: number; dbPath?: string } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
   out('\n⏳ Starting in-memory MongoDB…\n');
   const { MongoMemoryReplSet } = await import('mongodb-memory-server');
-  const rs = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  if (opts.dbPath) {
+    rmSync(opts.dbPath, { recursive: true, force: true });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- the test server names its own temp folder
+    mkdirSync(opts.dbPath, { recursive: true });
+  }
+  const rs = await MongoMemoryReplSet.create({ replSet: { count: 1 }, ...(opts.dbPath ? { instanceOpts: [{ dbPath: opts.dbPath }] } : {}) });
 
   Object.assign(process.env, {
     MONGODB_URI: rs.getUri('medicineshop_smoke'),
@@ -250,4 +260,26 @@ export function finish(): never {
 export function crash(err: unknown): never {
   out(`\n💥 ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
   process.exit(1);
+}
+
+/** Reads a ZIP back through its central directory; every entry's CRC must match its bytes. */
+export function unzip(zip: Buffer): Map<string, Buffer> {
+  const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (end < 0) throw new Error('not a ZIP');
+  const files = new Map<string, Buffer>();
+  let at = zip.readUInt32LE(end + 16);
+  for (let i = 0; i < zip.readUInt16LE(end + 10); i++) {
+    if (zip.readUInt32LE(at) !== 0x02014b50) throw new Error('bad central directory');
+    const crc = zip.readUInt32LE(at + 16);
+    const size = zip.readUInt32LE(at + 24);
+    const nameLen = zip.readUInt16LE(at + 28);
+    const name = zip.subarray(at + 46, at + 46 + nameLen).toString('utf8');
+    const local = zip.readUInt32LE(at + 42);
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const data = zip.subarray(start, start + size);
+    if (zlibCrc32(data) !== crc) throw new Error(`CRC mismatch: ${name}`);
+    files.set(name, data);
+    at += 46 + nameLen + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return files;
 }

@@ -1,5 +1,7 @@
 // API for the frontend Playwright suite: real app on :5000 + in-memory DB; a localhost-only helper on :5099 seeds OTPs.
 import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { crash, startHarness } from './lib/harness';
 
 const API_PORT = Number(process.env.E2E_API_PORT ?? 5000);
@@ -9,7 +11,7 @@ async function main() {
   process.env.PORT = String(API_PORT);
   // Every Playwright project signs in from the same IP; the per-email limits stay real.
   process.env.RATE_OTP_REQUEST_PER_IP ??= '1000';
-  const h = await startHarness({ port: API_PORT });
+  const h = await startHarness({ port: API_PORT, dbPath: join(tmpdir(), `medshop-e2e-db-${String(API_PORT)}`) });
 
   const { AdminUserModel } = await import('../src/modules/admin/admin.model.js');
   /** Admin suite (B9): make the address a super admin, seed its email code, and give it a shop to look at. */
@@ -26,12 +28,15 @@ async function main() {
   const { ShopModel } = await import('../src/modules/shops/shop.model.js');
   const { SupportAccessModel } = await import('../src/modules/admin/support.js');
   const { emit } = await import('../src/modules/notifications/notifications.service.js');
-  /** Shop suite: MedShop support asks to look at the named shop (as the admin console would). */
-  const seedSupport = async (b: { shopName?: string }) => {
+  /** Shop suite: MedShop support asks to look at the named shop; console suite: its own admin, already allowed. */
+  const seedSupport = async (b: { shopName?: string; adminEmail?: string; approve?: boolean }) => {
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop) throw new Error('shop not found');
-    const admin = await AdminUserModel.findOneAndUpdate({ email: 'support@medshop.test' }, { $setOnInsert: { email: 'support@medshop.test', name: 'Sara (support)', role: 'support' } }, { upsert: true, returnDocument: 'after' });
-    const d = await SupportAccessModel.create({ shopId: shop._id, adminUserId: admin._id, agentName: admin.name, reason: 'Owner asked about a bill total', hours: 4 });
+    const admin = b.adminEmail ? await AdminUserModel.findOne({ email: b.adminEmail.toLowerCase() }) : await AdminUserModel.findOneAndUpdate({ email: 'support@medshop.test' }, { $setOnInsert: { email: 'support@medshop.test', name: 'Sara (support)', role: 'support' } }, { upsert: true, returnDocument: 'after' });
+    if (!admin) throw new Error('admin not found');
+    const now = new Date();
+    const d = await SupportAccessModel.create({ shopId: shop._id, adminUserId: admin._id, agentName: admin.name, reason: 'Owner asked about a bill total', hours: 4, ...(b.approve ? { status: 'approved', decidedBy: 'Shop Owner', decidedAt: now, startedAt: now, endsAt: new Date(now.getTime() + 4 * 3_600_000) } : {}) });
+    if (b.approve) return;
     await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: 'MedShop support asks to look at your shop for 4 h', body: 'Approve or deny in Settings → Support access.', route: '/settings/support', roles: ['owner'] });
   };
 

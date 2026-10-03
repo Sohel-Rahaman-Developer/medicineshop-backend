@@ -104,7 +104,7 @@ async function main() {
   check('subscription.halted → halted (no longer running)', (await sub()).autopay?.status === 'halted' && (await sub()).autopay?.running === false);
   const y = await owner.post('/subscription/autopay', { planCode: 'yearly' });
   const sy = data<Start>(y);
-  check('after halted a new autopay is allowed; plan running → first charge on its end date', y.status === 201 && near(sy.startAt ?? 0, new Date(v2.endDate).getTime()) && (await AutopayModel.findOne({ rzpSubscriptionId: s1.subscriptionId }).lean())?.status === 'cancelled', code(y));
+  check('after halted a new autopay is allowed; plan running → first charge on its end date', y.status === 201 && near(sy.startAt ?? '', new Date(v2.endDate).getTime()) && (await AutopayModel.findOne({ rzpSubscriptionId: s1.subscriptionId }).lean())?.status === 'cancelled', code(y));
   const payY = 'pay_AUTH_Y1';
   await owner.post('/subscription/autopay/verify', { subscriptionId: sy.subscriptionId, paymentId: payY, signature: sign(KEY, `${payY}|${sy.subscriptionId}`) });
   const v3 = await sub();
