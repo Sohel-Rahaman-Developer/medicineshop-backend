@@ -1,8 +1,8 @@
 // PM2: MEDSHOP_ROOT=~/test/pharma pm2 startOrReload deploy/ecosystem.config.cjs && pm2 save
 // Ports and folder come from the environment so it can share a server with other apps.
 const ROOT = process.env.MEDSHOP_ROOT || '/srv/medshop';
-const SHOP_PORT = process.env.MEDSHOP_SHOP_PORT || '3100';
-const ADMIN_PORT = process.env.MEDSHOP_ADMIN_PORT || '3101';
+const SHOP_PORT = process.env.MEDSHOP_SHOP_PORT || '3300';
+const ADMIN_PORT = process.env.MEDSHOP_ADMIN_PORT || '3301';
 
 module.exports = {
   apps: [

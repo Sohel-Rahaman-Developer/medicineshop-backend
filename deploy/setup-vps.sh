@@ -47,15 +47,15 @@ env PATH="$PATH:/usr/bin" pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_US
 sudo -u "$APP_USER" -H bash -s <<'KEYS'
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 for r in backend frontend admin; do
-  test -f ~/.ssh/medshop-$r || ssh-keygen -t ed25519 -N "" -f ~/.ssh/medshop-$r -C medshop-vps-$r >/dev/null
-  grep -q "Host github-$r" ~/.ssh/config 2>/dev/null || printf 'Host github-%s
+  test -f ~/.ssh/pharma-$r || ssh-keygen -t ed25519 -N "" -f ~/.ssh/pharma-$r -C medshop-vps-$r >/dev/null
+  grep -q "Host gh-pharma-$r" ~/.ssh/config 2>/dev/null || printf 'Host gh-pharma-%s
   HostName github.com
   User git
-  IdentityFile ~/.ssh/medshop-%s
+  IdentityFile ~/.ssh/pharma-%s
   IdentitiesOnly yes
 ' "$r" "$r" >> ~/.ssh/config
   echo "== Deploy key for medicineshop-$r (GitHub → repo → Settings → Deploy keys, read-only):"
-  cat ~/.ssh/medshop-$r.pub
+  cat ~/.ssh/pharma-$r.pub
 done
 chmod 600 ~/.ssh/config
 ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
