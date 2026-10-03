@@ -32,11 +32,16 @@ const refundSchema = new Schema({
   status: { type: String, enum: ['pending', 'processed', 'failed'], required: true },
   reason: { type: String, required: true },
   creditNote: { type: String },
+  /** Asked to take the plan days off (a full refund always does) — kept so a refund settled later still knows. */
+  removeDays: { type: Boolean, required: true, default: false },
   /** Plan days taken off for this refund; given back if the refund fails. */
   daysRemoved: { type: Number, required: true, default: 0 },
   byName: { type: String, required: true },
   at: { type: Date, required: true },
 });
+
+/** One side of a tax invoice, frozen when the invoice is made (CGST Rule 46). */
+const partySchema = new Schema({ name: String, address: String, gstin: String, state: String, stateCode: String }, { _id: false });
 
 const paymentSchema = new Schema(
   {
@@ -56,6 +61,8 @@ const paymentSchema = new Schema(
     periodStart: { type: Date },
     periodEnd: { type: Date },
     invoiceNumber: { type: String },
+    invoiceFrom: { type: partySchema },
+    invoiceTo: { type: partySchema },
     source: { type: String, enum: ['razorpay', 'test', 'manual', 'autopay'], required: true },
     /** Autopay charges: the Razorpay subscription that took it. */
     autopayId: { type: String },
@@ -93,6 +100,8 @@ const autopaySchema = new Schema(
     rzpSubscriptionId: { type: String, required: true, unique: true },
     rzpPlanId: { type: String, required: true },
     status: { type: String, enum: AUTOPAY_STATUSES, required: true, default: 'created' },
+    /** Set while not cancelled / completed: the unique index keeps one per shop, even for two requests at once. */
+    live: { type: Boolean },
     /** First charge on this date (a paid plan still running); none → the approval itself is the first charge. */
     startAt: { type: Date },
     chargeAt: { type: Date },
@@ -105,6 +114,7 @@ const autopaySchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 autopaySchema.index({ shopId: 1, createdAt: -1 });
+autopaySchema.index({ shopId: 1 }, { unique: true, partialFilterExpression: { live: true } });
 export const AutopayModel = model('Autopay', autopaySchema);
 
 /** One Razorpay plan per mode, period and price — created on first use. */

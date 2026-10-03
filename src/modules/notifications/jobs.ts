@@ -11,6 +11,7 @@ import { MembershipModel } from '../memberships/membership.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import { ShopModel } from '../shops/shop.model';
+import { reconcile } from '../subscription/reconcile';
 import { UserModel } from '../user/user.model';
 import { liveAlerts, type Alert } from './alerts.service';
 import { offFor, wants } from './notifications.service';
@@ -120,6 +121,13 @@ export async function tick(now = new Date()) {
   const clock = istClock(now);
   const shops = await ShopModel.find({ status: 'active' }).select('name ownerUserId settings.notifications').lean();
   const ran: string[] = [];
+  // Payments the webhooks missed, once an hour (B8c).
+  if (env.PAYMENTS_MODE === 'razorpay' && (await claim(`reconcile:${now.toISOString().slice(0, 13)}`, now))) {
+    await reconcile(now).catch((err: unknown) => {
+      logger.error({ err }, 'Payment reconcile failed');
+    });
+    ran.push('reconcile');
+  }
   for (const s of shops) {
     const n = s.settings.notifications;
     const email = n?.emailEnabled ?? true;

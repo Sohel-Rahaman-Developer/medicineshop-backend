@@ -27,6 +27,8 @@ export async function onboardingMeta() {
     terms: { version: env.TERMS_VERSION, points: TERMS_POINTS },
     states: STATES.map((s) => s.name),
     trialDays: (await platform()).trialDays,
+    // Local testing only: the onboarding form offers a "Fill demo data" button.
+    demoFill: env.NODE_ENV === 'development',
   };
 }
 

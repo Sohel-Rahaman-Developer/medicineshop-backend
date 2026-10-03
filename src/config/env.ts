@@ -71,6 +71,12 @@ const schema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  /** MedShop's own details on subscription invoices and credit notes (CGST Rule 46); SAC to be confirmed by the CA. */
+  BILLING_LEGAL_NAME: z.string().default('MedShop'),
+  BILLING_ADDRESS: z.string().default(''),
+  BILLING_STATE: z.string().default('West Bengal'),
+  BILLING_GSTIN: z.string().optional().transform((v) => v || undefined),
+  BILLING_SAC: z.string().default('998314'),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
@@ -87,6 +93,7 @@ const parsed = schema
   .refine((e) => e.NODE_ENV !== 'production' || Boolean(e.ADMIN_TOTP_KEY), { message: 'is required in production', path: ['ADMIN_TOTP_KEY'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENTS_MODE === 'test'), { message: 'PAYMENTS_MODE=test is refused in production', path: ['PAYMENTS_MODE'] })
   .refine((e) => e.PAYMENTS_MODE !== 'razorpay' || Boolean(e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET && e.RAZORPAY_WEBHOOK_SECRET), { message: 'needs RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET', path: ['PAYMENTS_MODE'] })
+  .refine((e) => e.NODE_ENV !== 'production' || e.PAYMENTS_MODE !== 'razorpay' || Boolean(e.BILLING_GSTIN && e.BILLING_ADDRESS), { message: 'needs BILLING_GSTIN and BILLING_ADDRESS for tax invoices', path: ['PAYMENTS_MODE'] })
   .refine((e) => !e.DEV_STATIC_OTP || e.NODE_ENV === 'development', {
     path: ['DEV_STATIC_OTP'],
     message: 'is allowed only with NODE_ENV=development — remove it',

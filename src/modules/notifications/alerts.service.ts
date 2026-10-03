@@ -8,6 +8,7 @@ import * as orders from '../orders/orders.service';
 import { ProductModel } from '../products/product.model';
 import { can } from '../rbac/permissions';
 import { SaleModel } from '../sales/sale.model';
+import { AutopayModel } from '../subscription/billing.model';
 import { ShopModel } from '../shops/shop.model';
 import { BatchModel } from '../stock/batch.model';
 import * as suppliers from '../suppliers/suppliers.service';
@@ -145,6 +146,10 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     const left = Math.ceil((sub.endDate.getTime() - now.getTime()) / DAY);
     if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: `Subscription ${sub.status} — read-only`, body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
     else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${istIsoDay(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
+
+    // B8c: a failed autopay charge — Razorpay retries (pending), then gives up (halted); the plan screen has the fix.
+    const auto = await AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean();
+    if (auto) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `AUTOPAY_${auto.status.toUpperCase()}:${day}`, priority: 'high', title: auto.status === 'pending' ? 'Autopay payment failed' : 'Autopay stopped after failed payments', body: auto.status === 'pending' ? 'Razorpay will try again. Keep money in the account, or pay once so the shop never stops.' : 'Pay once, or turn autopay on again, before the plan ends.', route: '/settings/plan', action: 'Open plan', at: at8 }));
 
     // End-of-day summary: today's after 22:00 IST, otherwise yesterday's (sandbox).
     const late = now.getTime() - istDayStart(now).getTime() >= 22 * 60 * 60 * 1000;

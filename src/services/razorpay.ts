@@ -9,11 +9,12 @@ const same = (a: string, b: string) => {
 };
 const hmac = (secret: string, body: string) => createHmac('sha256', secret).update(body).digest('hex');
 
-async function rzp<T>(path: string, body: unknown): Promise<T> {
+/** GET without a body, POST with one. */
+async function rzp<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`https://api.razorpay.com/v1${path}`, {
-    method: 'POST',
+    method: body === undefined ? 'GET' : 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Basic ${Buffer.from(`${env.RAZORPAY_KEY_ID ?? ''}:${env.RAZORPAY_KEY_SECRET ?? ''}`).toString('base64')}` },
-    body: JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!res.ok) {
     const e = (await res.json().catch(() => ({}))) as { error?: { description?: string } };
@@ -53,10 +54,51 @@ export async function cancelSubscription(id: string): Promise<void> {
   await rzp(`/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 0 });
 }
 
-export async function refundPayment(paymentId: string, amount: number, notes: Record<string, string>): Promise<{ id: string; status: 'pending' | 'processed' | 'failed' }> {
-  if (isTest(paymentId) || !live()) return { id: testId('rfnd'), status: 'processed' };
-  const r = await rzp<{ id: string; status: string }>(`/payments/${paymentId}/refund`, { amount, notes });
-  return { id: r.id, status: r.status === 'processed' ? 'processed' : r.status === 'failed' ? 'failed' : 'pending' };
+export interface GwPayment { id: string; amount: number; status: string; method?: string }
+export interface GwRefund { id: string; status: 'pending' | 'processed' | 'failed'; receipt?: string | null }
+export interface GwInvoice { payment_id?: string | null; amount: number; amount_paid?: number; status: string }
+
+/** Test mode stands in for Razorpay's read API, so the recovery paths run in tests without the network. */
+export const testGateway = {
+  payments: new Map<string, GwPayment>(),
+  orderPayments: new Map<string, GwPayment[]>(),
+  subscriptions: new Map<string, { paid_count: number; status: string }>(),
+  invoices: new Map<string, GwInvoice[]>(),
+  refunds: new Map<string, GwRefund[]>(),
+};
+const refundStatus = (s: string): GwRefund['status'] => (s === 'processed' ? 'processed' : s === 'failed' ? 'failed' : 'pending');
+
+/** `receipt` (our refund's id) makes a repeat of the same refund a 400 at Razorpay, never a second refund. */
+export async function refundPayment(paymentId: string, amount: number, notes: Record<string, string>, receipt: string): Promise<GwRefund> {
+  if (isTest(paymentId) || !live()) {
+    const r: GwRefund = { id: testId('rfnd'), status: 'processed', receipt };
+    testGateway.refunds.set(paymentId, [...(testGateway.refunds.get(paymentId) ?? []), r]);
+    return r;
+  }
+  const r = await rzp<{ id: string; status: string; receipt?: string | null }>(`/payments/${paymentId}/refund`, { amount, notes, receipt });
+  return { id: r.id, status: refundStatus(r.status), receipt: r.receipt ?? null };
+}
+
+/** Read side, for verify and the hourly reconcile. Test mode reads `testGateway`; nothing there → null / empty. */
+export async function fetchPayment(id: string): Promise<GwPayment | null> {
+  if (isTest(id) || !live()) return testGateway.payments.get(id) ?? null;
+  return rzp<GwPayment>(`/payments/${id}`);
+}
+export async function orderPayments(orderId: string): Promise<GwPayment[]> {
+  if (isTest(orderId) || !live()) return testGateway.orderPayments.get(orderId) ?? [];
+  return (await rzp<{ items: GwPayment[] }>(`/orders/${orderId}/payments`)).items;
+}
+export async function fetchSubscription(id: string): Promise<{ paid_count: number; status: string } | null> {
+  if (isTest(id) || !live()) return testGateway.subscriptions.get(id) ?? null;
+  return rzp<{ paid_count: number; status: string }>(`/subscriptions/${id}`);
+}
+export async function subscriptionInvoices(id: string): Promise<GwInvoice[]> {
+  if (isTest(id) || !live()) return testGateway.invoices.get(id) ?? [];
+  return (await rzp<{ items: GwInvoice[] }>(`/invoices?subscription_id=${id}&count=100`)).items;
+}
+export async function fetchRefunds(paymentId: string): Promise<GwRefund[]> {
+  if (isTest(paymentId) || !live()) return testGateway.refunds.get(paymentId) ?? [];
+  return (await rzp<{ items: { id: string; status: string; receipt?: string | null }[] }>(`/payments/${paymentId}/refunds?count=100`)).items.map((r) => ({ id: r.id, status: refundStatus(r.status), receipt: r.receipt ?? null }));
 }
 
 /** Checkout's handler signature: HMAC-SHA256(order_id|payment_id, key secret). */

@@ -7,9 +7,9 @@ const data = <T>(r: Res) => r.json.data as T;
 const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error?.message ?? ''}`;
 const reason = (r: Res) => (r.json.error?.details as { reason?: string } | undefined)?.reason;
 
-const shopBody = (name: string) => ({
+const shopBody = (name: string, state = 'West Bengal') => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
-  shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
+  shop: { name, address: { line1: '14B Park Street', city: state === 'West Bengal' ? 'Kolkata' : 'Mumbai', state, pincode: state === 'West Bengal' ? '700016' : '400001' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
   termsVersion: '2026-10',
   agree: true,
 });
@@ -31,6 +31,9 @@ async function main() {
   const { AdminUserModel, AdminAuditModel } = await import('../src/modules/admin/admin.model.js');
   const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
   const { totpAt } = await import('../src/utils/totp.js');
+  const { testGateway } = await import('../src/services/razorpay.js');
+  const { reconcile } = await import('../src/modules/subscription/reconcile.js');
+  const { settleRefund } = await import('../src/modules/subscription/autopay.js');
 
   const owner = await h.signIn('rohit@auto1.test');
   const shopId = data<{ id: string }>(await owner.post('/shops', shopBody('Shri Ram Medical Store'))).id;
@@ -57,8 +60,11 @@ async function main() {
   check('owner starts Monthly autopay → a subscription, first charge now', a0.status === 201 && s0.subscriptionId.startsWith('sub_test_') && s0.startAt === null && s0.amount === 79_900, code(a0));
   check('not approved yet → the Plan screen shows no autopay', (await sub()).autopay === null);
   check('manager can’t turn it on → 403', (await manager.post('/subscription/autopay', { planCode: 'monthly' })).status === 403);
+  const again = data<Start>(await owner.post('/subscription/autopay', { planCode: 'monthly' }));
+  check('Checkout closed and opened again → the same subscription, no second mandate', again.subscriptionId === s0.subscriptionId && (await AutopayModel.countDocuments({ shopId })) === 1);
+  const sYear = data<Start>(await owner.post('/subscription/autopay', { planCode: 'yearly' }));
   const s1 = data<Start>(await owner.post('/subscription/autopay', { planCode: 'monthly' }));
-  check('trying again replaces the unapproved one', (await AutopayModel.findOne({ rzpSubscriptionId: s0.subscriptionId }).lean())?.status === 'cancelled' && s1.subscriptionId !== s0.subscriptionId);
+  check('another plan replaces the unapproved one (only one live per shop)', (await AutopayModel.findOne({ rzpSubscriptionId: s0.subscriptionId }).lean())?.status === 'cancelled' && (await AutopayModel.findOne({ rzpSubscriptionId: sYear.subscriptionId }).lean())?.status === 'cancelled' && s1.subscriptionId !== s0.subscriptionId && (await AutopayModel.countDocuments({ shopId, live: true })) === 1);
   const bad = await owner.post('/subscription/autopay/verify', { subscriptionId: s1.subscriptionId, paymentId: 'pay_X1', signature: 'a'.repeat(64) });
   check('a made-up signature → 400 BAD_SIGNATURE, still trial', bad.status === 400 && reason(bad) === 'BAD_SIGNATURE' && (await sub()).status === 'trial', code(bad));
   const pay1 = 'pay_AUTO0001';
@@ -78,9 +84,9 @@ async function main() {
   const v2 = await sub();
   check('subscription.charged → 30 more days after the running month', c2.status === 200 && near(v2.endDate, end1 + 30 * DAY) && v2.autopay?.paidCount === 2 && (await result(e1)) === 'charged', `${code(c2)} ${v2.endDate}`);
   await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 79_900 }), e1);
-  const again = 'evt_charge_2b';
-  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 79_900 }), again);
-  check('same event again, or the same payment under a new event → no extra days', (await sub()).endDate === v2.endDate && (await result(again)) === 'already paid' && (await SubscriptionPaymentModel.countDocuments({ shopId, source: 'autopay', status: 'paid' })) === 2);
+  const again2 = 'evt_charge_2b';
+  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 79_900 }), again2);
+  check('same event again, or the same payment under a new event → no extra days', (await sub()).endDate === v2.endDate && (await result(again2)) === 'already paid' && (await SubscriptionPaymentModel.countDocuments({ shopId, source: 'autopay', status: 'paid' })) === 2);
   const wrong = 'evt_charge_bad';
   await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0003', amount: 100 }), wrong);
   check('a charge for the wrong amount → refused, no days', (await sub()).endDate === v2.endDate && ((await result(wrong)) ?? '').startsWith('error'), await result(wrong));
@@ -135,7 +141,7 @@ async function main() {
   const endBefore = (await sub()).endDate;
   const r1 = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 10_000, removeDays: false, reason: 'Charged a day early' });
   const f1 = (await pays()).find((p) => p.id === first.id);
-  check('partial ₹100 → processed, credit note MSCN-, plan days unchanged', r1.status === 200 && f1?.refunded === 10_000 && f1.refunds[0]?.status === 'processed' && /^MSCN-/.test(f1.refunds[0].creditNote ?? '') && (await sub()).endDate === endBefore, code(r1));
+  check('partial ₹100 → processed, credit note CN-<FY>-00001 (≤ 16 characters), plan days unchanged', r1.status === 200 && f1?.refunded === 10_000 && f1.refunds[0]?.status === 'processed' && /^CN-\d{4}-\d{2}-\d{5}$/.test(f1.refunds[0].creditNote ?? '') && (f1.refunds[0].creditNote ?? '').length <= 16 && (await sub()).endDate === endBefore, code(r1));
   const over = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 70_000, removeDays: false, reason: 'Too much money' });
   check('more than what is left (₹699) → 422', over.status === 422, code(over));
   const r2 = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 69_900, removeDays: false, reason: 'Shop closed down' });
@@ -171,6 +177,71 @@ async function main() {
   await owner.post('/subscription/cancel', { reason: 'Closing the shop' });
   const v7 = await sub();
   check('cancel plan → read-only and autopay stopped', v7.status === 'cancelled' && v7.autopay?.status === 'cancelled');
+
+  section('8. Review fixes: one autopay at a time, GST invoice, captured only, the hourly reconcile');
+  const own2 = await h.signIn('meera@auto2.test');
+  const shop2 = data<{ id: string }>(await own2.post('/shops', shopBody('Lifeline Chemists', 'Maharashtra'))).id;
+  own2.shopId = shop2;
+  const sub2 = async () => data<Sub>(await own2.get('/subscription'));
+  const both = await Promise.all([1, 2].map(() => own2.post('/subscription/autopay', { planCode: 'monthly' })));
+  const ids = new Set(both.filter((r) => r.status === 201).map((r) => data<Start>(r).subscriptionId));
+  check('two "turn on autopay" at the same moment → one subscription (201 + same id, or 201 + 409)', ids.size === 1 && both.every((r) => r.status === 201 || (r.status === 409 && reason(r) === 'AUTOPAY_ON')) && (await AutopayModel.countDocuments({ shopId: shop2, live: true })) === 1, both.map((r) => r.status).join(' '));
+  const subB = [...ids][0] ?? '';
+  const payB1 = 'pay_B0000001';
+  await own2.post('/subscription/autopay/verify', { subscriptionId: subB, paymentId: payB1, signature: sign(KEY, `${payB1}|${subB}`) });
+  const pB = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: payB1 }).lean();
+  const pA = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: 'pay_AUTO0001' }).lean();
+  check('invoice parties frozen: MedShop (19) → Kolkata shop (19) same state, Mumbai shop (27) another', pA?.invoiceFrom?.stateCode === '19' && pA.invoiceTo?.stateCode === '19' && pB?.invoiceFrom?.gstin === '19AABCM1234A1Z5' && pB.invoiceTo?.stateCode === '27' && pB.invoiceTo.name === 'Lifeline Chemists', JSON.stringify(pB?.invoiceTo));
+  const inv = await own2.raw('GET', `/subscription/payments/${String(pB?._id)}/invoice`);
+  check('the tax invoice PDF still downloads', inv.status === 200 && (inv.headers.get('content-type') ?? '').includes('pdf'));
+
+  const end0 = new Date((await sub2()).endDate).getTime();
+  testGateway.subscriptions.set(subB, { paid_count: 2, status: 'active' });
+  testGateway.invoices.set(subB, [{ payment_id: payB1, amount: 79_900, status: 'paid' }, { payment_id: 'pay_B0000002', amount: 79_900, status: 'paid' }]);
+  const later = new Date(Date.now() + 15 * 60_000);
+  const rc1 = await reconcile(later);
+  check('a renewal whose webhook never came → the reconcile books it (+30 days)', rc1.charges === 1 && near((await sub2()).endDate, end0 + 30 * DAY) && (await sub2()).autopay?.paidCount === 2, JSON.stringify(rc1));
+  check('reconcile again → nothing new', (await reconcile(later)).charges === 0 && near((await sub2()).endDate, end0 + 30 * DAY));
+
+  const endB1 = new Date((await sub2()).endDate).getTime();
+  const o = data<{ orderId: string }>(await own2.post('/subscription/order', { planCode: 'monthly' }));
+  const payO = 'pay_ONCE00001';
+  testGateway.payments.set(payO, { id: payO, amount: 79_900, status: 'authorized', method: 'upi' });
+  const vo = await own2.post('/subscription/verify', { orderId: o.orderId, paymentId: payO, signature: sign(KEY, `${o.orderId}|${payO}`) });
+  check('a valid signature on a payment not yet captured → "confirming", no days yet', vo.status === 200 && data<{ confirming: boolean }>(vo).confirming && near((await sub2()).endDate, endB1), code(vo));
+  testGateway.orderPayments.set(o.orderId, [{ id: payO, amount: 79_900, status: 'captured', method: 'upi' }]);
+  const rc2 = await reconcile(later);
+  check('captured later, webhook lost → the reconcile books it once (+30 days)', rc2.orders === 1 && near((await sub2()).endDate, endB1 + 30 * DAY) && (await reconcile(later)).orders === 0, JSON.stringify(rc2));
+
+  const pid = String(pB?._id);
+  const hold = async (amount: number, minsAgo: number) => {
+    const doc = await SubscriptionPaymentModel.findByIdAndUpdate(pid, { $push: { refunds: { amount, status: 'pending', reason: 'Crash test', removeDays: false, byName: 'MedShop · Accounts', at: new Date(Date.now() - minsAgo * 60_000), daysRemoved: 0 } }, $inc: { refunded: amount } }, { returnDocument: 'after' }).lean();
+    return String(doc?.refunds[doc.refunds.length - 1]?._id);
+  };
+  const refundOf = async (id: string) => (await SubscriptionPaymentModel.findById(pid).lean())?.refunds.find((x) => String(x._id) === id);
+  const crashed = await hold(10_000, 30);
+  testGateway.refunds.set(payB1, [{ id: 'rfnd_crash01', status: 'processed', receipt: crashed }]);
+  const rc3 = await reconcile(new Date());
+  const rCrash = await refundOf(crashed);
+  check('refund made at Razorpay, server stopped before saving → the reconcile finds it by receipt and settles it', rc3.refunds === 1 && rCrash?.rzpRefundId === 'rfnd_crash01' && rCrash.status === 'processed' && /^CN-/.test(rCrash.creditNote ?? ''), JSON.stringify(rc3));
+  check('reconcile again → no second credit note', (await reconcile(new Date())).refunds === 0 && (await refundOf(crashed))?.creditNote === rCrash?.creditNote);
+  const viaHook = await hold(5_000, 1);
+  const h1 = 'evt_refund_receipt';
+  await send({ event: 'refund.processed', payload: { refund: { entity: { id: 'rfnd_hook0001', payment_id: payB1, amount: 5_000, status: 'processed', receipt: viaHook } } } }, h1);
+  const rHook = await refundOf(viaHook);
+  await send({ event: 'refund.processed', payload: { refund: { entity: { id: 'rfnd_hook0001', payment_id: payB1, amount: 5_000, status: 'processed', receipt: viaHook } } } });
+  check('refund.processed for a refund we never saved → settled by its receipt, once', (await result(h1)) === 'refund settled (processed)' && rHook?.rzpRefundId === 'rfnd_hook0001' && Boolean(rHook.creditNote) && (await refundOf(viaHook))?.creditNote === rHook.creditNote, await result(h1));
+  const twice = await hold(3_000, 1);
+  const [t1, t2] = await Promise.all([1, 2].map(() => settleRefund(pid, twice, { id: 'rfnd_race0001', status: 'processed' })));
+  check('request and webhook settle the same refund at once → one credit note, the other a no-op', [t1?.settled, t2?.settled].filter(Boolean).length === 1 && Boolean((await refundOf(twice))?.creditNote));
+  const ghost = await hold(2_000, 90);
+  const before = (await SubscriptionPaymentModel.findById(pid).lean())?.refunded ?? 0;
+  await reconcile(new Date());
+  check('a reserved refund Razorpay never made (1 hour on) → failed, the amount is free again', (await refundOf(ghost))?.status === 'failed' && (await SubscriptionPaymentModel.findById(pid).lean())?.refunded === before - 2_000);
+
+  await send(subEvent('subscription.pending', subB));
+  const alerts = JSON.stringify((await own2.get('/notifications')).json.data);
+  check('autopay charge failed → the owner gets an alert that opens the plan', alerts.includes('Autopay payment failed') && alerts.includes('/settings/plan'));
 
   finish();
 }

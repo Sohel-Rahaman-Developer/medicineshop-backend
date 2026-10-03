@@ -35,6 +35,8 @@ export interface PdfTable<T> {
   /** Label / value pairs printed under the table (totals). */
   summary?: [string, string][];
   landscape?: boolean;
+  /** Prints this issuer in the header instead of the shop (MedShop's own invoices to a shop). */
+  issuer?: { name: string; line: string };
 }
 
 /** A shop-headed table PDF (sandbox exporter.pdfTable): header on every page, page numbers at the foot. */
@@ -54,8 +56,8 @@ export async function pdfTable<T>(o: PdfTable<T>): Promise<Buffer> {
   const bottom = () => doc.page.height - doc.page.margins.bottom - 24;
 
   const head = () => {
-    doc.font('b').fontSize(13).fillColor('#0b3b43').text(shop?.name ?? 'MedShop', left, doc.page.margins.top);
-    const addr = shop ? [shop.address?.line1, shop.address?.city, shop.phone, shop.gstin ? `GSTIN ${shop.gstin}` : '', `DL ${shop.drugLicenseNumber}`].filter(Boolean).join(' · ') : '';
+    doc.font('b').fontSize(13).fillColor('#0b3b43').text(o.issuer?.name ?? shop?.name ?? 'MedShop', left, doc.page.margins.top);
+    const addr = o.issuer ? o.issuer.line : shop ? [shop.address?.line1, shop.address?.city, shop.phone, shop.gstin ? `GSTIN ${shop.gstin}` : '', `DL ${shop.drugLicenseNumber}`].filter(Boolean).join(' · ') : '';
     doc.font('r').fontSize(8).fillColor('#555').text(addr, { width });
     doc.moveDown(0.6).font('b').fontSize(12).fillColor('#000').text(o.title, { width });
     if (o.sub) doc.font('r').fontSize(9).fillColor('#444').text(o.sub, { width });

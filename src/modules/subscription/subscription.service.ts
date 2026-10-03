@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { day, pdfTable, rupees } from '../../core/export';
@@ -7,7 +7,9 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
 import { inr, rhu } from '../../utils/money';
-import { checkPayment, checkWebhook, createOrder, paymentSignature } from '../../services/razorpay';
+import { stateCodeOf } from '../../utils/india';
+import { checkPayment, checkWebhook, createOrder, fetchPayment, paymentSignature } from '../../services/razorpay';
+import { ShopModel } from '../shops/shop.model';
 import { audit } from '../audit/audit.model';
 import { autopayEvent, autopayOf, disputeEvent, refundEvent, stopAutopay, type DisputeEntity, type PayEntity, type RefundEntity, type SubEntity } from './autopay';
 import { MembershipModel } from '../memberships/membership.model';
@@ -85,11 +87,39 @@ export async function order(t: TenantContext, actor: Actor, planCode: string) {
   return { orderId, amount: plan.price, currency: 'INR', planName: plan.name, keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null, mode: env.PAYMENTS_MODE, shopName: t.shopName };
 }
 
-async function nextInvoice(at: Date) {
+/** Inside the payment's transaction, so a retried transaction never skips a number (consecutive per FY, ≤ 16 characters). */
+async function nextInvoice(at: Date, session: ClientSession) {
   const fy = fyOf(at);
-  const c = await PlatformCounterModel.findOneAndUpdate({ _id: `subInvoice:${fy}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' }).lean();
+  const c = await PlatformCounterModel.findOneAndUpdate({ _id: `subInvoice:${fy}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after', session }).lean();
   return `MS-${fy}-${String(c.seq).padStart(5, '0')}`;
 }
+
+export interface Party { name?: string | null; address?: string | null; gstin?: string | null; state?: string | null; stateCode?: string | null }
+export const supplier = (): Party => ({ name: env.BILLING_LEGAL_NAME, address: env.BILLING_ADDRESS, gstin: env.BILLING_GSTIN ?? '', state: env.BILLING_STATE, stateCode: stateCodeOf(env.BILLING_STATE) ?? '' });
+export async function buyerOf(shopId: Types.ObjectId, session?: ClientSession): Promise<Party> {
+  const s = await ShopModel.findById(shopId).select('legalName name address gstin').session(session ?? null).lean();
+  const a = s?.address;
+  if (!s || !a) return {};
+  return { name: s.legalName || s.name, address: [a.line1, a.line2, a.city, `${a.state} ${a.pincode}`].filter(Boolean).join(', '), gstin: s.gstin ?? '', state: a.state, stateCode: a.stateCode };
+}
+
+/**
+ * CGST Rule 46 rows for MedShop's invoice or credit note. Place of supply is the shop's state (IGST Act s.12(2)):
+ * the same state as MedShop → CGST + SGST, another state → IGST.
+ */
+export function taxRows(gst: number, from: Party, to: Party): [string, string][] {
+  const intra = Boolean(from.stateCode) && from.stateCode === to.stateCode;
+  const cgst = Math.floor(gst / 2);
+  return [
+    ['Supplier', `${from.name ?? ''}, ${from.address ?? ''} · GSTIN ${from.gstin || '—'}`],
+    ['Recipient', `${to.name ?? ''}, ${to.address ?? ''} · ${to.gstin ? `GSTIN ${to.gstin}` : 'Unregistered'}`],
+    ['Place of supply', `${to.state ?? ''} (${to.stateCode ?? ''})`],
+    ['SAC', env.BILLING_SAC],
+    ...(intra ? ([['CGST 9%', rupees(cgst)], ['SGST 9%', rupees(gst - cgst)]] as [string, string][]) : ([['IGST 18%', rupees(gst)]] as [string, string][])),
+    ['Tax on reverse charge', 'No'],
+  ];
+}
+export const issuerOf = (from: Party) => ({ name: from.name ?? 'MedShop', line: [from.address, from.gstin ? `GSTIN ${from.gstin}` : ''].filter(Boolean).join(' · ') });
 
 /**
  * The one place a payment turns into time on the plan — Checkout's verify and the webhook both land here, so it runs
@@ -115,8 +145,8 @@ export async function markPaid(orderId: string, paymentId: string, amount: numbe
     // A paid plan still running is extended from its end; a trial, grace or lapsed plan starts today.
     const start = sub.planCode !== 'trial' && statusAt(sub, now) === 'active' ? sub.endDate : now;
     const end = new Date(start.getTime() + pay.durationDays * DAY);
-    const invoiceNumber = await nextInvoice(now);
-    pay.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, periodStart: start, periodEnd: end, invoiceNumber, failureReason: undefined });
+    const invoiceNumber = await nextInvoice(now, session);
+    pay.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, periodStart: start, periodEnd: end, invoiceNumber, invoiceFrom: supplier(), invoiceTo: await buyerOf(pay.shopId, session), failureReason: undefined });
     await pay.save({ session });
     sub.set({ planCode: pay.planCode, status: 'active', endDate: end, graceEndDate: graceEndOf(end), maxUsers: pay.maxUsers, cancelledAt: undefined, cancelReason: undefined, ...(start === now ? { startDate: now } : {}) });
     await sub.save({ session });
@@ -142,8 +172,11 @@ export async function verify(t: TenantContext, actor: Actor, input: { orderId: s
   const pay = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, razorpayOrderId: input.orderId }).lean();
   if (!pay) throw AppError.notFound('Payment not found');
   if (!checkPayment(input.orderId, input.paymentId, input.signature)) throw AppError.badRequest('The payment could not be verified', { reason: 'BAD_SIGNATURE' });
-  const r = await markPaid(input.orderId, input.paymentId, null, 'checkout', actor);
-  return { ...shapePayment(r.payment.toObject()), replayed: r.replayed };
+  // The signature is valid from authorisation on: time is given only for money Razorpay shows captured, at its amount.
+  const g = await fetchPayment(input.paymentId);
+  if (g && g.status !== 'captured') return { ...shapePayment(pay), replayed: false, confirming: true };
+  const r = await markPaid(input.orderId, input.paymentId, g?.amount ?? null, g?.method ?? 'checkout', actor);
+  return { ...shapePayment(r.payment.toObject()), replayed: r.replayed, confirming: false };
 }
 
 /** Test mode only: pays a test order the way Checkout would, with a real signature. Refused in production by config. */
@@ -213,15 +246,19 @@ export async function payments(t: TenantContext) {
 export async function invoicePdf(t: TenantContext, id: string) {
   const p = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!p?.invoiceNumber || !p.periodStart || !p.periodEnd) throw AppError.notFound('Invoice not found');
+  const from = p.invoiceFrom ?? supplier();
+  const to = p.invoiceTo ?? (await buyerOf(p.shopId));
+  const [parties, tax] = [taxRows(p.gst, from, to).slice(0, 4), taxRows(p.gst, from, to).slice(4)];
   const rows: [string, string][] = [
-    ['Plan', `${p.planName} · ${String(p.durationDays)} days · up to ${String(p.maxUsers)} users`],
+    ...parties,
+    ['Service', `MedShop software subscription — ${p.planName} · ${String(p.durationDays)} days · up to ${String(p.maxUsers)} users`],
     ['Period', `${day(p.periodStart)} – ${day(p.periodEnd)}`],
     ['Taxable value', rupees(p.amount - p.gst)],
-    ['GST 18%', rupees(p.gst)],
-    ['Total paid', rupees(p.amount)],
-    ['Payment', `${p.source === 'test' ? 'Test payment' : 'Razorpay'} ${p.razorpayPaymentId ?? ''}`.trim()],
+    ...tax,
+    ['Total', rupees(p.amount)],
+    ['Payment', `${p.source === 'test' ? 'Test payment' : p.source === 'manual' ? `Paid outside Razorpay ${p.reference ?? ''}` : 'Razorpay'} ${p.razorpayPaymentId ?? ''}`.trim()],
   ];
-  const buf = await pdfTable({ shopId: t.shopId, title: `Tax invoice ${p.invoiceNumber}`, sub: `MedShop subscription · ${day(p.paidAt ?? new Date())}`, columns: [{ label: 'Item', get: (r: [string, string]) => r[0], w: 1 }, { label: 'Detail', get: (r: [string, string]) => r[1], w: 2 }], rows });
+  const buf = await pdfTable({ shopId: t.shopId, issuer: issuerOf(from), title: `Tax invoice ${p.invoiceNumber}`, sub: `Date ${day(p.paidAt ?? new Date())} · computer-generated`, columns: [{ label: 'Item', get: (r: [string, string]) => r[0], w: 1 }, { label: 'Detail', get: (r: [string, string]) => r[1], w: 2 }], rows });
   return { buf, name: p.invoiceNumber };
 }
 

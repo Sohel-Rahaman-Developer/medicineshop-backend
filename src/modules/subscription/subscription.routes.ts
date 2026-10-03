@@ -40,7 +40,7 @@ subscriptionRouter.get(
   }),
 );
 subscriptionRouter.post('/order', edit, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await svc.order(tenantOf(req), await actorOf(req), (req.body as { planCode: string }).planCode), 'Order created'); }));
-subscriptionRouter.post('/verify', edit, validate({ body: verifySchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.verify(tenantOf(req), await actorOf(req), req.body as { orderId: string; paymentId: string; signature: string }), 'Payment received — thank you'); }));
+subscriptionRouter.post('/verify', edit, validate({ body: verifySchema }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.verify(tenantOf(req), await actorOf(req), req.body as { orderId: string; paymentId: string; signature: string }); sent(res, r, r.confirming ? 'Payment received — confirming with the bank' : 'Payment received — thank you'); }));
 subscriptionRouter.post('/test-pay', edit, validate({ body: testPaySchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.testPay(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId), 'Test payment received'); }));
 subscriptionRouter.get(
   '/payments/:id/credit-notes/:refundId',
