@@ -32,6 +32,7 @@
     "smoke:retention": "tsx scripts/smoke-retention.ts",
     "smoke:autopay": "tsx scripts/smoke-autopay.ts",
     "preview:invoices": "tsx scripts/preview-invoices.ts",
+    "preview:emails": "tsx scripts/preview-emails.ts",
     "backup": "tsx scripts/backup.ts",
     "backup:verify": "tsx scripts/backup.ts verify",
     "admin:create": "tsx scripts/admin-create.ts",

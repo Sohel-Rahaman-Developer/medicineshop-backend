@@ -5,6 +5,7 @@ import { logger } from '../../config/logger';
 import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
 import { sendMail } from '../../services/mailer';
+import { adminOtpEmail } from '../../services/email-templates';
 import { compareOtp, generateNumericOtp, generateOpaqueToken, hashOtp, sha256 } from '../../utils/crypto';
 import { checkTotp, newTotpSecret, open, otpauthUrl, seal } from '../../utils/totp';
 import { OtpTokenModel } from '../auth/models/otp-token.model';
@@ -47,8 +48,7 @@ export async function requestCode(rawEmail: string, ip?: string) {
   await OtpTokenModel.updateMany({ audience: 'admin', email, consumedAt: null }, { $set: { consumedAt: new Date() } });
   const otp = env.DEV_STATIC_OTP ?? generateNumericOtp(env.OTP_LENGTH);
   await OtpTokenModel.create({ email, otpHash: await hashOtp(otp), audience: 'admin', maxAttempts: env.OTP_MAX_ATTEMPTS, expiresAt: new Date(Date.now() + env.OTP_TTL_MINUTES * 60_000), ip });
-  const text = `Your MedShop Admin code is ${otp}. It expires in ${String(env.OTP_TTL_MINUTES)} minutes. If you did not ask for it, tell the platform owner now.`;
-  await sendMail({ to: email, subject: 'MedShop Admin sign-in code', text, html: `<p>${text}</p>` });
+  await sendMail({ to: email, ...adminOtpEmail(otp, env.OTP_TTL_MINUTES) });
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
 }
 

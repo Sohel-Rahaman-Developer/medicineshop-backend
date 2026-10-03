@@ -15,6 +15,7 @@ import { reconcile } from '../subscription/reconcile';
 import { UserModel } from '../user/user.model';
 import { liveAlerts, type Alert } from './alerts.service';
 import { offFor, wants } from './notifications.service';
+import { digestEmail, summaryEmail } from '../../services/email-templates';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -31,18 +32,6 @@ async function claim(key: string, at: Date) {
     if ((err as { code?: number }).code === 11000) return false;
     throw err;
   }
-}
-
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
-
-/** One plain, responsive layout for every alert mail, with a text twin (PLAN §17 templates). */
-function layout(shop: string, title: string, blocks: { head: string; lines: string[]; link?: string }[]) {
-  const base = env.SHOP_APP_URL;
-  const html = `<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:560px;margin:0 auto;padding:16px"><div style="background:#0fb5a8;color:#fff;border-radius:12px 12px 0 0;padding:14px 16px"><b>MedShop</b> · ${esc(shop)}</div><div style="background:#fff;border-radius:0 0 12px 12px;padding:16px"><h1 style="font-size:18px;margin:0 0 12px">${esc(title)}</h1>${blocks
-    .map((b) => `<div style="border-top:1px solid #e2e8f0;padding:10px 0"><b>${esc(b.head)}</b>${b.lines.map((l) => `<div style="font-size:13px;color:#475569">${esc(l)}</div>`).join('')}${b.link ? `<a href="${esc(base + b.link)}" style="font-size:13px;color:#0d9488">Open</a>` : ''}</div>`)
-    .join('')}<p style="font-size:11px;color:#94a3b8">Change what you get by email in MedShop → Notifications → Preferences.</p></div></div></body></html>`;
-  const text = `${shop}\n${title}\n\n${blocks.map((b) => `• ${b.head}\n${b.lines.map((l) => `  ${l}`).join('\n')}${b.link ? `\n  ${base}${b.link}` : ''}`).join('\n\n')}\n\nChange what you get by email in MedShop → Notifications → Preferences.`;
-  return { html, text };
 }
 
 async function people(shopId: Types.ObjectId) {
@@ -65,7 +54,7 @@ export async function digest(shopId: Types.ObjectId, shopName: string, now: Date
     const list = (await liveAlerts(ctx, now)).filter((a) => a.type !== 'DAILY_SUMMARY' && wants(off, a.type, 'email'));
     if (!list.length) continue;
     const blocks = list.map((a: Alert) => ({ head: a.title, lines: [a.body, ...a.items.map((i) => `${i.text} — ${i.sub}`)], link: a.route }));
-    const m = layout(shopName, `${String(list.length)} ${list.length === 1 ? 'alert' : 'alerts'} for today`, blocks);
+    const m = digestEmail(shopName, `${String(list.length)} ${list.length === 1 ? 'alert' : 'alerts'} for today`, blocks);
     await queueMail({ kind: 'digest', shopId, to: u.email, subject: `${shopName} · ${list[0]?.title ?? 'alerts'}${list.length > 1 ? ` + ${String(list.length - 1)} more` : ''}`, ...m }, now);
     mails++;
   }
@@ -84,11 +73,17 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
   const modes = new Map<string, number>();
   for (const b of bills) for (const p of b.payments) modes.set(p.mode, (modes.get(p.mode) ?? 0) + p.amount);
   const total = bills.reduce((s, b) => s + b.grandTotal, 0);
-  const blocks = [
-    { head: `${String(bills.length)} bills · ${inr(total)}`, lines: [...[...modes.entries()].map(([k, v]) => `${k === 'CREDIT' ? 'Udhaar' : k}: ${inr(v)}`), `Discount given: ${inr(bills.reduce((s, b) => s + b.totalDiscount, 0))}`], link: '/sales' },
-    { head: `Returns ${String(rets.length)} · ${inr(rets.reduce((s, r) => s + r.total, 0))}`, lines: [`Cancelled bills: ${String(cancelled)}`], link: '/returns' },
-    { head: 'Close the drawer', lines: ['Count the cash and close the day before tomorrow’s sales mix in.'], link: '/day-close' },
-  ];
+  const mail = summaryEmail({
+    shop: shopName,
+    day: istIsoDay(now),
+    bills: bills.length,
+    total: inr(total),
+    modes: [...modes.entries()].map(([k, v]): [string, string] => [k === 'CREDIT' ? 'Udhaar' : k === 'UPI' ? 'UPI' : k.charAt(0) + k.slice(1).toLowerCase(), inr(v)]),
+    discount: inr(bills.reduce((s, b) => s + b.totalDiscount, 0)),
+    returns: rets.length,
+    returnsTotal: inr(rets.reduce((s, r) => s + r.total, 0)),
+    cancelled,
+  });
   let mails = 0;
   for (const u of await people(shopId)) {
     let ctx: TenantContext;
@@ -99,7 +94,7 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
     }
     if (!(ctx.isOwner || ctx.roleKey === 'owner' || ctx.roleKey === 'manager')) continue;
     if (!wants(await offFor(shopId, u._id), 'DAILY_SUMMARY', 'email')) continue;
-    await queueMail({ kind: 'summary', shopId, to: u.email, subject: `${shopName} · ${istIsoDay(now)}: ${String(bills.length)} bills · ${inr(total)}`, ...layout(shopName, `Today at ${shopName}`, blocks) }, now);
+    await queueMail({ kind: 'summary', shopId, to: u.email, subject: `${shopName} · ${istIsoDay(now)}: ${String(bills.length)} bills · ${inr(total)}`, ...mail }, now);
     mails++;
   }
   return mails;
