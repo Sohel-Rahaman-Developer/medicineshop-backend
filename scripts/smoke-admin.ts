@@ -181,6 +181,33 @@ async function main() {
   const hl = await vee.get('/admin/health');
   check('health: mail queue, jobs, webhooks', hl.status === 200 && ['mail', 'jobs', 'webhooks'].every((k) => k in (hl.json.data as object)), code(hl));
 
+  section('13. Monitoring: a limit crossed emails the super admins');
+  const { SignalModel, signal } = await import('../src/services/monitor.js');
+  const { checkAlerts } = await import('../src/modules/notifications/jobs.js');
+  const { EmailJobModel } = await import('../src/services/mail-queue.js');
+  const fails = async () => (await SignalModel.aggregate<{ n: number }>([{ $match: { kind: 'admin_login_fail' } }, { $group: { _id: null, n: { $sum: '$n' } } }]))[0]?.n ?? 0;
+  const f0 = await fails();
+  await h.seedOtp('vee@medshop.test', '135790', 'admin');
+  await h.client({ origin: 'http://localhost:3001' }).post('/admin/auth/verify', { email: 'vee@medshop.test', otp: '000000' });
+  check('a wrong admin email code is counted', (await fails()) === f0 + 1, `${String(f0)} → ${String(await fails())}`);
+  // Three days ahead at hh:20, so nothing real falls in the 15-minute window.
+  const T = new Date(Math.ceil((Date.now() + 3 * DAY) / 3_600_000) * 3_600_000 + 20 * 60_000);
+  for (let i = 0; i < 4; i++) await signal('server_error', T);
+  await signal('webhook_bad_signature', T);
+  await EmailJobModel.deleteMany({ kind: 'monitor_alert' });
+  const a1 = await checkAlerts(T);
+  const alertMails = await EmailJobModel.find({ kind: 'monitor_alert' }).lean();
+  check('1 bad webhook signature → alert; 4 server errors (limit 5) → not yet', a1.join() === 'webhook_bad_signature', a1.join());
+  check('the alert goes to the active super admins only', alertMails.length === 1 && alertMails[0]?.to === 'root@medshop.test' && /bad signature/.test(alertMails.map((m) => m.subject).join()), alertMails.map((m) => m.to).join());
+  await signal('server_error', T);
+  const a2 = await checkAlerts(new Date(T.getTime() + 60_000));
+  check('the 5th server error alerts; the webhook one isn’t sent again this hour', a2.join() === 'server_error', a2.join());
+  const a3 = await checkAlerts(new Date(T.getTime() + 2 * 60_000));
+  check('nothing new → no new email', a3.length === 0 && (await EmailJobModel.countDocuments({ kind: 'monitor_alert' })) === 2);
+  check('an hour later the window is clear → quiet', (await checkAlerts(new Date(T.getTime() + 60 * 60_000))).length === 0);
+  const sig = data<{ signals: { kind: string; last24h: number; limit: number }[] }>(await vee.get('/admin/health')).signals;
+  check('health lists every signal with its limit and 24-hour count', sig.length === 6 && (sig.find((s) => s.kind === 'admin_login_fail')?.last24h ?? 0) >= 1, JSON.stringify(sig));
+
   section('12. Idle lock: PIN or authenticator to carry on (the session stays)');
   await AdminUserModel.create({ email: 'lock@medshop.test', name: 'Lena', role: 'support' });
   const lk = await login('lock@medshop.test');

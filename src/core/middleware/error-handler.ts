@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import { AppError, type ErrorCode } from '../errors';
 import { logger } from '../../config/logger';
 import { isProd } from '../../config/env';
+import { signal } from '../../services/monitor';
 
 // body-parser marks its own errors with `type`.
 const bodyParserType = (err: unknown) => (err as { type?: unknown } | null)?.type;
@@ -54,7 +55,10 @@ export const errorHandler: ErrorRequestHandler = (thrown, req, res, _next) => {
   }
 
   const log = { err, status, code, method: req.method, url: req.originalUrl };
-  if (status >= 500) logger.error(log, 'Request failed');
+  if (status >= 500) {
+    logger.error(log, 'Request failed');
+    void signal('server_error');
+  }
   else logger.warn(log, 'Request rejected');
 
   res.status(status).json({

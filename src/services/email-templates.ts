@@ -201,3 +201,21 @@ export function summaryEmail(raw: DaySummary) {
     text: `${s.shop} · ${s.day}\nToday at the counter\n\nSales: ${s.total} · ${String(s.bills)} bills\n${s.modes.map(([k, v]) => `${k}: ${v}`).join('\n')}\nDiscount given: ${s.discount}\nReturns: ${String(s.returns)} · ${s.returnsTotal}\nCancelled bills: ${String(s.cancelled)}\n\nClose the day: ${env.SHOP_APP_URL}/day-close`,
   };
 }
+
+/** Ops alert to the super admins: what crossed its limit, and where to look. */
+export function monitorAlertEmail(items: { label: string; n: number; limit: number }[], windowMin: number) {
+  const t = THEMES.admin;
+  const head = items.map((i) => `${i.label}: ${String(i.n)}`).join(' · ');
+  return {
+    subject: `${BRAND} alert — ${head}`.slice(0, 160),
+    html: shell({
+      theme: t,
+      preheader: head.slice(0, 140),
+      eyebrow: 'Platform alert',
+      title: 'Something needs a look',
+      intro: `In the last ${String(windowMin)} minutes these went over their limit. One email per problem per hour.`,
+      body: `${rows(items.map((i) => [i.label, `${String(i.n)} (limit ${String(i.limit)})`]))}${button(`${env.ADMIN_APP_URL}/health`, 'Open Messaging & health', t)}${note('Server errors: check <b>pm2 logs pharma-api</b> on the server. Bad webhook signatures: someone may be faking Razorpay calls — nothing is credited without a valid signature.', 'warn')}`,
+    }),
+    text: `${BRAND} alert — last ${String(windowMin)} minutes\n\n${items.map((i) => `${i.label}: ${String(i.n)} (limit ${String(i.limit)})`).join('\n')}\n\nOpen: ${env.ADMIN_APP_URL}/health\nServer errors: pm2 logs pharma-api`,
+  };
+}

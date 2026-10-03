@@ -6,6 +6,7 @@ import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
 import { sendMail } from '../../services/mailer';
 import { adminOtpEmail } from '../../services/email-templates';
+import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, generateOpaqueToken, hashOtp, sha256 } from '../../utils/crypto';
 import { checkTotp, newTotpSecret, open, otpauthUrl, seal } from '../../utils/totp';
 import { OtpTokenModel } from '../auth/models/otp-token.model';
@@ -69,6 +70,7 @@ export async function verifyCode(req: Request, res: Response, rawEmail: string, 
   if (token.attempts >= token.maxAttempts) throw AppError.unauthenticated('Too many wrong attempts. Please request a new code.');
   if (!(await compareOtp(otp, token.otpHash))) {
     await OtpTokenModel.updateOne({ _id: token._id }, { $inc: { attempts: 1 } });
+    await signal('admin_login_fail');
     throw invalid();
   }
   const consumed = await OtpTokenModel.findOneAndUpdate({ _id: token._id, consumedAt: null }, { $set: { consumedAt: new Date() } });
@@ -96,6 +98,7 @@ export async function verifyTotp(req: Request, res: Response, code: string) {
   const step = checkTotp(secret, code);
   if (step === null || step <= admin.totpLastStep) {
     await AdminSessionModel.updateOne({ _id: pre._id }, { $inc: { attempts: 1 } });
+    await signal('admin_login_fail');
     throw AppError.unauthenticated('That authenticator code is wrong');
   }
   if (pre.setupSecretEnc) admin.set({ totpSecretEnc: pre.setupSecretEnc, totpEnabledAt: new Date() });
@@ -152,6 +155,7 @@ export async function lockNow(req: Request) {
 export async function unlock(req: Request, res: Response, body: { pin?: string; code?: string }) {
   const { s, a } = await liveSession(req);
   const wrong = async (message: string) => {
+    await signal('admin_login_fail');
     a.pinFails += 1;
     if (a.pinFails >= UNLOCK_TRIES) {
       a.pinFails = 0;

@@ -15,7 +15,9 @@ import { reconcile } from '../subscription/reconcile';
 import { UserModel } from '../user/user.model';
 import { liveAlerts, type Alert } from './alerts.service';
 import { offFor, wants } from './notifications.service';
-import { digestEmail, summaryEmail } from '../../services/email-templates';
+import { digestEmail, monitorAlertEmail, summaryEmail } from '../../services/email-templates';
+import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
+import { AdminUserModel } from '../admin/admin.model';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -118,8 +120,9 @@ export async function tick(now = new Date()) {
   const ran: string[] = [];
   // Payments the webhooks missed, once an hour (B8c).
   if (env.PAYMENTS_MODE === 'razorpay' && (await claim(`reconcile:${now.toISOString().slice(0, 13)}`, now))) {
-    await reconcile(now).catch((err: unknown) => {
+    await reconcile(now).catch(async (err: unknown) => {
       logger.error({ err }, 'Payment reconcile failed');
+      await signal('job_fail', now);
     });
     ran.push('reconcile');
   }
@@ -141,9 +144,26 @@ export async function tick(now = new Date()) {
       }
     } catch (err) {
       logger.error({ err, shopId: String(s._id) }, 'Scheduled job failed');
+      await signal('job_fail', now);
     }
   }
+  const alerted = await checkAlerts(now).catch((err: unknown) => {
+    logger.error({ err }, 'Alert check failed');
+    return [];
+  });
+  if (alerted.length) ran.push(`alert:${alerted.join(',')}`);
   return { mail, ran };
+}
+
+/** A signal over its limit emails every active super admin — once per signal per clock hour. */
+export async function checkAlerts(now = new Date()) {
+  const fresh: Awaited<ReturnType<typeof overLimit>> = [];
+  for (const o of await overLimit(now)) if (await claim(`alert:${o.kind}:${now.toISOString().slice(0, 13)}`, now)) fresh.push(o);
+  if (!fresh.length) return [];
+  const mail = monitorAlertEmail(fresh, ALERT_WINDOW_MIN);
+  const admins = await AdminUserModel.find({ role: 'super', status: 'active' }).select('email').lean();
+  for (const a of admins) await queueMail({ kind: 'monitor_alert', to: a.email, ...mail }, now);
+  return fresh.map((o) => o.kind);
 }
 
 let timer: NodeJS.Timeout | null = null;
@@ -152,8 +172,9 @@ let timer: NodeJS.Timeout | null = null;
 export function startScheduler() {
   if (timer || !env.JOBS_ENABLED) return;
   const run = () => {
-    tick().catch((err: unknown) => {
+    tick().catch(async (err: unknown) => {
       logger.error({ err }, 'Scheduler tick failed');
+      await signal('job_fail');
     });
   };
   timer = setInterval(run, 60_000);

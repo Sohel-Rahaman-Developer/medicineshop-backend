@@ -3,6 +3,7 @@ import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
 import { sendMail } from '../../services/mailer';
 import { otpEmail, sessionRevokedEmail } from '../../services/email-templates';
+import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, hashOtp, sha256 } from '../../utils/crypto';
 import { UserModel, type UserDoc } from '../user/user.model';
 import { OtpTokenModel } from './models/otp-token.model';
@@ -100,6 +101,7 @@ export async function verifyOtpAndLogin(
     if (updated && updated.attempts >= updated.maxAttempts) {
       await OtpTokenModel.deleteOne({ _id: token._id });
     }
+    await signal('login_fail');
     throw invalid();
   }
 

@@ -11,6 +11,7 @@ import { inr, rhu } from '../../utils/money';
 import { rupeesInWords } from '../../utils/words';
 import { stateCodeOf } from '../../utils/india';
 import { checkPayment, checkWebhook, createOrder, fetchPayment, paymentSignature } from '../../services/razorpay';
+import { signal } from '../../services/monitor';
 import { ShopModel } from '../shops/shop.model';
 import { platform } from '../admin/platform';
 import { audit } from '../audit/audit.model';
@@ -204,6 +205,7 @@ export async function webhook(raw: string, signature: string, eventId: string) {
     throw err;
   });
   if (!valid) {
+    await signal('webhook_bad_signature');
     await record('rejected: bad signature');
     throw AppError.badRequest('Bad signature');
   }

@@ -1,6 +1,7 @@
 import { Schema, model, type Types } from 'mongoose';
 import { logger } from '../config/logger';
 import { sendMail, type MailInput } from './mailer';
+import { signal } from './monitor';
 
 // PLAN §17 email queue without Redis: a request only queues; the minute job sends, retrying 1 → 5 → 30 min.
 const jobSchema = new Schema(
@@ -48,7 +49,10 @@ export async function drainMail(now = new Date(), limit = 50) {
       const last = job.attempts >= job.maxAttempts;
       const wait = BACKOFF_MIN[Math.min(job.attempts - 1, BACKOFF_MIN.length - 1)] ?? 30;
       await EmailJobModel.updateOne({ _id: job._id }, { $set: { status: last ? 'failed' : 'pending', lastError: (err as Error).message.slice(0, 300), scheduledFor: new Date(now.getTime() + wait * 60_000) } });
-      if (last) logger.error({ jobId: String(job._id), kind: job.kind }, 'Email failed 3 times — giving up');
+      if (last) {
+        logger.error({ jobId: String(job._id), kind: job.kind }, 'Email failed 3 times — giving up');
+        await signal('mail_fail', now);
+      }
       failed++;
     }
   }
