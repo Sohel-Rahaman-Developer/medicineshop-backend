@@ -9,6 +9,7 @@ import { logger } from './config/logger';
 import { csrfProtection } from './core/middleware/csrf';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
+import { releaseRouter } from './modules/release/release.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { categoriesRouter } from './modules/categories/categories.routes';
 import { invitationsRouter } from './modules/memberships/invitations.routes';
@@ -101,6 +102,7 @@ export function createApp() {
 
   app.use('/health', healthRouter);
   app.use(`${env.API_PREFIX}/health`, healthRouter);
+  app.use(`${env.API_PREFIX}/release`, releaseRouter);
   app.use(`${env.API_PREFIX}/auth`, authRouter);
   app.use(`${env.API_PREFIX}/shops`, shopsRouter);
   app.use(`${env.API_PREFIX}/shop`, shopRouter);

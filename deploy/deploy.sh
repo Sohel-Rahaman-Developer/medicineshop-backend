@@ -28,6 +28,11 @@ if [ "${MEDSHOP_BACKEND_PULLED:-}" = 1 ]; then echo "  backend: $(git -C "$ROOT/
 sync frontend medicineshop-frontend
 sync admin medicineshop-admin
 
+ver() { node -p "require('$ROOT/$1/package.json').version"; }
+VERSION=$(ver backend)
+[ "$(ver frontend)" = "$VERSION" ] && [ "$(ver admin)" = "$VERSION" ] || { echo "Versions differ: backend $VERSION · shop $(ver frontend) · admin $(ver admin) — bump all three package.json to the same version"; exit 1; }
+echo "  version: $VERSION"
+
 test -f "$ROOT/backend/.env" || { echo "Missing $ROOT/backend/.env — copy deploy/env.production.example and fill it"; exit 1; }
 grep -q "^PORT=$API_PORT$" "$ROOT/backend/.env" || { echo "backend/.env must say PORT=$API_PORT"; exit 1; }
 
@@ -44,6 +49,10 @@ for app in frontend admin; do
   npm run build --silent
 done
 
+# What /health and the admin Releases page report: the deploy time and each repo's commit.
+node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ version: process.argv[2], deployedAt: new Date().toISOString(), commits: { backend: process.argv[3], shop: process.argv[4], admin: process.argv[5] } }, null, 2))' \
+  "$ROOT/backend/release.json" "$VERSION" "$(git -C "$ROOT/backend" rev-parse --short HEAD)" "$(git -C "$ROOT/frontend" rev-parse --short HEAD)" "$(git -C "$ROOT/admin" rev-parse --short HEAD)"
+
 step "Restart with PM2"
 pm2 startOrReload "$ROOT/backend/deploy/ecosystem.config.cjs" --update-env
 pm2 save
@@ -54,4 +63,4 @@ curl -fsS "http://127.0.0.1:$API_PORT/health" >/dev/null && echo "  ✅ API up o
 curl -fsS -o /dev/null "http://127.0.0.1:$MEDSHOP_SHOP_PORT/login" && echo "  ✅ Shop app up on $MEDSHOP_SHOP_PORT"
 curl -fsS -o /dev/null "http://127.0.0.1:$MEDSHOP_ADMIN_PORT/" && echo "  ✅ Admin up on $MEDSHOP_ADMIN_PORT"
 echo
-echo "Deployed: backend $(git -C "$ROOT/backend" rev-parse --short HEAD) · shop $(git -C "$ROOT/frontend" rev-parse --short HEAD) · admin $(git -C "$ROOT/admin" rev-parse --short HEAD)"
+echo "Deployed v$VERSION: backend $(git -C "$ROOT/backend" rev-parse --short HEAD) · shop $(git -C "$ROOT/frontend" rev-parse --short HEAD) · admin $(git -C "$ROOT/admin" rev-parse --short HEAD)"

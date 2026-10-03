@@ -180,6 +180,16 @@ async function main() {
   section('10. Health');
   const hl = await vee.get('/admin/health');
   check('health: mail queue, jobs, webhooks', hl.status === 200 && ['mail', 'jobs', 'webhooks'].every((k) => k in (hl.json.data as object)), code(hl));
+  const { CHANGELOG } = await import('../src/modules/release/changelog.js');
+  const nobody = h.client();
+  const live = data<{ version: string; deployedAt: string }>(await nobody.get('/health'));
+  check('public /health carries the version and deploy time', live.version === CHANGELOG[0]?.version && !Number.isNaN(Date.parse(live.deployedAt)), JSON.stringify(live));
+  const rel = await nobody.get('/release');
+  const relData = data<{ version: string; notes: { version: string; items: string[] }[]; commits?: unknown }>(rel);
+  check('public /release: shop notes only, newest first, no commits', rel.status === 200 && relData.notes[0]?.version === CHANGELOG[0]?.version && relData.notes[0]?.items.join() === CHANGELOG[0]?.shop.join() && !('commits' in relData), code(rel));
+  check('admin /release needs an admin session', (await nobody.get('/admin/release')).status === 401);
+  const adm = data<{ version: string; commits: Record<string, unknown>; notes: { admin: string[]; api: string[] }[] }>(await vee.get('/admin/release'));
+  check('admin /release: every note with admin + API items, and the commits', adm.version === CHANGELOG[0]?.version && 'backend' in adm.commits && adm.notes.length === CHANGELOG.length && Boolean(adm.notes[0]?.admin.length));
 
   section('13. Monitoring: a limit crossed emails the super admins');
   const { SignalModel, signal } = await import('../src/services/monitor.js');

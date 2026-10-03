@@ -2,6 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { supportsTransactions } from '../../config/db';
 import { env } from '../../config/env';
+import { release } from '../release/release';
 
 export const healthRouter = Router();
 
@@ -20,6 +21,8 @@ healthRouter.get('/', (_req, res) => {
     success: healthy,
     data: {
       status: healthy ? 'ok' : 'degraded',
+      version: release().version,
+      deployedAt: release().deployedAt,
       env: env.NODE_ENV,
       uptimeSeconds: Math.round(process.uptime()),
       db: {

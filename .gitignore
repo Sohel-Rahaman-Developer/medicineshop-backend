@@ -19,6 +19,7 @@ npm-debug.*
 .tmp/
 uploads/
 backups/
+release.json
 coverage/
 
 # editor / os
