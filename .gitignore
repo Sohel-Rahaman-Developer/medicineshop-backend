@@ -18,6 +18,7 @@ npm-debug.*
 # runtime / temp
 .tmp/
 uploads/
+backups/
 coverage/
 
 # editor / os
