@@ -104,6 +104,7 @@ async function createSession(
 export async function rotateRefreshToken(
   rawToken: string,
   ctx: Omit<SessionContext, 'rememberMe'>,
+  opts: { unlocked?: boolean } = {},
 ): Promise<IssuedTokens & { reuseDetected?: boolean }> {
   const session = await SessionModel.findOne({ tokenHash: sha256(rawToken) });
 
@@ -127,11 +128,13 @@ export async function rotateRefreshToken(
   }
 
   // A user disabled by the platform loses every session at the next refresh.
-  const owner = await UserModel.findById(session.userId).select('status').lean();
+  const owner = await UserModel.findById(session.userId).select('status pinHash lockMinutes').lean();
   if (!owner || owner.status === 'disabled') {
     await revokeFamily(session.familyId, 'disabled');
     throw AppError.unauthenticated('This account is not active. Please contact support.');
   }
+  // D60: idle past the lock time with a PIN set → the PIN, not a refresh. An active user refreshes every 15 minutes.
+  if (!opts.unlocked && owner.pinHash && Date.now() - session.lastUsedAt.getTime() > owner.lockMinutes * 60_000) throw AppError.locked();
 
   session.usedAt = new Date();
   session.revokedAt = new Date();

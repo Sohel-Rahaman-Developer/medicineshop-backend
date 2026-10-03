@@ -4,6 +4,7 @@ import { AppError } from '../../core/errors';
 import { issueCsrfToken } from '../../core/middleware/csrf';
 import { fetched, sent } from '../../core/response';
 import { myInvitations, myShops } from '../memberships/memberships.service';
+import { hashOtp } from '../../utils/crypto';
 import { UserModel } from '../user/user.model';
 import * as authService from './auth.service';
 import { REFRESH_COOKIE, clearAuthCookies, setAuthCookies } from './auth.cookies';
@@ -60,8 +61,8 @@ export async function refresh(req: Request, res: Response) {
   try {
     setAuthCookies(res, await authService.refresh(raw, ctxOf(req)));
   } catch (err) {
-    // A dead refresh token must not linger in the browser.
-    clearAuthCookies(res);
+    // A dead refresh token must not linger in the browser; a locked one stays for the PIN (D60).
+    if (!(err instanceof AppError && err.code === 'LOCKED')) clearAuthCookies(res);
     throw err;
   }
 
@@ -89,7 +90,7 @@ export async function me(req: Request, res: Response) {
   if (!req.auth) throw AppError.unauthenticated();
 
   const [user, shops, invitations] = await Promise.all([
-    UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt').lean(),
+    UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt pinHash lockMinutes').lean(),
     myShops(req.auth.userId),
     myInvitations(req.auth.userId),
   ]);
@@ -97,10 +98,36 @@ export async function me(req: Request, res: Response) {
 
   // A read — no message, otherwise every page load fires a pointless toast.
   fetched(res, {
-    user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status },
+    user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status, hasPin: Boolean(user.pinHash), lockMinutes: user.lockMinutes },
     shops,
     invitations: invitations.length,
   });
+}
+
+/** D60: the PIN opens an idle session on this device; 5 wrong and the session ends (email code again). */
+export async function unlock(req: Request, res: Response) {
+  const raw = refreshTokenOf(req);
+  if (!raw) throw AppError.unauthenticated('Please sign in to continue');
+  try {
+    setAuthCookies(res, await authService.unlock(raw, (req.body as { pin: string }).pin, ctxOf(req)));
+  } catch (err) {
+    if (err instanceof AppError && err.code === 'UNAUTHENTICATED') clearAuthCookies(res);
+    throw err;
+  }
+  sent(res, null, 'Unlocked');
+}
+
+export async function setPin(req: Request, res: Response) {
+  if (!req.auth) throw AppError.unauthenticated();
+  const { pin, lockMinutes } = req.body as { pin: string; lockMinutes: number };
+  await UserModel.updateOne({ _id: req.auth.userId }, { $set: { pinHash: await hashOtp(pin), pinSetAt: new Date(), lockMinutes, pinFails: 0 } });
+  sent(res, { hasPin: true, lockMinutes }, 'PIN saved — this device locks after ' + String(lockMinutes) + ' idle minutes');
+}
+
+export async function removePin(req: Request, res: Response) {
+  if (!req.auth) throw AppError.unauthenticated();
+  await UserModel.updateOne({ _id: req.auth.userId }, { $unset: { pinHash: 1, pinSetAt: 1 }, $set: { pinFails: 0 } });
+  sent(res, { hasPin: false }, 'PIN removed');
 }
 
 export async function updateMe(req: Request, res: Response) {

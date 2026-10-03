@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'RATE_LIMITED'
   | 'SUBSCRIPTION_REQUIRED'
   | 'SERVICE_UNAVAILABLE'
+  | 'LOCKED'
   | 'INTERNAL';
 
 export class AppError extends Error {
@@ -58,6 +59,10 @@ export class AppError extends Error {
   }
   static serviceUnavailable(message = 'This service is not available right now') {
     return new AppError(503, 'SERVICE_UNAVAILABLE', message);
+  }
+  /** D60: the session is fine but idle past the user's lock time — the PIN opens it (the client keeps its cookies). */
+  static locked(message = 'Locked — enter your PIN') {
+    return new AppError(423, 'LOCKED', message);
   }
   static internal(message = 'Something went wrong') {
     return new AppError(500, 'INTERNAL', message);

@@ -49,3 +49,7 @@ export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+
+/** D60: 4–6 digits; lock after 30 min to 8 hours idle (never shorter — an active user refreshes every 15 minutes). */
+export const pinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits'), lockMinutes: z.union([z.literal(30), z.literal(60), z.literal(120), z.literal(240), z.literal(480)], 'Choose 30 minutes to 8 hours') }).strict();
+export const pinUnlockSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits') }).strict();

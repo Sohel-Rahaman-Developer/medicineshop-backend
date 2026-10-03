@@ -16,6 +16,8 @@ import {
   sessionIdSchema,
   updateMeSchema,
   verifyOtpSchema,
+  pinSchema,
+  pinUnlockSchema,
 } from './auth.validation';
 
 export const authRouter = Router();
@@ -49,6 +51,11 @@ authRouter.post(
 
 // Logout must work with an expired access token, hence optionalAuth.
 authRouter.post('/logout', optionalAuth, validate({ body: logoutSchema }), asyncHandler(ctrl.logout));
+
+// D60: the PIN opens an idle session (refresh cookie, no access token); same limit as the email code.
+authRouter.post('/unlock', otpVerifyLimiter, validate({ body: pinUnlockSchema }), asyncHandler(ctrl.unlock));
+authRouter.put('/pin', requireAuth, validate({ body: pinSchema }), asyncHandler(ctrl.setPin));
+authRouter.delete('/pin', requireAuth, asyncHandler(ctrl.removePin));
 
 authRouter.get('/me', requireAuth, asyncHandler(ctrl.me));
 authRouter.patch('/me', requireAuth, validate({ body: updateMeSchema }), asyncHandler(ctrl.updateMe));

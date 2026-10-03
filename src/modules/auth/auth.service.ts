@@ -3,15 +3,16 @@ import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
 import { sendMail } from '../../services/mailer';
 import { otpEmail, sessionRevokedEmail } from '../../services/email-templates';
-import { compareOtp, generateNumericOtp, hashOtp } from '../../utils/crypto';
+import { compareOtp, generateNumericOtp, hashOtp, sha256 } from '../../utils/crypto';
 import { UserModel, type UserDoc } from '../user/user.model';
 import { OtpTokenModel } from './models/otp-token.model';
-import type { SessionDoc } from './models/session.model';
+import { SessionModel, type SessionDoc } from './models/session.model';
 import {
   issueNewSession,
   rotateRefreshToken,
   type IssuedTokens,
   type SessionContext,
+  revokeFamily,
 } from './token.service';
 
 export interface RequestContext {
@@ -152,6 +153,27 @@ export async function refresh(rawToken: string, ctx: RequestContext): Promise<Is
     }
     throw err;
   }
+}
+
+const PIN_TRIES = 5;
+
+/** D60: right PIN → a fresh session; the 5th wrong one ends this device's session family. */
+export async function unlock(rawToken: string, pin: string, ctx: RequestContext): Promise<IssuedTokens> {
+  const session = await SessionModel.findOne({ tokenHash: sha256(rawToken), usedAt: null, revokedAt: null }).lean();
+  if (!session || session.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('This session has ended — sign in with your email code');
+  const user = await UserModel.findById(session.userId).select('pinHash pinFails status').lean();
+  if (!user?.pinHash || user.status === 'disabled') throw AppError.unauthenticated('Sign in with your email code');
+  if (!(await compareOtp(pin, user.pinHash))) {
+    const after = await UserModel.findOneAndUpdate({ _id: user._id }, { $inc: { pinFails: 1 } }, { returnDocument: 'after' }).lean();
+    if ((after?.pinFails ?? 0) >= PIN_TRIES) {
+      await revokeFamily(session.familyId, 'user_revoked');
+      await UserModel.updateOne({ _id: user._id }, { $set: { pinFails: 0 } });
+      throw AppError.unauthenticated('Too many wrong PINs — sign in with your email code');
+    }
+    throw AppError.validation(`Wrong PIN — ${String(PIN_TRIES - (after?.pinFails ?? 0))} tries left`, [{ field: 'body.pin', message: 'Wrong PIN' }]);
+  }
+  await UserModel.updateOne({ _id: user._id }, { $set: { pinFails: 0 } });
+  return rotateRefreshToken(rawToken, ctx, { unlocked: true });
 }
 
 async function notifyReuse(session: SessionDoc): Promise<void> {

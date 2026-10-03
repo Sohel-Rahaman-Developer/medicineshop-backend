@@ -35,16 +35,25 @@ async function main() {
     await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: 'MedShop support asks to look at your shop for 4 h', body: 'Approve or deny in Settings → Support access.', route: '/settings/support', roles: ['owner'] });
   };
 
+  const { SessionModel } = await import('../src/modules/auth/models/session.model.js');
+  const { UserModel } = await import('../src/modules/user/user.model.js');
+  /** PIN suite (D60): pretend this person's devices have been idle for so many minutes. */
+  const seedIdle = async (b: { email?: string; minutes?: number }) => {
+    const u = await UserModel.findOne({ email: (b.email ?? '').toLowerCase() }).lean();
+    if (!u) throw new Error('user not found');
+    await SessionModel.updateMany({ userId: u._id, revokedAt: null }, { $set: { lastUsedAt: new Date(Date.now() - (b.minutes ?? 0) * 60_000) } });
+  };
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || (req.url !== '/otp' && req.url !== '/admin' && req.url !== '/support')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string };
-      (req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : h.seedOtp(body.email, body.code)).then(
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number };
+      (req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );
