@@ -9,6 +9,7 @@ import { fyOf } from '../../utils/fy';
 import { inr, rhu } from '../../utils/money';
 import { checkPayment, checkWebhook, createOrder, paymentSignature } from '../../services/razorpay';
 import { audit } from '../audit/audit.model';
+import { autopayEvent, autopayOf, disputeEvent, refundEvent, stopAutopay, type DisputeEntity, type PayEntity, type RefundEntity, type SubEntity } from './autopay';
 import { MembershipModel } from '../memberships/membership.model';
 import type { Actor } from '../user/actor';
 import { DEFAULT_PLANS, PlanModel, PlatformCounterModel, SubscriptionPaymentModel, WebhookEventModel } from './billing.model';
@@ -25,8 +26,14 @@ export async function plans() {
   return rows.map((p) => ({ code: p.code, name: p.name, price: p.price, durationDays: p.durationDays, maxUsers: p.maxUsers, perMonth: Math.round((p.price * 30) / p.durationDays) }));
 }
 
-function shapePayment(p: { _id: Types.ObjectId; planName: string; amount: number; gst: number; status: string; razorpayOrderId: string; razorpayPaymentId?: string | null; periodStart?: Date | null; periodEnd?: Date | null; invoiceNumber?: string | null; source: string; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null }) {
-  return { id: String(p._id), planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, orderId: p.razorpayOrderId, paymentId: p.razorpayPaymentId ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, invoiceNumber: p.invoiceNumber ?? null, source: p.source, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null };
+interface PaymentRow { _id: Types.ObjectId; planName: string; amount: number; gst: number; status: string; razorpayOrderId: string; razorpayPaymentId?: string | null; periodStart?: Date | null; periodEnd?: Date | null; invoiceNumber?: string | null; source: string; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null; refunded?: number; refunds?: { _id: Types.ObjectId; amount: number; status: string; creditNote?: string | null; daysRemoved: number; at: Date }[]; dispute?: { status?: string | null } | null }
+export function shapePayment(p: PaymentRow) {
+  return {
+    id: String(p._id), planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, orderId: p.razorpayOrderId, paymentId: p.razorpayPaymentId ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, invoiceNumber: p.invoiceNumber ?? null, source: p.source, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null,
+    refunded: p.refunded ?? 0,
+    refunds: (p.refunds ?? []).map((r) => ({ id: String(r._id), amount: r.amount, status: r.status, creditNote: r.creditNote ?? null, daysRemoved: r.daysRemoved, at: r.at })),
+    dispute: p.dispute?.status ?? null,
+  };
 }
 
 /** The plans at this shop's own prices (PLAN §36.1) — the list price shows beside its own. */
@@ -39,11 +46,12 @@ export async function plansFor(shopId: Types.ObjectId, now = new Date()) {
 }
 
 export async function current(t: TenantContext, now = new Date()) {
-  const [sub, list, users, last] = await Promise.all([
+  const [sub, list, users, last, autopay] = await Promise.all([
     SubscriptionModel.findOne({ shopId: t.shopId }).lean(),
     plansFor(t.shopId, now),
     MembershipModel.countDocuments({ shopId: t.shopId, status: { $in: ['active', 'invited'] } }),
     SubscriptionPaymentModel.findOne({ shopId: t.shopId, status: { $in: ['paid', 'failed'] } }).sort({ createdAt: -1 }).lean(),
+    autopayOf(t.shopId),
   ]);
   if (!sub) throw AppError.notFound('No subscription');
   const status = statusAt(sub, now);
@@ -60,6 +68,7 @@ export async function current(t: TenantContext, now = new Date()) {
     readOnly: status === 'expired' || status === 'cancelled',
     plans: list,
     lastPayment: last ? shapePayment(last) : null,
+    autopay,
     payments: env.PAYMENTS_MODE,
     keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null,
   };
@@ -86,7 +95,7 @@ async function nextInvoice(at: Date) {
  * The one place a payment turns into time on the plan — Checkout's verify and the webhook both land here, so it runs
  * once per order: a second call with the same payment is a no-op (PLAN §8 idempotent).
  */
-async function markPaid(orderId: string, paymentId: string, amount: number | null, method: string, by: { id: string; name: string } | null, now = new Date()) {
+export async function markPaid(orderId: string, paymentId: string, amount: number | null, method: string, by: { id: string; name: string } | null, now = new Date()) {
   // Outside the transaction: a throw inside it would roll the "failed" mark back too.
   const ordered = await SubscriptionPaymentModel.findOne({ razorpayOrderId: orderId }).select('amount status').lean();
   if (ordered && amount !== null && amount !== ordered.amount && ordered.status !== 'paid') {
@@ -112,7 +121,8 @@ async function markPaid(orderId: string, paymentId: string, amount: number | nul
     sub.set({ planCode: pay.planCode, status: 'active', endDate: end, graceEndDate: graceEndOf(end), maxUsers: pay.maxUsers, cancelledAt: undefined, cancelReason: undefined, ...(start === now ? { startDate: now } : {}) });
     await sub.save({ session });
     const who = by ?? { id: String(pay.createdBy), name: pay.createdByName };
-    await audit({ shopId: pay.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(pay._id), entityName: invoiceNumber, text: `${who.name} paid ${inr(pay.amount)} for ${pay.planName} — valid till ${day(end)} (${invoiceNumber})`, ip: undefined }, session);
+    const text = pay.source === 'autopay' ? `Autopay charged ${inr(pay.amount)} for ${pay.planName}` : `${who.name} paid ${inr(pay.amount)} for ${pay.planName}`;
+    await audit({ shopId: pay.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(pay._id), entityName: invoiceNumber, text: `${text} — valid till ${day(end)} (${invoiceNumber})`, ip: undefined }, session);
     return { payment: pay, replayed: false };
   });
 }
@@ -145,7 +155,7 @@ export async function testPay(t: TenantContext, actor: Actor, orderId: string) {
 
 interface Hook {
   event?: string;
-  payload?: { payment?: { entity?: { id?: string; order_id?: string; amount?: number; method?: string; error_description?: string } } };
+  payload?: { payment?: { entity?: PayEntity }; subscription?: { entity?: SubEntity }; refund?: { entity?: RefundEntity }; dispute?: { entity?: DisputeEntity } };
 }
 
 /** Step 3: the webhook, in case the browser closed after paying. Signed, logged once per event id, then the same markPaid. */
@@ -171,7 +181,16 @@ export async function webhook(raw: string, signature: string, eventId: string) {
   if (await WebhookEventModel.exists({ eventId: id })) return { result: 'duplicate' };
   const e = body.payload?.payment?.entity;
   let result = 'ignored';
-  if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id) {
+  if (type.startsWith('subscription.')) {
+    result = await autopayEvent(type, body.payload?.subscription?.entity, e);
+  } else if (type.startsWith('refund.')) {
+    result = await refundEvent(type, body.payload?.refund?.entity);
+  } else if (type.startsWith('payment.dispute.')) {
+    result = await disputeEvent(type, body.payload?.dispute?.entity);
+  } else if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id && !(await SubscriptionPaymentModel.exists({ razorpayOrderId: e.order_id }))) {
+    // Autopay charges carry Razorpay's own order ids; they are paid through subscription.charged.
+    result = 'ignored: not our order';
+  } else if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id) {
     const r = await markPaid(e.order_id, e.id, typeof e.amount === 'number' ? e.amount : null, e.method ?? 'razorpay', null).catch((err: unknown) => {
       if (err instanceof AppError) return { error: err.message };
       throw err;
@@ -211,6 +230,7 @@ export async function cancel(t: TenantContext, actor: Actor, reason: string, ip?
   const sub = await SubscriptionModel.findOne({ shopId: t.shopId });
   if (!sub) throw AppError.notFound('No subscription');
   if (sub.status === 'cancelled') throw AppError.conflict('Already cancelled');
+  await stopAutopay(t.shopId, actor, reason, ip);
   sub.set({ status: 'cancelled', cancelledAt: new Date(), cancelReason: reason });
   await sub.save();
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'subscription', entityId: String(sub._id), entityName: 'Subscription', text: `${actor.name} cancelled the plan — ${reason}`, ip });

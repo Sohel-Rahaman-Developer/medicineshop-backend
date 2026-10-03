@@ -25,6 +25,19 @@ export const DEFAULT_PLANS = [
   { code: 'yearly', name: 'Yearly', price: 799_000, durationDays: 365, maxUsers: 10, sortOrder: 2 },
 ];
 
+/** B8c: money back through Razorpay (or recorded, for a manual payment) — each one with its own GST credit note. */
+const refundSchema = new Schema({
+  rzpRefundId: { type: String },
+  amount: { type: Number, required: true },
+  status: { type: String, enum: ['pending', 'processed', 'failed'], required: true },
+  reason: { type: String, required: true },
+  creditNote: { type: String },
+  /** Plan days taken off for this refund; given back if the refund fails. */
+  daysRemoved: { type: Number, required: true, default: 0 },
+  byName: { type: String, required: true },
+  at: { type: Date, required: true },
+});
+
 const paymentSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
@@ -43,7 +56,14 @@ const paymentSchema = new Schema(
     periodStart: { type: Date },
     periodEnd: { type: Date },
     invoiceNumber: { type: String },
-    source: { type: String, enum: ['razorpay', 'test', 'manual'], required: true },
+    source: { type: String, enum: ['razorpay', 'test', 'manual', 'autopay'], required: true },
+    /** Autopay charges: the Razorpay subscription that took it. */
+    autopayId: { type: String },
+    refunds: { type: [refundSchema], default: [] },
+    /** Paise refunded or on the way (failed refunds don't count). */
+    refunded: { type: Number, required: true, default: 0 },
+    /** A card chargeback; lost → the plan days go, like a full refund. */
+    dispute: { type: new Schema({ id: String, status: String, amount: Number, reason: String, at: Date, daysRemoved: Number }, { _id: false }) },
     /** Manual (B9): the UTR / cheque number the accounts desk typed. */
     reference: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -53,8 +73,43 @@ const paymentSchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 paymentSchema.index({ shopId: 1, createdAt: -1 });
+paymentSchema.index({ 'refunds.rzpRefundId': 1 }, { partialFilterExpression: { 'refunds.rzpRefundId': { $type: 'string' } } });
 paymentSchema.index({ razorpayPaymentId: 1 }, { unique: true, partialFilterExpression: { razorpayPaymentId: { $type: 'string' } } });
 export const SubscriptionPaymentModel = model('SubscriptionPayment', paymentSchema);
+
+export const AUTOPAY_STATUSES = ['created', 'authenticated', 'active', 'pending', 'halted', 'paused', 'cancelled', 'completed'] as const;
+export type AutopayStatus = (typeof AUTOPAY_STATUSES)[number];
+
+/** B8c: a Razorpay subscription (UPI Autopay / card mandate) that charges the plan each month or year. */
+const autopaySchema = new Schema(
+  {
+    shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
+    planCode: { type: String, required: true },
+    planName: { type: String, required: true },
+    /** The price it was set up at, GST included — Razorpay charges this until it is stopped. */
+    amount: { type: Number, required: true },
+    durationDays: { type: Number, required: true },
+    maxUsers: { type: Number, required: true },
+    rzpSubscriptionId: { type: String, required: true, unique: true },
+    rzpPlanId: { type: String, required: true },
+    status: { type: String, enum: AUTOPAY_STATUSES, required: true, default: 'created' },
+    /** First charge on this date (a paid plan still running); none → the approval itself is the first charge. */
+    startAt: { type: Date },
+    chargeAt: { type: Date },
+    paidCount: { type: Number, required: true, default: 0 },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdByName: { type: String, required: true },
+    stoppedAt: { type: Date },
+    stopReason: { type: String },
+  },
+  { timestamps: true, versionKey: false },
+);
+autopaySchema.index({ shopId: 1, createdAt: -1 });
+export const AutopayModel = model('Autopay', autopaySchema);
+
+/** One Razorpay plan per mode, period and price — created on first use. */
+const rzpPlanSchema = new Schema({ _id: { type: String, required: true }, rzpPlanId: { type: String, required: true } }, { versionKey: false });
+export const RzpPlanModel = model('RzpPlan', rzpPlanSchema);
 
 const webhookSchema = new Schema(
   {

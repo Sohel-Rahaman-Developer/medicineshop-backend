@@ -6,7 +6,8 @@ import { audit } from '../audit/audit.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
 import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
-import { plans as planList, plansFor, recordManual } from '../subscription/subscription.service';
+import { autopayOf, refund, stopAutopay } from '../subscription/autopay';
+import { plans as planList, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
 import { ShopTermsModel, setPrices } from '../subscription/terms';
 import * as retention from '../retention/retention';
 import { EmailJobModel } from '../../services/mail-queue';
@@ -74,13 +75,14 @@ export async function shop(id: string, now = new Date()) {
   const shopId = new Types.ObjectId(id);
   const doc = await ShopModel.findById(shopId).lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const [sub, owner, members, pays, log, prices] = await Promise.all([
+  const [sub, owner, members, pays, log, prices, autopay] = await Promise.all([
     SubscriptionModel.findOne({ shopId }).lean(),
     UserModel.findById(doc.ownerUserId).select('name email phone').lean(),
     MembershipModel.find({ shopId }).select('designation status lastActiveAt').lean(),
     SubscriptionPaymentModel.find({ shopId, status: { $in: ['paid', 'failed'] } }).sort({ createdAt: -1 }).limit(20).lean(),
     AdminAuditModel.find({ shopId }).sort({ createdAt: -1 }).limit(20).lean(),
     plansFor(shopId, now),
+    autopayOf(shopId),
   ]);
   return {
     id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null,
@@ -88,7 +90,8 @@ export async function shop(id: string, now = new Date()) {
     owner: { name: owner?.name ?? '', email: owner?.email ?? '' },
     plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, startDate: sub.startDate, endDate: sub.endDate, maxUsers: sub.maxUsers, trialExtensions: sub.trialExtensions, cancelReason: sub.cancelReason ?? null } : null,
     users: { active: members.filter((m) => m.status === 'active').length, invited: members.filter((m) => m.status === 'invited').length },
-    payments: pays.map((p) => ({ id: String(p._id), planName: p.planName, amount: p.amount, status: p.status, invoiceNumber: p.invoiceNumber ?? null, source: p.source, paidAt: p.paidAt ?? null, createdAt: (p as { createdAt?: Date }).createdAt ?? null })),
+    payments: pays.map(shapePayment),
+    autopay,
     prices: prices.map((p) => ({ code: p.code, name: p.name, price: p.price, listPrice: p.listPrice, ownPrice: p.ownPrice, upcoming: p.upcoming })),
     log: log.map((l) => ({ id: String(l._id), at: (l as { createdAt?: Date }).createdAt ?? null, by: l.adminName, action: l.action, text: l.text, reason: l.reason })),
   };
@@ -176,10 +179,25 @@ export async function setRetention(a: AdminActor, id: string, v: { tier: 'legal'
 export async function payments(q: { status?: string; cursor?: string; limit: number }) {
   const sort = { field: 'createdAt', dir: -1 } as const;
   const filter: Record<string, unknown> = { status: q.status ? q.status : { $in: ['paid', 'failed'] } };
-  const rows = await SubscriptionPaymentModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).lean<{ _id: Types.ObjectId; shopId: Types.ObjectId; planName: string; amount: number; gst: number; status: string; invoiceNumber?: string; source: string; razorpayPaymentId?: string; paidAt?: Date; createdAt: Date; failureReason?: string }[]>();
+  const rows = await SubscriptionPaymentModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).lean<{ _id: Types.ObjectId; shopId: Types.ObjectId; planName: string; amount: number; gst: number; status: string; invoiceNumber?: string; source: string; razorpayPaymentId?: string; paidAt?: Date; createdAt: Date; failureReason?: string; refunded?: number; dispute?: { status?: string | null } | null }[]>();
   const { items, meta } = page(rows, q.limit, (r) => r.createdAt);
   const names = new Map((await ShopModel.find({ _id: { $in: items.map((p) => p.shopId) } }).select('name').lean()).map((s) => [String(s._id), s.name]));
-  return { items: items.map((p) => ({ id: String(p._id), shopId: String(p.shopId), shopName: names.get(String(p.shopId)) ?? '', planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, invoiceNumber: p.invoiceNumber ?? null, source: p.source, paymentId: p.razorpayPaymentId ?? null, paidAt: p.paidAt ?? null, createdAt: p.createdAt, failureReason: p.failureReason ?? null })), meta };
+  return { items: items.map((p) => ({ id: String(p._id), shopId: String(p.shopId), shopName: names.get(String(p.shopId)) ?? '', planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, invoiceNumber: p.invoiceNumber ?? null, source: p.source, paymentId: p.razorpayPaymentId ?? null, paidAt: p.paidAt ?? null, createdAt: p.createdAt, failureReason: p.failureReason ?? null, refunded: p.refunded ?? 0, dispute: p.dispute?.status ?? null })), meta };
+}
+
+/** B8c: money back (accounts / super, with a reason) — Razorpay refund, GST credit note, and the plan days when asked. */
+export async function refundPayment(a: AdminActor, id: string, input: { amount: number; removeDays: boolean; reason: string }, ip?: string) {
+  const r = await refund(id, input, { id: a.id, name: `MedShop · ${a.name}` });
+  const doc = await ShopModel.findById(r.shopId).select('name').lean();
+  await log(a, 'refund', input.reason, `refunded ${inr(r.amount)} on ${r.invoiceNumber} — credit note ${r.creditNote}${r.days ? `, ${String(r.days)} plan days removed` : ''}`, { id: r.shopId, name: doc?.name ?? '' }, undefined, ip);
+  return r;
+}
+
+export async function stopShopAutopay(a: AdminActor, id: string, reason: string, ip?: string) {
+  const doc = await ShopModel.findById(id).select('name').lean();
+  if (!doc) throw AppError.notFound('Shop not found');
+  if (!(await stopAutopay(doc._id, { id: a.id, name: `MedShop · ${a.name}` }, reason, ip))) throw AppError.conflict('Autopay is not on');
+  await log(a, 'autopay_stop', reason, 'stopped autopay', { id: doc._id, name: doc.name }, undefined, ip);
 }
 
 /** Cash, cheque or bank transfer taken outside Razorpay (accounts): same extension and invoice as an online payment. */
