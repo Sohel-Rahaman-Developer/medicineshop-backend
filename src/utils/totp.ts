@@ -72,7 +72,7 @@ export function seal(plain: string, key: string): string {
 
 export function open(sealed: string, key: string): string {
   const [iv = '', tag = '', body = ''] = sealed.split('.');
-  const d = createDecipheriv('aes-256-gcm', keyOf(key), Buffer.from(iv, 'base64url'));
+  const d = createDecipheriv('aes-256-gcm', keyOf(key), Buffer.from(iv, 'base64url'), { authTagLength: 16 });
   d.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([d.update(Buffer.from(body, 'base64url')), d.final()]).toString('utf8');
 }

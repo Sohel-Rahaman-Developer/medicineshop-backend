@@ -200,7 +200,7 @@ export async function startHarness(opts: { port?: number; dbPath?: string } = {}
     SHOP_APP_URL: SHOP_ORIGIN,
     ADMIN_APP_URL: ADMIN_ORIGIN,
     JWT_ACCESS_SECRET: 'smoke-test-access-secret-0123456789abcdef',
-    CSRF_SECRET: 'smoke-test-csrf-secret-0123456789abcdefgh',
+    CSRF_SECRET: 'smoke-test-csrf-secret-0123456789abcdefgh', // gitleaks:allow
     COOKIE_SECURE: 'false',
     SMTP_HOST: '',
     DEV_STATIC_OTP: '',

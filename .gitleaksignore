@@ -1,0 +1,2 @@
+# Test-only CSRF secret in the smoke harness (commit before the inline allow).
+ab488f8cf7ef4aa6baaa95ffbb1b648dc8d503b8:scripts/lib/harness.ts:generic-api-key:177
