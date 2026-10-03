@@ -101,6 +101,10 @@ async function main() {
   const sub = await SubscriptionModel.findOne({ shopId }).lean();
   check('recorded: paid, invoice issued, shop on Monthly', man.status === 200 && pay?.status === 'paid' && /^MS-/.test(pay.invoiceNumber ?? '') && sub?.planCode === 'monthly', code(man));
   check('accounts sees all payments', data<unknown[]>(await amit.get('/admin/payments')).length >= 1);
+  const ov = data<{ trend: { day: string; paid: number; signups: number }[]; recent: { shopName: string; amount: number; invoiceNumber: string | null }[]; ending: unknown[] }>(await amit.get('/admin/overview'));
+  const today = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
+  check('overview: 30 IST days, today holds the payment and the new shop', ov.trend.length === 30 && ov.trend.at(-1)?.day === today && (ov.trend.at(-1)?.paid ?? 0) >= (pay?.amount ?? 1) && (ov.trend.at(-1)?.signups ?? 0) >= 1, JSON.stringify(ov.trend.at(-1)));
+  check('overview: recent payments name the shop and the invoice', ov.recent[0]?.shopName === 'Shri Ram Medical Store' && ov.recent[0].invoiceNumber === pay?.invoiceNumber && Array.isArray(ov.ending));
 
   section('7. Plans and platform settings (super)');
   const pl = await root.put('/admin/plans', { plans: [{ code: 'monthly', name: 'Monthly', price: 99_900, durationDays: 30, maxUsers: 5, isActive: true }, { code: 'yearly', name: 'Yearly', price: 999_000, durationDays: 365, maxUsers: 10, isActive: true }], reason: 'New price list for 2027' });

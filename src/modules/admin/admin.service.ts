@@ -32,14 +32,40 @@ async function log(a: AdminActor, action: string, reason: string, text: string, 
 export async function overview(now = new Date()) {
   const [shops, subs, paid, failed] = await Promise.all([
     ShopModel.countDocuments({}),
-    SubscriptionModel.find({}).setOptions(ALL).select('status planCode endDate').lean(),
+    SubscriptionModel.find({}).setOptions(ALL).select('shopId status planCode endDate').lean(),
     SubscriptionPaymentModel.aggregate<{ total: number; n: number }>([{ $match: { status: 'paid', paidAt: { $gte: new Date(now.getTime() - 30 * DAY) } } }, { $group: { _id: null, total: { $sum: '$amount' }, n: { $sum: 1 } } }]),
     SubscriptionPaymentModel.countDocuments({ status: 'failed', createdAt: { $gte: new Date(now.getTime() - 7 * DAY) } }),
   ]);
   const by: Record<string, number> = { trial: 0, active: 0, grace: 0, expired: 0, cancelled: 0 };
   for (const s of subs) by[statusAt(s, now)] = (by[statusAt(s, now)] ?? 0) + 1;
-  const endingSoon = subs.filter((s) => ['trial', 'active'].includes(statusAt(s, now)) && s.endDate.getTime() - now.getTime() < 7 * DAY).length;
-  return { shops, byStatus: by, endingSoon, paid30: paid[0]?.total ?? 0, payments30: paid[0]?.n ?? 0, failed7: failed };
+  const ending = subs.filter((s) => ['trial', 'active'].includes(statusAt(s, now)) && s.endDate.getTime() - now.getTime() < 7 * DAY).sort((x, y) => x.endDate.getTime() - y.endDate.getTime());
+  // 30 IST days, oldest first: money in and new shops per day, for the overview chart.
+  const IST = 5.5 * 60 * 60 * 1000;
+  const from = new Date(now.getTime() - 29 * DAY);
+  const dayOf = (field: string) => ({ $dateToString: { format: '%Y-%m-%d', date: field, timezone: '+05:30' } });
+  const [byDayPaid, byDaySignup, recent, endingNames] = await Promise.all([
+    SubscriptionPaymentModel.aggregate<{ _id: string; total: number }>([{ $match: { status: 'paid', paidAt: { $gte: from } } }, { $group: { _id: dayOf('$paidAt'), total: { $sum: '$amount' } } }]),
+    ShopModel.aggregate<{ _id: string; n: number }>([{ $match: { createdAt: { $gte: from } } }, { $group: { _id: dayOf('$createdAt'), n: { $sum: 1 } } }]),
+    SubscriptionPaymentModel.find({ status: 'paid' }).setOptions(ALL).sort({ paidAt: -1 }).limit(6).select('shopId planName amount paidAt invoiceNumber').lean(),
+    ShopModel.find({ _id: { $in: ending.slice(0, 8).map((e) => e.shopId) } }).select('name').lean(),
+  ]);
+  const recentNames = await ShopModel.find({ _id: { $in: recent.map((r) => r.shopId) } }).select('name').lean();
+  const name = (list: { _id: Types.ObjectId; name: string }[], id: Types.ObjectId) => list.find((x) => x._id.equals(id))?.name ?? '';
+  const trend = Array.from({ length: 30 }, (_, i) => {
+    const day = new Date(from.getTime() + i * DAY + IST).toISOString().slice(0, 10);
+    return { day, paid: byDayPaid.find((x) => x._id === day)?.total ?? 0, signups: byDaySignup.find((x) => x._id === day)?.n ?? 0 };
+  });
+  return {
+    shops,
+    byStatus: by,
+    endingSoon: ending.length,
+    paid30: paid[0]?.total ?? 0,
+    payments30: paid[0]?.n ?? 0,
+    failed7: failed,
+    trend,
+    recent: recent.map((r) => ({ id: String(r._id), shopId: String(r.shopId), shopName: name(recentNames, r.shopId), planName: r.planName, amount: r.amount, invoiceNumber: r.invoiceNumber ?? null, paidAt: r.paidAt ?? null })),
+    ending: ending.slice(0, 8).map((e) => ({ shopId: String(e.shopId), shopName: name(endingNames, e.shopId), status: statusAt(e, now), endDate: e.endDate })),
+  };
 }
 
 export async function shops(q: { q?: string; status?: string; cursor?: string; limit: number }, now = new Date()) {
