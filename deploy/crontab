@@ -1,5 +1,5 @@
-# crontab -u medshop deploy/crontab   (server clock is Asia/Kolkata)
+# crontab -l > /tmp/c; cat deploy/crontab >> /tmp/c; crontab /tmp/c   (adds to the existing jobs)   (server clock is Asia/Kolkata)
 # Every night at 2:30: encrypted backup, newest 14 kept
-30 2 * * * cd /srv/medshop/backend && npm run backup >> /srv/medshop/backups/backup.log 2>&1
+30 2 * * * cd /home/deploy/test/pharma/backend && npm run backup >> /home/deploy/test/pharma/backups/backup.log 2>&1
 # 1st of every month at 4:00: restore the newest backup into a scratch DB and compare (SECURITY §5)
-0 4 1 * * cd /srv/medshop/backend && npm run backup:verify >> /srv/medshop/backups/verify.log 2>&1
+0 4 1 * * cd /home/deploy/test/pharma/backend && npm run backup:verify >> /home/deploy/test/pharma/backups/verify.log 2>&1
