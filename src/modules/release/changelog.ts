@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.3.0',
+    date: '2026-10-05',
+    title: 'Purchase straight from the supplier’s bill',
+    shop: [
+      'Purchases → From bill: upload the supplier’s Word, Excel or CSV bill and every line fills in — PDF next.',
+      'Each line is coloured: stock up in a batch you have, a new batch, MRP changed, a new product, or one to check.',
+      'Products already in the shop are never added again; new ones are made from the bill. Pick racks if you like, then Confirm & save.',
+      'The bill’s own Amount, Net and total are checked — a misread number shows in red.',
+      'The next bill from the same supplier is recognised by its names at once.',
+    ],
+    admin: [],
+    api: ['POST /purchases/import/read, /import/preview and /import — read, preview and save a supplier bill in one transaction.'],
+  },
+  {
     version: '1.2.0',
     date: '2026-10-04',
     title: 'Add a product in one go',

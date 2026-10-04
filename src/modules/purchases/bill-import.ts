@@ -121,8 +121,8 @@ async function previewLine(t: TenantContext, line: BillLine, aliasId?: Types.Obj
   if (line.oldMrp && line.oldMrp !== line.mrp) notes.push(`The bill shows the old MRP ${inr(line.oldMrp)} → ${inr(line.mrp)}`);
 
   if (!product) {
-    const pack = readPack(line.pack);
-    return { status: (suggestions.length ? 'check' : 'new') as LineStatus, productId: null, matchedBy, product: null, batch: null, suggestions, pack, notes };
+    const packRead = readPack(line.pack);
+    return { status: (suggestions.length ? 'check' : 'new') as LineStatus, productId: null, matchedBy, product: null, batch: null, suggestions, packRead, notes };
   }
 
   let status: LineStatus = 'newBatch';
@@ -150,7 +150,7 @@ async function previewLine(t: TenantContext, line: BillLine, aliasId?: Types.Obj
     product: { id: String(product._id), name: product.name, company: product.company, packSize: product.packSize, units: product.units, defaultRack: product.defaultRack, noExpiry: product.noExpiry, scheduleType: product.scheduleType, gstRate: product.gstRate },
     batch,
     suggestions,
-    pack: null,
+    packRead: null,
     notes,
   };
 }

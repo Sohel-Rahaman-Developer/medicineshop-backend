@@ -519,7 +519,7 @@ async function main() {
       bill('AZI 500', { batchNumber: 'X1' }),
     ],
   });
-  type PL = { status: string; productId: string | null; matchedBy: string | null; suggestions: { id: string }[]; notes: string[]; pack: { size?: string; salePack?: number } | null; batch: { quantity: number } | null };
+  type PL = { status: string; productId: string | null; matchedBy: string | null; suggestions: { id: string }[]; notes: string[]; packRead: { size?: string; salePack?: number } | null; batch: { quantity: number } | null };
   const pl = pv.status === 200 ? data<{ lines: PL[]; counts: Record<string, number> }>(pv) : { lines: [] as PL[], counts: {} };
   const [l0, l1, l2, l3, l4, l5] = pl.lines;
   check('same product, batch and MRP → stock goes up in batch 25443288 (30 on the shelf)', l0?.status === 'same' && l0.productId === azikem && l0.matchedBy === 'name' && l0.batch?.quantity === 30, code(pv));
@@ -527,7 +527,7 @@ async function main() {
   check('new batch number → new batch of the same product, no new product', l1?.status === 'newBatch' && l1.productId === azikem);
   check('same batch at another MRP → MRP flag, goes in separately', l2?.status === 'mrp' && l2.notes.some((n) => /separate batch/.test(n)));
   check('“PAN 40 TAB” finds Pan 40, never Pan 20', l3?.productId === pan && l3.productId !== pan20);
-  check('a product the shop doesn’t have → new, pack read as 75 gm', l4?.status === 'new' && l4.productId === null && l4.pack?.size === '75 gm');
+  check('a product the shop doesn’t have → new, pack read as 75 gm', l4?.status === 'new' && l4.productId === null && l4.packRead?.size === '75 gm');
   check('a short name “AZI 500” → check, Azikem suggested', l5?.status === 'check' && l5.suggestions[0]?.id === azikem);
   const tally = (s: string) => pl.lines.filter((l) => l.status === s).length;
   check('counts match the lines, 6 in all', ['same', 'newBatch', 'mrp', 'new', 'check'].every((s) => pl.counts[s] === tally(s)) && Object.values(pl.counts).reduce((a, b) => a + b, 0) === 6, JSON.stringify(pl.counts));
@@ -600,12 +600,12 @@ async function main() {
   const top = ['M/S M.A.PHARMA', 'GST INVOICE · CREDIT', 'Invoice No : A085013', 'Invoice Date : 01-09-2026', 'Please Pay 2449.00'];
   const send = (rows: string[][], over: Record<string, unknown> = {}) => owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.docx', data: makeDocx(top, [H, ...rows]).toString('base64'), ...over });
   const readRes = await send(MA);
-  type RL = PL & { name: string; quantity: number; mrp: number; oldMrp?: number; rate: number; discountPercent: number; gstRate?: number; expiry?: string; checks: string[] };
+  type RL = PL & { name: string; pack: string; quantity: number; mrp: number; oldMrp?: number; rate: number; discountPercent: number; gstRate?: number; expiry?: string; checks: string[] };
   const readData = readRes.status === 200 ? data<{ meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; skipped: string[]; lines: RL[] }>(readRes) : null;
   check('13 item lines read; the note and the total row are listed, not dropped silently', readData?.lines.length === 13 && readData.skipped.some((s) => s.includes('3 PICE ER PATA DEBE')) && readData.skipped.some((s) => s.includes('TOTAL')), code(readRes));
   check('invoice A085013, 1 Sep 2026, to pay ₹2,449.00', readData?.meta.invoiceNumber === 'A085013' && readData.meta.invoiceDate === '2026-09-01' && readData.meta.toPay === 244_900, JSON.stringify(readData?.meta));
   const azr = readData?.lines.find((l) => l.name === 'AZIKEM 500 TAB');
-  check('Azikem: 10 strips, MRP ₹75.53 (old ₹80.50), rate ₹28.19, exp 1/28, GST 5%', azr?.quantity === 10 && azr.mrp === 7553 && azr.oldMrp === 8050 && azr.rate === 2819 && azr.expiry === '2028-01' && azr.gstRate === 5, JSON.stringify(azr));
+  check('Azikem: 10 strips, MRP ₹75.53 (old ₹80.50), rate ₹28.19, exp 1/28, GST 5%', azr?.quantity === 10 && azr.mrp === 7553 && azr.oldMrp === 8050 && azr.rate === 2819 && azr.expiry === '2028-01' && azr.gstRate === 5 && azr.pack === '10*3', JSON.stringify(azr));
   check('…and it is the Azikem batch already on the shelf', azr?.productId === azikem && azr.status === 'same');
   check('every line’s Amount and Net agree with qty × rate − discount + GST', readData?.lines.every((l) => l.checks.length === 0) ?? false, JSON.stringify(readData?.lines.filter((l) => l.checks.length).map((l) => [l.name, l.checks])));
   check('the lines add up to Please Pay 2,449.00', readData?.billCheck === null);
