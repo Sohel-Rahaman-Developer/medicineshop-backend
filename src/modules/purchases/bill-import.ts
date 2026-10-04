@@ -251,7 +251,7 @@ export type BillReadInput = z.infer<typeof billReadSchema>;
 
 /** Upload → the bill's lines, each with what saving it would do. Lines the reader can't use are listed, not dropped silently. */
 export async function readAndPreview(t: TenantContext, input: BillReadInput) {
-  const read = input.rows ? readRows(input.rows) : readBillFile(input.fileName, Buffer.from((input.data ?? '').replace(/^data:[^,]*,/, ''), 'base64'));
+  const read = input.rows ? readRows(input.rows) : await readBillFile(input.fileName, Buffer.from((input.data ?? '').replace(/^data:[^,]*,/, ''), 'base64'));
   const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
   const skipped = [...read.skipped];
   for (const r of read.lines) {

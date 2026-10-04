@@ -57,6 +57,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.2",
     "nodemailer": "^10.0.13",
+    "pdfjs-dist": "6.4.299",
     "pdfkit": "^0.20.2",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",

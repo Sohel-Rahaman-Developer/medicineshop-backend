@@ -579,24 +579,7 @@ async function main() {
 
   section('18. Read the supplier’s Word file (D77) — the M.A. Pharma bill of 1 Sep 2026');
   const { makeDocx } = await import('./lib/docx.js');
-  const H = ['Qty', 'Mfr', 'Pack', 'Product Name', 'OMRP', 'MRP', 'Exp', 'HSN', 'Batch', 'Rate', 'DIS', 'SGST', 'CGST', 'Amount', 'Net Amount'];
-  const MA = [
-    ['1', 'ADIREX', '200 ML', 'VIRCOCO OIL', '300.00', '300.00', '12/27', '30049099', 'VC-64', '228.58', '6.00', '2.50', '2.50', '228.58', '225.61'],
-    ['10', 'GENERIC', '10*3', 'AZIKEM 500 TAB', '80.50', '75.53', '1/28', '30022019', '25443288', '28.19', '0.00', '2.50', '2.50', '281.90', '296.00'],
-    ['', '', '', '3 PICE ER PATA DEBE', '', '', '', '', '', '', '', '', '', '', ''],
-    ['1', 'GENERIC', '75GM', 'KETOKEM SOAP', '143.00', '127.25', '11/28', '21069099', 'KKS25514ED', '41.50', '0.00', '2.50', '2.50', '41.50', '43.58'],
-    ['1', 'ALKEM', '10', 'ALSITA M 50 TAB', '110.15', '110.15', '4/28', '30049099', '26441762', '83.92', '6.00', '2.50', '2.50', '83.92', '82.82'],
-    ['1', 'ALKEM', '10*15', 'DAPANORM 10 TAB', '296.70', '296.70', '2/28', '30049099', '26441046', '226.06', '6.00', '2.50', '2.50', '226.06', '223.12'],
-    ['3', 'EAST IND', '10 20', 'EQ TAB', '61.00', '61.00', '11/29', '30049099', 'EQ5324', '46.48', '4.00', '2.50', '2.50', '139.44', '140.56'],
-    ['1', 'INTAS', '10*15T', 'ZAPTRA 25 CAP', '329.06', '329.06', '4/28', '30049099', 'K2601326', '250.71', '6.00', '2.50', '2.50', '250.71', '247.45'],
-    ['5', 'MACLEODS', '10 TAB', 'OMNACORTIL 10 TAB', '12.88', '12.88', '3/30', '30049099', '13260540A', '10.31', '4.00', '2.50', '2.50', '51.55', '51.97'],
-    ['2', 'MANKIND', '15 30', 'RIVOTRIL 0.5 TAB', '55.30', '55.30', '4/28', '30049099', '6BAF2008', '42.13', '6.00', '2.50', '2.50', '84.26', '83.16'],
-    ['1', 'PIRAMAL', '10 15', 'SUPRADYN DAILY TAB', '75.00', '75.00', '10/27', '30049099', 'MH0056', '57.14', '4.00', '2.50', '2.50', '57.14', '57.59'],
-    ['2', 'RANBAXY', '15 TAB', 'ROSUVAS F 10 TAB', '460.00', '460.00', '11/28', '30049099', 'SIH1116A', '350.48', '6.00', '2.50', '2.50', '700.96', '691.84'],
-    ['1', 'TABLETI', '10 10', 'BIFILAC HP CAPS', '228.00', '228.00', '2/28', '30049099', 'BLA26S02', '173.71', '6.00', '2.50', '2.50', '173.71', '171.45'],
-    ['2', 'USV', '10 TAB', 'GLYCOMET GP 0.5 TAB', '88.88', '88.88', '3/28', '30049099', '60002821', '67.72', '6.00', '2.50', '2.50', '135.44', '133.67'],
-    ['', '', '', 'TOTAL', '', '', '', '', '', '', '', '', '', '2455.17', ''],
-  ];
+  const { MA_HEADER: H, MA_LINES: MA, MA_TOP, MA_FOOT } = await import('./lib/ma-bill.js');
   const top = ['M/S M.A.PHARMA', 'GST INVOICE · CREDIT', 'Invoice No : A085013', 'Invoice Date : 01-09-2026', 'Please Pay 2449.00'];
   const send = (rows: string[][], over: Record<string, unknown> = {}) => owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.docx', data: makeDocx(top, [H, ...rows]).toString('base64'), ...over });
   const readRes = await send(MA);
@@ -612,13 +595,59 @@ async function main() {
   const misread = MA.map((r) => (r[3] === 'EQ TAB' ? r.map((c, i) => (i === 14 ? '104.56' : c)) : r));
   const bad = data<{ billCheck: string | null; lines: RL[] }>(await send(misread));
   check('a misread Net shows on its line and on the bill total', (bad.lines.find((l) => l.name === 'EQ TAB')?.checks.length ?? 0) > 0 && bad.billCheck !== null, JSON.stringify(bad.billCheck));
-  check('a PDF → 422 (PDF reading comes next)', (await send(MA, { fileName: 'a.pdf', data: Buffer.from('%PDF-1.4 x').toString('base64') })).status === 422);
+  check('a broken PDF → 422', (await send(MA, { fileName: 'a.pdf', data: Buffer.from('%PDF-1.4 x').toString('base64') })).status === 422);
   check('not a Word file → 422', (await send(MA, { fileName: 'a.docx', data: Buffer.from('hello').toString('base64') })).status === 422);
   check('a table without a header → 422', (await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'x.docx', data: makeDocx(top, MA).toString('base64') })).status === 422);
   check('cashier → 403', (await cashier.post('/purchases/import/read', { supplierId: gupta, fileName: 'a.docx', data: makeDocx(top, [H, ...MA]).toString('base64') })).status === 403);
   const sheet = await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.xlsx', rows: [['M/S M.A.PHARMA'], H, ...MA] });
   check('the same bill as Excel / CSV rows → the same 13 lines and statuses', sheet.status === 200 && data<{ lines: RL[] }>(sheet).lines.map((l) => `${l.name}:${l.status}`).join() === (readData?.lines.map((l) => `${l.name}:${l.status}`).join() ?? 'x'), code(sheet));
   check('a file and rows together → 422', (await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'a.docx', data: 'eA==', rows: [H] })).status === 422);
+
+  section('19. The same bill as a PDF from the supplier’s software (D77)');
+  const { makeBillPdf } = await import('./lib/bill-pdf.js');
+  const [pdfTop, pdfFoot] = [MA_TOP, MA_FOOT];
+  type ReadOut = { meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; skipped: string[]; lines: (RL & { batchNumber: string })[] };
+  const sendPdf = async (pdf: Buffer, over: Record<string, unknown> = {}) => owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.pdf', data: `data:application/pdf;base64,${pdf.toString('base64')}`, ...over });
+  const sig = (r: ReadOut | null) => r?.lines.map((l) => [l.name, l.status, l.quantity, l.mrp, l.oldMrp, l.rate, l.batchNumber, l.expiry, l.gstRate, l.discountPercent, l.pack].join(':')).join('|') ?? 'none';
+  const wordSig = sig(readData as ReadOut | null);
+  const layouts = [
+    ['laid out in columns', {}],
+    ['two-line titles (Net / Amount, Batch / No.), 5 lines a page over 3 pages', { twoLineHeader: true, perPage: 5 }],
+    ['every letter placed on its own', { letters: true }],
+    ['titles centred over their columns (report designer)', { centerTitles: true }],
+    ['DOS-style: Courier, one text run per line', { mono: true }],
+  ] as const;
+  for (const [label, o] of layouts) {
+    const res = await sendPdf(await makeBillPdf(pdfTop, H, MA, pdfFoot, o));
+    const r = res.status === 200 ? data<ReadOut>(res) : null;
+    check(`PDF ${label}: the same 13 lines, batches, MRPs and statuses as the Word file`, sig(r) === wordSig && r?.lines.length === 13, res.status === 200 ? sig(r).slice(0, 300) : code(res));
+    check(`…invoice A085013 of 1 Sep, Please Pay ₹2,449.00, every Amount / Net and the total add up`, r?.meta.invoiceNumber === 'A085013' && r.meta.invoiceDate === '2026-09-01' && r.meta.toPay === 244_900 && r.billCheck === null && r.lines.every((l) => l.checks.length === 0), JSON.stringify([r?.meta, r?.billCheck]));
+    check('…the note and TOTAL are listed; the bank and terms lines are not', (r?.skipped.some((s) => s.includes('3 PICE ER PATA')) ?? false) && (r?.skipped.some((s) => s.includes('TOTAL')) ?? false) && !(r?.skipped.some((s) => /Bank|Goods once/.test(s)) ?? true), JSON.stringify(r?.skipped));
+  }
+  const { MA2_LINES, MA2_TOP, MA2_FOOT } = await import('./lib/ma-bill.js');
+  const second = data<ReadOut>(await sendPdf(await makeBillPdf(MA2_TOP, H, MA2_LINES, MA2_FOOT, { twoLineHeader: true }), { fileName: 'A085014.pdf' }));
+  check('the second bill A085014 (8 Sep): 4 lines, Please Pay ₹1,312.00, everything adds up', second.lines.length === 4 && second.meta.invoiceNumber === 'A085014' && second.meta.invoiceDate === '2026-09-08' && second.meta.toPay === 131_200 && second.billCheck === null && second.lines.every((l) => l.checks.length === 0), JSON.stringify([second.meta, second.billCheck, second.lines.map((l) => l.checks)]));
+  const pdfBad = data<ReadOut>(await sendPdf(await makeBillPdf(pdfTop, H, misread, pdfFoot)));
+  check('PDF with a misread Net → shown on the line and on the bill total', (pdfBad.lines.find((l) => l.name === 'EQ TAB')?.checks.length ?? 0) > 0 && pdfBad.billCheck !== null);
+  const locked = await sendPdf(await makeBillPdf(pdfTop, H, MA, pdfFoot, { password: 'ma123' }));
+  check('a PDF locked with a password → 422 that says so', locked.status === 422 && /password/.test(locked.json.error?.message ?? ''), code(locked));
+  const scanned = await sendPdf(await makeBillPdf(pdfTop, H, MA, pdfFoot, { scan: true }));
+  check('a scanned photo saved as PDF → 422: no text to read', scanned.status === 422 && /scanned photo/.test(scanned.json.error?.message ?? ''), code(scanned));
+  const long = await sendPdf(await makeBillPdf(pdfTop, H, [...MA, ...MA], pdfFoot, { perPage: 1 }));
+  check('more than 20 pages → 422', long.status === 422 && /20 pages/.test(long.json.error?.message ?? ''), code(long));
+  const noTable = await sendPdf(await makeBillPdf(pdfTop, ['Sl', 'Item'], [['1', 'x']], pdfFoot));
+  check('a PDF with no item table → 422', noTable.status === 422 && /No item table/.test(noTable.json.error?.message ?? ''), code(noTable));
+  const pdfAz = data<ReadOut>(await sendPdf(await makeBillPdf(pdfTop, H, MA, pdfFoot))).lines.find((l) => l.name === 'AZIKEM 500 TAB');
+  const azShelf = (await BatchModel.findOne({ shopId: shop1, productId: azikem, batchNumberUpper: '25443288' }).lean())?.quantity ?? 0;
+  const fromPdf = await owner.post('/purchases/import', {
+    clientRequestId: randomUUID(),
+    supplierId: gupta,
+    invoiceNumber: 'A085013-PDF',
+    invoiceDate: '2026-09-01',
+    lines: pdfAz ? [{ productId: pdfAz.productId, batchNumber: pdfAz.batchNumber, expiry: pdfAz.expiry, quantity: pdfAz.quantity, freeQuantity: 0, unit: 'STRIP', rate: pdfAz.rate, discountPercent: pdfAz.discountPercent, mrp: pdfAz.mrp, gstRate: pdfAz.gstRate, rack: '', billName: pdfAz.name, billPack: pdfAz.pack }] : [],
+  });
+  const savedLine = fromPdf.status === 201 ? (await PurchaseModel.findOne({ shopId: shop1, _id: data<{ id: string }>(fromPdf).id }).lean())?.lines[0] : undefined;
+  check('the line read from the PDF saves: 10 strips = 30 tablets more in 25443288 at ₹28.19, MRP ₹75.53, exp 2028-01', fromPdf.status === 201 && ((await BatchModel.findOne({ shopId: shop1, productId: azikem, batchNumberUpper: '25443288' }).lean())?.quantity ?? 0) - azShelf === 30 && savedLine?.rate === 2819 && savedLine.mrp === 7553 && savedLine.expiryDate.toISOString().slice(0, 7) === '2028-01', `${code(fromPdf)} ${JSON.stringify(savedLine)}`);
 
   await books('end');
   await ledgerEqualsStock('end');
