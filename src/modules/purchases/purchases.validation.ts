@@ -11,7 +11,7 @@ const batchNumber = z.string().trim().min(1, 'Batch number is required').max(20,
 /** Empty only for a non-medicine: the service gives it the day's lot (D59). */
 const batchOrBlank = z.union([batchNumber, z.literal('')]).default('');
 
-export const purchaseLineSchema = z
+export const purchaseLineObject = z
   .object({
     productId: objectId,
     batchNumber: batchOrBlank,
@@ -31,8 +31,8 @@ export const purchaseLineSchema = z
     rack: rackCode.default(''),
     mrpChoice: z.enum(['merge', 'separate']).optional(),
   })
-  .strict()
-  .refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] });
+  .strict();
+export const purchaseLineSchema = purchaseLineObject.refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] });
 
 export const purchaseSchema = z
   .object({

@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { AppError } from '../../core/errors';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { tenantScoped } from '../../core/tenant-scope';
-import { monthEnd, objectId, paise } from '../../core/zod';
+import { once } from '../../core/idempotency';
+import { clientRequestId, istDay, monthEnd, objectId, paise } from '../../core/zod';
+import type { Actor } from '../user/actor';
+import { insertProduct, prepareProduct } from '../products/products.service';
+import { createProductSchema } from '../products/products.validation';
+import { savePurchase } from './purchases.service';
+import { purchaseLineObject, type PurchaseInput } from './purchases.validation';
 import { inr } from '../../utils/money';
 import { readPack } from '../../utils/units';
 import { ProductModel } from '../products/product.model';
@@ -155,4 +161,76 @@ export async function rememberAliases(shopId: Types.ObjectId, supplierId: Types.
     pairs.map((p) => ({ updateOne: { filter: { shopId, supplierId, key: aliasKey(p.name, p.pack) }, update: { $set: { productId: p.productId } }, upsert: true } })),
     { session },
   );
+}
+
+/** One confirmed bill line: an existing product, or a new one made from the bill — never both. */
+const importLineSchema = purchaseLineObject
+  .extend({
+    productId: objectId.optional(),
+    newProduct: createProductSchema.omit({ stock: true }).optional(),
+    /** The bill's own name and pack, remembered for this supplier. */
+    billName: z.string().trim().max(120).default(''),
+    billPack: z.string().trim().max(40).default(''),
+  })
+  .refine((v) => Boolean(v.productId) !== Boolean(v.newProduct), { message: 'Pick a product or add it as new', path: ['productId'] })
+  .refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] });
+
+export const billImportSchema = z
+  .object({
+    clientRequestId,
+    supplierId: objectId,
+    invoiceNumber: z.string().trim().min(1, 'Invoice number is required').max(40),
+    invoiceDate: istDay,
+    dueDate: istDay.optional(),
+    lines: z.array(importLineSchema).min(1, 'The bill has no lines').max(300, 'At most 300 lines in one purchase'),
+    notes: z.string().trim().max(500).default(''),
+  })
+  .strict()
+  .refine((v) => v.invoiceDate.getTime() <= Date.now() + 24 * 60 * 60 * 1000, { message: 'Invoice date is in the future', path: ['invoiceDate'] });
+export type BillImportInput = z.infer<typeof billImportSchema>;
+
+/** Confirm & Save: new products, then the purchase as if typed by hand, then the names to remember — all or nothing. */
+export async function importBill(t: TenantContext, actor: Actor, input: BillImportInput, ip?: string) {
+  for (const l of input.lines) if (l.newProduct) await prepareProduct(t, l.newProduct);
+  return once(t.shopId, 'purchase', input.clientRequestId, async (session) => {
+    const made = new Map<string, Types.ObjectId>();
+    const productIds: string[] = [];
+    for (const [i, l] of input.lines.entries()) {
+      if (l.productId) {
+        productIds.push(l.productId);
+        continue;
+      }
+      const np = l.newProduct;
+      if (!np) throw AppError.internal();
+      const key = np.name.toLowerCase();
+      let id = made.get(key);
+      if (!id) {
+        const p = await insertProduct(t, actor, np, null, session, ip).catch((err: unknown) => {
+          if (err instanceof AppError && err.code === 'VALIDATION_ERROR') throw AppError.validation(`Line ${String(i + 1)}: ${err.message}`, [{ field: `body.lines.${String(i)}.newProduct.name`, message: err.message }]);
+          throw err;
+        });
+        id = p._id;
+        made.set(key, id);
+      }
+      productIds.push(String(id));
+    }
+    const purchase: PurchaseInput = {
+      clientRequestId: input.clientRequestId,
+      supplierId: input.supplierId,
+      invoiceNumber: input.invoiceNumber,
+      invoiceDate: input.invoiceDate,
+      dueDate: input.dueDate,
+      lines: input.lines.map(({ newProduct: _np, billName: _bn, billPack: _bp, ...l }, i) => ({ ...l, productId: productIds[i] ?? '' })),
+      payment: { mode: 'CREDIT', amount: 0, fromDrawer: true, reference: '' },
+      notes: input.notes,
+    };
+    const out = await savePurchase(t, actor, purchase, session, ip);
+    await rememberAliases(
+      t.shopId,
+      new Types.ObjectId(input.supplierId),
+      input.lines.flatMap((l, i) => (l.billName ? [{ name: l.billName, pack: l.billPack, productId: new Types.ObjectId(productIds[i]) }] : [])),
+      session,
+    );
+    return { ...out, newProducts: made.size };
+  });
 }

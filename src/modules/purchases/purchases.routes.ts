@@ -10,7 +10,7 @@ import { sendFile } from '../../core/export';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { purchasePdf } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
-import { billPreviewSchema, previewBill, type BillPreviewInput } from './bill-import';
+import { billImportSchema, billPreviewSchema, importBill, previewBill, type BillImportInput, type BillPreviewInput } from './bill-import';
 import * as svc from './purchases.service';
 import {
   cancelSchema,
@@ -64,6 +64,20 @@ purchasesRouter.get(
   validate({ query: lineInfoSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.lineInfo(tenantOf(req), (req.query as unknown as { productId: string }).productId));
+  }),
+);
+
+// D77: Confirm & Save a supplier bill — new products, the purchase and the supplier's names in one go.
+purchasesRouter.post(
+  '/import',
+  create,
+  requirePermission('products', 'create'),
+  validate({ body: billImportSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { result, replayed } = await importBill(tenantOf(req), await actorOf(req), req.body as BillImportInput, req.ip);
+    const msg = `${result.purchaseNumber} saved`;
+    if (replayed) sent(res, result, msg);
+    else created(res, result, msg);
   }),
 );
 

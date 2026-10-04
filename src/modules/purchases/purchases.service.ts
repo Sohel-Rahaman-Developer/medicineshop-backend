@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
@@ -55,160 +55,163 @@ export async function lineInfo(t: TenantContext, productId: string) {
 }
 
 export async function create(t: TenantContext, actor: Actor, input: PurchaseInput, ip?: string) {
-  return once(t.shopId, 'purchase', input.clientRequestId, async (session) => {
-    const now = new Date();
-    const sup = await SupplierModel.findOne({ shopId: t.shopId, _id: oid(input.supplierId) }).session(session).lean();
-    if (!sup) throw AppError.notFound('Supplier not found');
-    if (!sup.isActive) throw AppError.conflict(`${sup.name} is deactivated. Reactivate the supplier first.`);
-    const invoiceLower = input.invoiceNumber.toLowerCase();
-    if (await PurchaseModel.exists({ shopId: t.shopId, supplierId: sup._id, invoiceNumberLower: invoiceLower, status: 'active' }).session(session)) {
-      throw AppError.conflict(`Invoice ${input.invoiceNumber} from ${sup.name} is already entered.`, { reason: 'DUPLICATE_INVOICE' });
-    }
+  return once(t.shopId, 'purchase', input.clientRequestId, (session) => savePurchase(t, actor, input, session, ip));
+}
 
-    const ids = [...new Set(input.lines.map((l) => l.productId))].map(oid);
-    const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: ids } }).session(session).lean();
-    const byId = new Map(products.map((p) => [String(p._id), p]));
-    const seen = new Set<string>();
-    const lastMrp = new Map<string, number>();
-    const conflicts = [];
-    const lots: { batchNumber: string; expiry: Date }[] = [];
-    const lotDay = istYmd(input.invoiceDate);
-    for (const [i, l] of input.lines.entries()) {
-      const p = byId.get(l.productId);
-      if (!p) throw lineError(i, `Line ${String(i + 1)}: product not found`);
-      if (!p.isActive) throw lineError(i, `Line ${String(i + 1)}: ${p.name} is deactivated`);
-      const u = p.units as Units;
-      if (l.unit !== u.sale && l.unit !== u.purchase) throw lineError(i, `Line ${String(i + 1)}: buy ${p.name} in ${u.purchase} or ${u.sale}`);
-      const lot = lotOf(p, l.batchNumber, l.expiry, lotDay);
-      if ('field' in lot) throw lineError(i, `Line ${String(i + 1)}: ${p.name} — ${lot.message.toLowerCase()}`);
-      lots.push(lot);
-      if (lot.expiry.getTime() < now.getTime()) throw lineError(i, `Line ${String(i + 1)}: batch ${lot.batchNumber} has already expired — don’t take it into stock`);
-      const key = `${l.productId}|${lot.batchNumber.toUpperCase()}|${String(lot.expiry.getTime())}`;
-      if (seen.has(key)) throw lineError(i, `Line ${String(i + 1)}: ${p.name} batch ${lot.batchNumber} is listed twice — put it on one line`);
-      seen.add(key);
-      if (!lastMrp.has(l.productId)) {
-        const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp').session(session).lean();
-        if (latest) lastMrp.set(l.productId, latest.mrp);
-      }
-      const same = l.mrpChoice ? null : await mergeTarget(t.shopId, p._id, lot.batchNumber, lot.expiry, session);
-      if (same && same.mrp !== l.mrp) conflicts.push({ index: i, productName: p.name, batch: { id: String(same._id), batchNumber: same.batchNumber, mrp: same.mrp }, mrp: l.mrp });
-    }
-    const first = conflicts[0];
-    if (first) {
-      const b = { _id: oid(first.batch.id), batchNumber: first.batch.batchNumber, expiryDate: lots[first.index]?.expiry ?? now, mrp: first.batch.mrp };
-      throw mrpDiffers(b, first.mrp, { lines: conflicts });
-    }
+/** The purchase itself — stock in, supplier charged, audit. The caller owns the transaction (purchase entry, bill import). */
+export async function savePurchase(t: TenantContext, actor: Actor, input: PurchaseInput, session: ClientSession, ip?: string) {
+  const now = new Date();
+  const sup = await SupplierModel.findOne({ shopId: t.shopId, _id: oid(input.supplierId) }).session(session).lean();
+  if (!sup) throw AppError.notFound('Supplier not found');
+  if (!sup.isActive) throw AppError.conflict(`${sup.name} is deactivated. Reactivate the supplier first.`);
+  const invoiceLower = input.invoiceNumber.toLowerCase();
+  if (await PurchaseModel.exists({ shopId: t.shopId, supplierId: sup._id, invoiceNumberLower: invoiceLower, status: 'active' }).session(session)) {
+    throw AppError.conflict(`Invoice ${input.invoiceNumber} from ${sup.name} is already entered.`, { reason: 'DUPLICATE_INVOICE' });
+  }
 
-    const purchaseId = new Types.ObjectId();
-    const number = await nextNumber(t.shopId, 'purchase', now, session);
-    const lines = [];
-    const mrpChanges = [];
-    for (const [i, l] of input.lines.entries()) {
-      const p = byId.get(l.productId);
-      const lot = lots[i];
-      if (!p || !lot) throw AppError.internal();
-      const u = p.units as Units;
-      const c = conv(u, l.unit);
-      const calc = purchaseLine({ quantity: l.quantity, freeQuantity: l.freeQuantity, rate: l.rate, discountPercent: l.discountPercent, gstRate: l.gstRate, conv: c });
-      const got = await receiveBatch(
-        t.shopId,
-        p,
-        { batchNumber: lot.batchNumber, expiry: lot.expiry, mfg: l.mfg, mrp: l.mrp, minPrice: l.minPrice, rack: l.rack, mrpChoice: l.mrpChoice },
-        { source: 'purchase', quantity: calc.baseQty, freeQuantity: calc.freeBase, purchaseRate: l.rate, purchaseUnit: l.unit, costPerBaseUnit: calc.costPerBaseUnit, supplierId: sup._id, purchaseId, invoiceNumber: input.invoiceNumber, refNumber: number },
-        actor,
-        session,
-        now,
-      );
-      const before = got.how === 'merged' ? got.mrpBefore : (lastMrp.get(l.productId) ?? null);
-      if (before !== null && before !== l.mrp) mrpChanges.push({ productId: p._id, productName: p.name, batchNumber: got.batchNumber, from: before, to: l.mrp });
-      const batch = await BatchModel.findOne({ shopId: t.shopId, _id: oid(got.batchId) }).select('rack').session(session).lean();
-      lines.push({
-        productId: p._id,
-        productName: p.name,
-        batchId: oid(got.batchId),
-        batchNumber: got.batchNumber,
-        expiryDate: lot.expiry,
-        mfgDate: l.mfg,
-        quantity: l.quantity,
-        freeQuantity: l.freeQuantity,
-        unit: l.unit,
-        conv: c,
-        quantityInBase: calc.baseQty,
-        freeInBase: calc.freeBase,
-        rate: l.rate,
-        discountPercent: l.discountPercent,
-        grossAmount: calc.gross,
-        discountAmount: calc.discount,
-        taxableAmount: calc.taxable,
-        gstRate: l.gstRate,
-        cgst: calc.cgst,
-        sgst: calc.sgst,
-        igst: 0,
-        totalAmount: calc.total,
-        mrp: l.mrp,
-        minPrice: l.minPrice ?? undefined,
-        landingPerUnit: calc.landingPerUnit,
-        costPerBaseUnit: calc.costPerBaseUnit,
-        rack: batch?.rack ?? '',
-        how: got.how,
-      });
+  const ids = [...new Set(input.lines.map((l) => l.productId))].map(oid);
+  const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: ids } }).session(session).lean();
+  const byId = new Map(products.map((p) => [String(p._id), p]));
+  const seen = new Set<string>();
+  const lastMrp = new Map<string, number>();
+  const conflicts = [];
+  const lots: { batchNumber: string; expiry: Date }[] = [];
+  const lotDay = istYmd(input.invoiceDate);
+  for (const [i, l] of input.lines.entries()) {
+    const p = byId.get(l.productId);
+    if (!p) throw lineError(i, `Line ${String(i + 1)}: product not found`);
+    if (!p.isActive) throw lineError(i, `Line ${String(i + 1)}: ${p.name} is deactivated`);
+    const u = p.units as Units;
+    if (l.unit !== u.sale && l.unit !== u.purchase) throw lineError(i, `Line ${String(i + 1)}: buy ${p.name} in ${u.purchase} or ${u.sale}`);
+    const lot = lotOf(p, l.batchNumber, l.expiry, lotDay);
+    if ('field' in lot) throw lineError(i, `Line ${String(i + 1)}: ${p.name} — ${lot.message.toLowerCase()}`);
+    lots.push(lot);
+    if (lot.expiry.getTime() < now.getTime()) throw lineError(i, `Line ${String(i + 1)}: batch ${lot.batchNumber} has already expired — don’t take it into stock`);
+    const key = `${l.productId}|${lot.batchNumber.toUpperCase()}|${String(lot.expiry.getTime())}`;
+    if (seen.has(key)) throw lineError(i, `Line ${String(i + 1)}: ${p.name} batch ${lot.batchNumber} is listed twice — put it on one line`);
+    seen.add(key);
+    if (!lastMrp.has(l.productId)) {
+      const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp').session(session).lean();
+      if (latest) lastMrp.set(l.productId, latest.mrp);
     }
-    const tt = purchaseTotals(lines.map((l) => ({ gross: l.grossAmount, discount: l.discountAmount, taxable: l.taxableAmount, cgst: l.cgst, sgst: l.sgst })));
-    const pay = input.payment;
-    if (pay.amount > tt.grandTotal) throw AppError.validation(`Paid can’t be more than the total ${inr(tt.grandTotal)}`, [{ field: 'body.payment.amount', message: `Paid can’t be more than the total ${inr(tt.grandTotal)}` }]);
+    const same = l.mrpChoice ? null : await mergeTarget(t.shopId, p._id, lot.batchNumber, lot.expiry, session);
+    if (same && same.mrp !== l.mrp) conflicts.push({ index: i, productName: p.name, batch: { id: String(same._id), batchNumber: same.batchNumber, mrp: same.mrp }, mrp: l.mrp });
+  }
+  const first = conflicts[0];
+  if (first) {
+    const b = { _id: oid(first.batch.id), batchNumber: first.batch.batchNumber, expiryDate: lots[first.index]?.expiry ?? now, mrp: first.batch.mrp };
+    throw mrpDiffers(b, first.mrp, { lines: conflicts });
+  }
 
-    const dupInvoice = (err: unknown): never => {
-      if ((err as { code?: number }).code === 11000) throw AppError.conflict(`Invoice ${input.invoiceNumber} from ${sup.name} is already entered.`, { reason: 'DUPLICATE_INVOICE' });
-      throw err;
-    };
-    await PurchaseModel.create(
-      [
-        {
-          _id: purchaseId,
-          shopId: t.shopId,
-          fy: fyOf(input.invoiceDate),
-          clientRequestId: input.clientRequestId,
-          purchaseNumber: number,
-          invoiceNumber: input.invoiceNumber,
-          invoiceNumberLower: invoiceLower,
-          supplierId: sup._id,
-          supplierName: sup.name,
-          invoiceDate: input.invoiceDate,
-          dueDate: input.dueDate ?? new Date(input.invoiceDate.getTime() + sup.creditDays * DAY),
-          receivedDate: now,
-          lines,
-          subtotal: tt.subtotal,
-          totalDiscount: tt.discount,
-          taxableAmount: tt.taxable,
-          cgst: tt.cgst,
-          sgst: tt.sgst,
-          igst: 0,
-          roundOff: tt.roundOff,
-          grandTotal: tt.grandTotal,
-          paidAmount: 0,
-          dueAmount: tt.grandTotal,
-          paymentStatus: 'unpaid',
-          mrpChanges,
-          notes: input.notes,
-          createdBy: oid(actor.id),
-          createdByName: actor.name,
-        },
-      ],
-      { session },
-    ).catch(dupInvoice);
-    const fromAdvance = await chargeInvoice(t.shopId, sup._id, purchaseId, tt.grandTotal, now, session);
-    let payment = null;
-    if (pay.amount > 0) {
-      const mode: PayMode = pay.mode === 'CREDIT' ? 'CASH' : pay.mode;
-      payment = await recordPayment(t, actor, sup, { amount: pay.amount, mode, fromDrawer: mode === 'CASH' ? pay.fromDrawer : false, reference: pay.reference, notes: `With ${number}`, clientRequestId: input.clientRequestId }, now, session, purchaseId);
-    }
-    await refreshRollups(t.shopId, ids, session, now);
-    await audit(
-      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'purchases', entityId: String(purchaseId), entityName: number, text: `${actor.name} entered ${number} from ${sup.name} · ${inr(tt.grandTotal)} · ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'}`, ip },
+  const purchaseId = new Types.ObjectId();
+  const number = await nextNumber(t.shopId, 'purchase', now, session);
+  const lines = [];
+  const mrpChanges = [];
+  for (const [i, l] of input.lines.entries()) {
+    const p = byId.get(l.productId);
+    const lot = lots[i];
+    if (!p || !lot) throw AppError.internal();
+    const u = p.units as Units;
+    const c = conv(u, l.unit);
+    const calc = purchaseLine({ quantity: l.quantity, freeQuantity: l.freeQuantity, rate: l.rate, discountPercent: l.discountPercent, gstRate: l.gstRate, conv: c });
+    const got = await receiveBatch(
+      t.shopId,
+      p,
+      { batchNumber: lot.batchNumber, expiry: lot.expiry, mfg: l.mfg, mrp: l.mrp, minPrice: l.minPrice, rack: l.rack, mrpChoice: l.mrpChoice },
+      { source: 'purchase', quantity: calc.baseQty, freeQuantity: calc.freeBase, purchaseRate: l.rate, purchaseUnit: l.unit, costPerBaseUnit: calc.costPerBaseUnit, supplierId: sup._id, purchaseId, invoiceNumber: input.invoiceNumber, refNumber: number },
+      actor,
       session,
+      now,
     );
-    return { id: String(purchaseId), purchaseNumber: number, grandTotal: tt.grandTotal, lines: lines.length, fromAdvance, paymentNumber: payment?.paymentNumber ?? null };
-  });
+    const before = got.how === 'merged' ? got.mrpBefore : (lastMrp.get(l.productId) ?? null);
+    if (before !== null && before !== l.mrp) mrpChanges.push({ productId: p._id, productName: p.name, batchNumber: got.batchNumber, from: before, to: l.mrp });
+    const batch = await BatchModel.findOne({ shopId: t.shopId, _id: oid(got.batchId) }).select('rack').session(session).lean();
+    lines.push({
+      productId: p._id,
+      productName: p.name,
+      batchId: oid(got.batchId),
+      batchNumber: got.batchNumber,
+      expiryDate: lot.expiry,
+      mfgDate: l.mfg,
+      quantity: l.quantity,
+      freeQuantity: l.freeQuantity,
+      unit: l.unit,
+      conv: c,
+      quantityInBase: calc.baseQty,
+      freeInBase: calc.freeBase,
+      rate: l.rate,
+      discountPercent: l.discountPercent,
+      grossAmount: calc.gross,
+      discountAmount: calc.discount,
+      taxableAmount: calc.taxable,
+      gstRate: l.gstRate,
+      cgst: calc.cgst,
+      sgst: calc.sgst,
+      igst: 0,
+      totalAmount: calc.total,
+      mrp: l.mrp,
+      minPrice: l.minPrice ?? undefined,
+      landingPerUnit: calc.landingPerUnit,
+      costPerBaseUnit: calc.costPerBaseUnit,
+      rack: batch?.rack ?? '',
+      how: got.how,
+    });
+  }
+  const tt = purchaseTotals(lines.map((l) => ({ gross: l.grossAmount, discount: l.discountAmount, taxable: l.taxableAmount, cgst: l.cgst, sgst: l.sgst })));
+  const pay = input.payment;
+  if (pay.amount > tt.grandTotal) throw AppError.validation(`Paid can’t be more than the total ${inr(tt.grandTotal)}`, [{ field: 'body.payment.amount', message: `Paid can’t be more than the total ${inr(tt.grandTotal)}` }]);
+
+  const dupInvoice = (err: unknown): never => {
+    if ((err as { code?: number }).code === 11000) throw AppError.conflict(`Invoice ${input.invoiceNumber} from ${sup.name} is already entered.`, { reason: 'DUPLICATE_INVOICE' });
+    throw err;
+  };
+  await PurchaseModel.create(
+    [
+      {
+        _id: purchaseId,
+        shopId: t.shopId,
+        fy: fyOf(input.invoiceDate),
+        clientRequestId: input.clientRequestId,
+        purchaseNumber: number,
+        invoiceNumber: input.invoiceNumber,
+        invoiceNumberLower: invoiceLower,
+        supplierId: sup._id,
+        supplierName: sup.name,
+        invoiceDate: input.invoiceDate,
+        dueDate: input.dueDate ?? new Date(input.invoiceDate.getTime() + sup.creditDays * DAY),
+        receivedDate: now,
+        lines,
+        subtotal: tt.subtotal,
+        totalDiscount: tt.discount,
+        taxableAmount: tt.taxable,
+        cgst: tt.cgst,
+        sgst: tt.sgst,
+        igst: 0,
+        roundOff: tt.roundOff,
+        grandTotal: tt.grandTotal,
+        paidAmount: 0,
+        dueAmount: tt.grandTotal,
+        paymentStatus: 'unpaid',
+        mrpChanges,
+        notes: input.notes,
+        createdBy: oid(actor.id),
+        createdByName: actor.name,
+      },
+    ],
+    { session },
+  ).catch(dupInvoice);
+  const fromAdvance = await chargeInvoice(t.shopId, sup._id, purchaseId, tt.grandTotal, now, session);
+  let payment = null;
+  if (pay.amount > 0) {
+    const mode: PayMode = pay.mode === 'CREDIT' ? 'CASH' : pay.mode;
+    payment = await recordPayment(t, actor, sup, { amount: pay.amount, mode, fromDrawer: mode === 'CASH' ? pay.fromDrawer : false, reference: pay.reference, notes: `With ${number}`, clientRequestId: input.clientRequestId }, now, session, purchaseId);
+  }
+  await refreshRollups(t.shopId, ids, session, now);
+  await audit(
+    { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'purchases', entityId: String(purchaseId), entityName: number, text: `${actor.name} entered ${number} from ${sup.name} · ${inr(tt.grandTotal)} · ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'}`, ip },
+    session,
+  );
+  return { id: String(purchaseId), purchaseNumber: number, grandTotal: tt.grandTotal, lines: lines.length, fromAdvance, paymentNumber: payment?.paymentNumber ?? null };
 }
 
 interface PayArgs {

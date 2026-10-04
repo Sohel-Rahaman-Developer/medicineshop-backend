@@ -542,6 +542,41 @@ async function main() {
   check('cashier → 403', (await cashier.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('AZIKEM 500 TAB')] })).status === 403);
   check('no lines or unknown field → 422', (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [] })).status === 422 && (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [{ ...bill('X'), shopId: 'x' }] })).status === 422);
 
+  section('17. Confirm & Save a supplier bill (D77)');
+  const piece12 = { type: 'COUNT', base: 'PIECE', sale: 'PIECE', salePack: 1, purchase: 'BOX', purchasePack: 12, allowLooseSale: false };
+  const draft = (name: string) => ({ name, company: 'Generic', salt: '', strength: '', categoryId: tablet, scheduleType: 'NON_DRUG', storageType: 'NORMAL', hsnCode: '21069099', gstRate: 5, barcode: '', units: piece12, packSize: '75 gm', noExpiry: false, defaultRack: '', reorderLevel: 0, reorderQuantity: 0 });
+  const iline = (over: Record<string, unknown>) => ({ batchNumber: '25443288', expiry: '2028-01', quantity: 10, freeQuantity: 0, unit: 'STRIP', rate: 2819, discountPercent: 0, mrp: 7553, gstRate: 5, rack: '', billName: 'AZIKEM 500 TAB', billPack: '10*3', ...over });
+  const azBefore = (await BatchModel.findOne({ shopId: shop1, productId: azikem, batchNumberUpper: '25443288' }).lean())?.quantity ?? 0;
+  const importBody = {
+    clientRequestId: randomUUID(),
+    supplierId: gupta,
+    invoiceNumber: 'A085013',
+    invoiceDate: '2026-09-01',
+    lines: [
+      iline({ productId: azikem }),
+      iline({ productId: azikem, batchNumber: 'AZ9001', expiry: '2029-03', quantity: 2 }),
+      iline({ newProduct: draft('Ketokem Soap 75g'), batchNumber: 'KKS25514ED', expiry: '2028-11', quantity: 1, unit: 'PIECE', rate: 4150, mrp: 12725, billName: 'KETOKEM SOAP', billPack: '75GM' }),
+    ],
+  };
+  const imp = await owner.post('/purchases/import', importBody);
+  const impData = data<{ id: string; purchaseNumber: string; lines: number; newProducts: number }>(imp);
+  check('bill saved as one purchase: 3 lines, 1 new product', imp.status === 201 && impData.lines === 3 && impData.newProducts === 1, code(imp));
+  const azAfter = (await BatchModel.findOne({ shopId: shop1, productId: azikem, batchNumberUpper: '25443288' }).lean())?.quantity ?? 0;
+  check('same batch on the shelf: 10 strips × 3 = 30 tablets more', azAfter - azBefore === 30, `${String(azBefore)} → ${String(azAfter)}`);
+  const soapP = await ProductModel.findOne({ shopId: shop1, name: 'Ketokem Soap 75g' }).lean();
+  check('new product made from the bill, with its batch', Boolean(soapP) && (await BatchModel.countDocuments({ shopId: shop1, productId: soapP?._id, batchNumberUpper: 'KKS25514ED' })) === 1);
+  const again2 = await owner.post('/purchases/import', importBody);
+  check('same request again → the same purchase, no second product', data<{ id: string }>(again2).id === impData.id && (await ProductModel.countDocuments({ shopId: shop1, name: 'Ketokem Soap 75g' })) === 1);
+  const learnt = data<{ lines: PL[] }>(await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('KETOKEM SOAP', { pack: '75GM', batchNumber: 'KKS25514ED', expiry: '2028-11', mrp: 12725, oldMrp: undefined })] })).lines[0];
+  check('next bill from this supplier: the soap is found by its bill name, batch on the shelf', learnt?.matchedBy === 'alias' && learnt.productId === String(soapP?._id) && learnt.status === 'same', JSON.stringify(learnt));
+  const dupBill = await owner.post('/purchases/import', { ...importBody, clientRequestId: randomUUID(), lines: [iline({ newProduct: draft('Rollback Pill'), unit: 'PIECE', batchNumber: 'RB1', billName: 'ROLLBACK' })] });
+  check('same invoice again → 409, and the new product in it was not kept', dupBill.status === 409 && !(await ProductModel.exists({ shopId: shop1, name: 'Rollback Pill' })), code(dupBill));
+  const both = await owner.post('/purchases/import', { ...importBody, clientRequestId: randomUUID(), invoiceNumber: 'B1', lines: [iline({ productId: azikem, newProduct: draft('X') })] });
+  check('a line with both a product and a new product → 422', both.status === 422, code(both));
+  const nameClash = await owner.post('/purchases/import', { ...importBody, clientRequestId: randomUUID(), invoiceNumber: 'B2', lines: [iline({ newProduct: draft('Ketokem Soap 75g'), unit: 'PIECE', batchNumber: 'KK2' })] });
+  check('new product with a name the shop has → 422 on that line', nameClash.status === 422 && JSON.stringify(nameClash.json.error?.details).includes('lines.0.newProduct.name'), code(nameClash));
+  check('cashier → 403', (await cashier.post('/purchases/import', { ...importBody, clientRequestId: randomUUID(), invoiceNumber: 'B3' })).status === 403);
+
   await books('end');
   await ledgerEqualsStock('end');
   await h.close();
