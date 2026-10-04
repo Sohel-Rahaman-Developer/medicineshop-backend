@@ -8,7 +8,7 @@ import { clientRequestId, istDay, monthEnd, objectId, paise } from '../../core/z
 import type { Actor } from '../user/actor';
 import { insertProduct, prepareProduct } from '../products/products.service';
 import { createProductSchema } from '../products/products.validation';
-import { readBillFile } from './bill-read';
+import { readBillFile, readRows } from './bill-read';
 import { savePurchase } from './purchases.service';
 import { purchaseLineObject, type PurchaseInput } from './purchases.validation';
 import { inr } from '../../utils/money';
@@ -240,15 +240,18 @@ export const billReadSchema = z
   .object({
     supplierId: objectId,
     fileName: z.string().trim().min(1).max(200),
-    /** The file, base64. */
-    data: z.string().max(1_100_000, 'That file is too large — at most about 800 KB'),
+    /** The file, base64 — a Word or PDF bill. */
+    data: z.string().max(1_100_000, 'That file is too large — at most about 800 KB').optional(),
+    /** Or the rows of an Excel / CSV sheet, read in the browser. */
+    rows: z.array(z.array(z.string().max(200)).max(40)).max(400, 'At most 400 rows').optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => Boolean(v.data) !== Boolean(v.rows), { message: 'Send the file or its rows', path: ['data'] });
 export type BillReadInput = z.infer<typeof billReadSchema>;
 
 /** Upload → the bill's lines, each with what saving it would do. Lines the reader can't use are listed, not dropped silently. */
 export async function readAndPreview(t: TenantContext, input: BillReadInput) {
-  const read = readBillFile(input.fileName, Buffer.from(input.data.replace(/^data:[^,]*,/, ''), 'base64'));
+  const read = input.rows ? readRows(input.rows) : readBillFile(input.fileName, Buffer.from((input.data ?? '').replace(/^data:[^,]*,/, ''), 'base64'));
   const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
   const skipped = [...read.skipped];
   for (const r of read.lines) {

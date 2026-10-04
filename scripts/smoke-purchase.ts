@@ -616,6 +616,9 @@ async function main() {
   check('not a Word file → 422', (await send(MA, { fileName: 'a.docx', data: Buffer.from('hello').toString('base64') })).status === 422);
   check('a table without a header → 422', (await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'x.docx', data: makeDocx(top, MA).toString('base64') })).status === 422);
   check('cashier → 403', (await cashier.post('/purchases/import/read', { supplierId: gupta, fileName: 'a.docx', data: makeDocx(top, [H, ...MA]).toString('base64') })).status === 403);
+  const sheet = await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.xlsx', rows: [['M/S M.A.PHARMA'], H, ...MA] });
+  check('the same bill as Excel / CSV rows → the same 13 lines and statuses', sheet.status === 200 && data<{ lines: RL[] }>(sheet).lines.map((l) => `${l.name}:${l.status}`).join() === (readData?.lines.map((l) => `${l.name}:${l.status}`).join() ?? 'x'), code(sheet));
+  check('a file and rows together → 422', (await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'a.docx', data: 'eA==', rows: [H] })).status === 422);
 
   await books('end');
   await ledgerEqualsStock('end');

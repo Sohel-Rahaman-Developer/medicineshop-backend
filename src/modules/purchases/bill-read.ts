@@ -173,6 +173,11 @@ export function readBillFile(name: string, file: Buffer) {
   if (file.subarray(0, 4).toString('latin1') === '%PDF') throw AppError.validation('PDF bills are coming next — for now send the Word (.docx) file');
   if (file.readUInt32LE(0) !== 0x04034b50 || !/\.docx$/i.test(name)) throw AppError.validation('Upload the supplier’s bill as a .docx (Word) or PDF file');
   const { rows, text } = docxContent(file);
+  return readRows(rows, text);
+}
+
+/** Rows from any source (Word table, or an Excel / CSV sheet read in the browser) → lines, invoice details, totals check. */
+export function readRows(rows: string[][], text = '') {
   const read = linesOf(rows);
   const meta = metaOf(`${text}\n${rows.map((r) => r.join(' ')).join('\n')}`);
   const net = read.lines.reduce((s, l) => s + (l.net ?? 0), 0);
