@@ -502,6 +502,46 @@ async function main() {
   check('shop 2 can’t touch shop 1’s batch → 404', (await other.patch(`/stock/batches/${sid}/min-price`, { minPrice: 100 })).status === 404);
   check('line info carries the last lowest price (removed → null)', data<{ lastMinPrice: number | null }>(await owner.get(`/purchases/line-info?productId=${silk}`)).lastMinPrice === null);
 
+  section('16. Supplier bill preview (D77): what each line would do — nothing saved');
+  const units3 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 3, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };
+  const azikem = await mk(owner, 'Azikem 500 Tablet', units3, { company: 'Generic', salt: 'Azithromycin', stock: { clientRequestId: randomUUID(), batchNumber: '25443288', expiry: '2028-01', quantity: 30, mrp: 7553, purchaseRate: 2819, rack: '' } });
+  const pan20 = await mk(owner, 'Pan 20', units15);
+  const bill = (name: string, over: Record<string, unknown> = {}) => ({ name, company: 'GENERIC', pack: '10*3', batchNumber: '25443288', expiry: '2028-01', mrp: 7553, oldMrp: 8050, rate: 2819, quantity: 10, discountPercent: 0, gstRate: 5, hsn: '30022019', ...over });
+  const batchesBefore = await BatchModel.countDocuments({ shopId: shop1 });
+  const pv = await owner.post('/purchases/import/preview', {
+    supplierId: gupta,
+    lines: [
+      bill('AZIKEM 500 TAB'),
+      bill('AZIKEM 500 TAB', { batchNumber: 'AZ9001', expiry: '2029-03' }),
+      bill('AZIKEM 500 TAB', { mrp: 8050 }),
+      bill('PAN 40 TAB', { pack: '15 TAB', batchNumber: 'PN7', mrp: 15000 }),
+      bill('KETOKEM SOAP', { company: 'GENERIC', pack: '75GM', batchNumber: 'KKS25514ED', mrp: 12725 }),
+      bill('AZI 500', { batchNumber: 'X1' }),
+    ],
+  });
+  type PL = { status: string; productId: string | null; matchedBy: string | null; suggestions: { id: string }[]; notes: string[]; pack: { size?: string; salePack?: number } | null; batch: { quantity: number } | null };
+  const pl = pv.status === 200 ? data<{ lines: PL[]; counts: Record<string, number> }>(pv) : { lines: [] as PL[], counts: {} };
+  const [l0, l1, l2, l3, l4, l5] = pl.lines;
+  check('same product, batch and MRP → stock goes up in batch 25443288 (30 on the shelf)', l0?.status === 'same' && l0.productId === azikem && l0.matchedBy === 'name' && l0.batch?.quantity === 30, code(pv));
+  check('…the bill’s old MRP ₹80.50 is noted', l0?.notes.some((n) => n.includes('₹80.50')) ?? false);
+  check('new batch number → new batch of the same product, no new product', l1?.status === 'newBatch' && l1.productId === azikem);
+  check('same batch at another MRP → MRP flag, goes in separately', l2?.status === 'mrp' && l2.notes.some((n) => /separate batch/.test(n)));
+  check('“PAN 40 TAB” finds Pan 40, never Pan 20', l3?.productId === pan && l3.productId !== pan20);
+  check('a product the shop doesn’t have → new, pack read as 75 gm', l4?.status === 'new' && l4.productId === null && l4.pack?.size === '75 gm');
+  check('a short name “AZI 500” → check, Azikem suggested', l5?.status === 'check' && l5.suggestions[0]?.id === azikem);
+  const tally = (s: string) => pl.lines.filter((l) => l.status === s).length;
+  check('counts match the lines, 6 in all', ['same', 'newBatch', 'mrp', 'new', 'check'].every((s) => pl.counts[s] === tally(s)) && Object.values(pl.counts).reduce((a, b) => a + b, 0) === 6, JSON.stringify(pl.counts));
+  check('preview writes nothing', (await BatchModel.countDocuments({ shopId: shop1 })) === batchesBefore);
+  const { BillAliasModel } = await import('../src/modules/purchases/bill-import.js');
+  await BillAliasModel.create({ shopId: shop1, supplierId: gupta, key: 'azi 500|10 3', productId: azikem });
+  const remembered = data<{ lines: PL[] }>(await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('AZI 500', { batchNumber: 'X1' })] })).lines[0];
+  check('a name the shop confirmed before for this supplier → found at once', remembered?.productId === azikem && remembered.matchedBy === 'alias');
+  const otherSupplier = data<{ lines: PL[] }>(await owner.post('/purchases/import/preview', { supplierId: sharma, lines: [bill('AZI 500', { batchNumber: 'X1' })] })).lines[0];
+  check('…only for that supplier', otherSupplier?.matchedBy !== 'alias');
+  check('another shop’s supplier → 404', (await owner.post('/purchases/import/preview', { supplierId: s2.id, lines: [bill('AZIKEM 500 TAB')] })).status === 404);
+  check('cashier → 403', (await cashier.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('AZIKEM 500 TAB')] })).status === 403);
+  check('no lines or unknown field → 422', (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [] })).status === 422 && (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [{ ...bill('X'), shopId: 'x' }] })).status === 422);
+
   await books('end');
   await ledgerEqualsStock('end');
   await h.close();

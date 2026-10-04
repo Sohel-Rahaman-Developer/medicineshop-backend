@@ -10,6 +10,7 @@ import { sendFile } from '../../core/export';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { purchasePdf } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
+import { billPreviewSchema, previewBill, type BillPreviewInput } from './bill-import';
 import * as svc from './purchases.service';
 import {
   cancelSchema,
@@ -63,6 +64,16 @@ purchasesRouter.get(
   validate({ query: lineInfoSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.lineInfo(tenantOf(req), (req.query as unknown as { productId: string }).productId));
+  }),
+);
+
+// D77: what a supplier bill would do, line by line — nothing is saved.
+purchasesRouter.post(
+  '/import/preview',
+  create,
+  validate({ body: billPreviewSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await previewBill(tenantOf(req), req.body as BillPreviewInput));
   }),
 );
 

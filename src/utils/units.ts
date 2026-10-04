@@ -70,3 +70,16 @@ export function fromBase(base: number, u: Units): string {
   const parts = [whole ? `${whole} ${u.sale}` : '', loose ? `${loose} ${u.base}` : ''].filter(Boolean);
   return sign + parts.join(' + ');
 }
+
+/** A bill's pack column → units: "10×15" / "10*15T" = 10 strips of 15, "15 TAB" = strip of 15, "200 ML" / "75GM" = size only. Same copy in frontend/src/lib/units.ts. */
+export function readPack(raw: string): { salePack?: number; purchasePack?: number; size?: string } | null {
+  const s = raw.trim().toUpperCase().replace(/\s+/g, ' ');
+  if (!s) return null;
+  let m = /^(\d{1,4}) ?[X×*] ?(\d{1,4}) ?(TABS|TAB|T|CAPS|CAP|C|S)?$/.exec(s) ?? /^(\d{1,4}) (\d{1,4})$/.exec(s);
+  if (m) return { purchasePack: Number(m[1]), salePack: Number(m[2]) };
+  m = /^(\d{1,4}) ?(TABS|TAB|T|CAPS|CAP|C|S)?$/.exec(s);
+  if (m) return { salePack: Number(m[1]) };
+  m = /^(\d+\.\d+|\d+) ?(ML|GM|G|KG|L|LTR|MG|MCG)$/.exec(s);
+  if (m) return { size: `${m[1] ?? ''} ${(m[2] === 'G' ? 'GM' : (m[2] ?? '')).toLowerCase()}` };
+  return null;
+}
