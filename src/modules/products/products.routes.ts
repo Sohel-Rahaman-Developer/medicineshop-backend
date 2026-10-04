@@ -9,6 +9,7 @@ import { sendFile } from '../../core/export';
 import { productsXlsx } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
 import { importRows, importSchema, importTemplate, type ImportInput } from './products.import';
+import { addWithStock } from './products.add';
 import * as svc from './products.service';
 import { activeSchema, createProductSchema, listQuerySchema, updateProductSchema, type CreateProductInput, type ListQuery, type UpdateProductInput } from './products.validation';
 
@@ -115,7 +116,8 @@ productsRouter.post(
   validate({ body: createProductSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as CreateProductInput;
-    created(res, await svc.create(tenantOf(req), await actorOf(req), body, req.ip), `${body.name} saved`);
+    const { stock } = body;
+    created(res, stock ? await addWithStock(tenantOf(req), await actorOf(req), { ...body, stock }, req.ip) : await svc.create(tenantOf(req), await actorOf(req), body, req.ip), `${body.name} saved`);
   }),
 );
 

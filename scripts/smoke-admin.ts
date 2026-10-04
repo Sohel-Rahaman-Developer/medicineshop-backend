@@ -189,7 +189,7 @@ async function main() {
   check('public /release: shop notes only, newest first, no commits', rel.status === 200 && relData.notes[0]?.version === CHANGELOG[0]?.version && relData.notes[0]?.items.join() === CHANGELOG[0]?.shop.join() && !('commits' in relData), code(rel));
   check('admin /release needs an admin session', (await nobody.get('/admin/release')).status === 401);
   const adm = data<{ version: string; commits: Record<string, unknown>; notes: { admin: string[]; api: string[] }[] }>(await vee.get('/admin/release'));
-  check('admin /release: every note with admin + API items, and the commits', adm.version === CHANGELOG[0]?.version && 'backend' in adm.commits && adm.notes.length === CHANGELOG.length && Boolean(adm.notes[0]?.admin.length));
+  check('admin /release: every note with admin + API items, and the commits', adm.version === CHANGELOG[0]?.version && 'backend' in adm.commits && adm.notes.length === CHANGELOG.length && JSON.stringify(adm.notes.map((n) => [n.admin.length, n.api.length])) === JSON.stringify(CHANGELOG.map((n) => [n.admin.length, n.api.length])));
 
   section('13. Monitoring: a limit crossed emails the super admins');
   const { SignalModel, signal } = await import('../src/services/monitor.js');

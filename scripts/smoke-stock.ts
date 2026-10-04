@@ -404,6 +404,27 @@ async function main() {
   const movers = data<{ type: string }[]>(await owner.get(`/stock/movements?productId=${dolo}&type=OPENING`));
   check('movements filter by product + type', movers.length > 0 && movers.every((m) => m.type === 'OPENING'));
 
+  section('18. Add product with its first batch — one screen, both or neither');
+  const strip3 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 3, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };
+  const azikem = (stock: Record<string, unknown>, over: Record<string, unknown> = {}) => product({ name: 'Azikem 500 Tablet', company: 'Generic', salt: '', strength: '', scheduleType: 'H', barcode: '', units: strip3, defaultRack: '', reorderLevel: 0, reorderQuantity: 0, ...over, stock: { clientRequestId: randomUUID(), batchNumber: '25443288', expiry: '2028-01', quantity: 30, mrp: 7553, purchaseRate: 2819, rack: 'b-9', ...stock } });
+  const noBatch = await owner.post('/products', azikem({ batchNumber: '' }));
+  check('medicine without a batch → 422 on stock.batchNumber', noBatch.status === 422 && JSON.stringify(noBatch.json.error?.details).includes('body.stock.batchNumber'), code(noBatch));
+  check('…and no product was saved', !(await ProductModel.exists({ shopId: shop1, name: 'Azikem 500 Tablet' })));
+  check('medicine without expiry → 422', (await owner.post('/products', azikem({ expiry: undefined }))).status === 422);
+  const firstBody = azikem({});
+  const first = await owner.post('/products', firstBody);
+  const azk = data<{ id: string; batchNumber: string }>(first);
+  const azBatches = data<Batch[]>(await owner.get(`/products/${azk.id}/batches`));
+  check('product + batch saved: 10 strips = 30 tablets, MRP ₹75.53, rack B-9', first.status === 201 && azBatches.length === 1 && azBatches[0]?.quantity === 30 && azBatches[0].mrp === 7553 && azBatches[0].rack === 'B-9', code(first));
+  const repeat = await owner.post('/products', firstBody);
+  check('same request repeat → same product, no second copy', data<{ id: string }>(repeat).id === azk.id && (await ProductModel.countDocuments({ shopId: shop1, name: 'Azikem 500 Tablet' })) === 1);
+  check('ledger: one OPENING move of 30', (await MovementModel.countDocuments({ shopId: shop1, batchId: azBatches[0]?.id, type: 'OPENING', quantity: 30 })) === 1);
+  const soap = await owner.post('/products', azikem({ batchNumber: '', expiry: undefined, purchaseRate: undefined, quantity: 1, mrp: 12725 }, { name: 'Ketokem Soap 75g', scheduleType: 'NON_DRUG', noExpiry: true, units: { type: 'COUNT', base: 'PIECE', sale: 'PIECE', salePack: 1, purchase: 'BOX', purchasePack: 12, allowLooseSale: false } }));
+  const soapB = (await BatchModel.findOne({ shopId: shop1, productId: data<{ id: string }>(soap).id }).lean());
+  check('non-medicine: no batch, no expiry, no rate → lot number, cost 0', soap.status === 201 && /^LOT-/.test(soapB?.batchNumber ?? '') && soapB?.costPerBaseUnit === 0, code(soap));
+  check('cashier → 403', (await cashier.post('/products', azikem({}, { name: 'Cashier Pill' }))).status === 403);
+  check('stock keeper can add with stock', (await keeper.post('/products', azikem({}, { name: 'Keeper Pill' }))).status === 201);
+
   await h.close();
   finish();
 }

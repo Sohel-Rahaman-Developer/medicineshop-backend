@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.2.0',
+    date: '2026-10-04',
+    title: 'Add a product in one go',
+    shop: [
+      'Add product is one screen: name, pack, and the batch on your shelf — batch, expiry, quantity and MRP — saved together.',
+      'Type the pack as the bill shows it (10×15, 15 TAB, 200 ML) and the units fill in.',
+      'Company, purchase rate, rack and the rest are optional. A new rack is added as you type it.',
+    ],
+    admin: [],
+    api: ['POST /products takes the first batch with the product — both are saved, or neither.'],
+  },
+  {
     version: '1.1.0',
     date: '2026-10-03',
     title: 'Polish after launch',

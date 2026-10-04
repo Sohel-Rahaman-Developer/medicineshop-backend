@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LIMIT, objectId } from '../../core/zod';
+import { LIMIT, clientRequestId, monthEnd, objectId, paise } from '../../core/zod';
 import { ALL_UNITS, UNIT_TYPES, unitsProblem } from '../../utils/units';
 import { STORAGE_TYPES } from '../racks/rack.model';
 import { SCHEDULE_TYPES } from './product.model';
@@ -52,7 +52,25 @@ const fields = {
   photo: z.string().max(90_000).nullable().optional(),
 };
 
-export const createProductSchema = z.object(fields).strict();
+const batchNumber = z.string().trim().min(1, 'Batch number is required').max(20, 'Batch number is at most 20 characters').regex(/^[A-Za-z0-9/-]+$/, 'Use letters, numbers, / and -');
+
+/** The batch typed with a new product. Blank batch only for a non-medicine, blank expiry only without expiry (D59). */
+export const firstStockSchema = z
+  .object({
+    clientRequestId,
+    batchNumber: z.union([batchNumber, z.literal('')]).default(''),
+    expiry: monthEnd.optional(),
+    /** Base units. */
+    quantity: z.number('Quantity must be a number').int('Quantity must be a whole number').min(1, 'Quantity must be at least 1').max(MAX_QTY, 'Quantity is too large'),
+    /** Paise per sale unit. */
+    mrp: paise('MRP').min(1, 'MRP is required'),
+    /** Paise per sale unit, before GST; 0 when the shop doesn't know it yet. */
+    purchaseRate: paise('Purchase rate').default(0),
+    rack: rackCode.default(''),
+  })
+  .strict();
+
+export const createProductSchema = z.object({ ...fields, stock: firstStockSchema.optional() }).strict();
 export const updateProductSchema = z.object({ ...fields, version: z.number().int().nonnegative() }).strict();
 export const activeSchema = z.object({ isActive: z.boolean(), version: z.number().int().nonnegative() }).strict();
 
@@ -76,5 +94,6 @@ export const listQuerySchema = z
 
 export type UnitsBody = z.infer<typeof unitsSchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>;
+export type FirstStockInput = z.infer<typeof firstStockSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type ListQuery = z.infer<typeof listQuerySchema>;

@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { afterCursor, page, sortOf, type SortSpec } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { inTransaction } from '../../core/transaction';
@@ -329,20 +329,27 @@ function masterFields(input: CreateProductInput) {
   };
 }
 
-export async function create(t: TenantContext, actor: Actor, input: CreateProductInput, ip?: string) {
+/** Checks done before any transaction: category, GST rate, photo. */
+export async function prepareProduct(t: TenantContext, input: CreateProductInput) {
   await assertCategory(t, input.categoryId);
   await assertRate(t, input.gstRate);
-  const photo = input.photo ? { ...(await processPhoto(input.photo)), updatedAt: new Date() } : null;
-  const id = await inTransaction(async (session) => {
-    await ensureRack(t.shopId, input.defaultRack, input.storageType === 'COLD' ? 'COLD' : 'NORMAL', session);
-    const [p] = await ProductModel.create(
-      [{ shopId: t.shopId, ...masterFields(input), photo, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
-      { session },
-    ).catch(onDuplicate);
-    if (!p) throw AppError.internal();
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'products', entityId: String(p._id), entityName: p.name, text: `${actor.name} added product ${p.name}`, ip }, session);
-    return String(p._id);
-  });
+  return input.photo ? { ...(await processPhoto(input.photo)), updatedAt: new Date() } : null;
+}
+
+export async function insertProduct(t: TenantContext, actor: Actor, input: CreateProductInput, photo: Awaited<ReturnType<typeof prepareProduct>>, session: ClientSession, ip?: string) {
+  await ensureRack(t.shopId, input.defaultRack, input.storageType === 'COLD' ? 'COLD' : 'NORMAL', session);
+  const [p] = await ProductModel.create(
+    [{ shopId: t.shopId, ...masterFields(input), photo, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
+    { session },
+  ).catch(onDuplicate);
+  if (!p) throw AppError.internal();
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'products', entityId: String(p._id), entityName: p.name, text: `${actor.name} added product ${p.name}`, ip }, session);
+  return p;
+}
+
+export async function create(t: TenantContext, actor: Actor, input: CreateProductInput, ip?: string) {
+  const photo = await prepareProduct(t, input);
+  const id = await inTransaction(async (session) => String((await insertProduct(t, actor, input, photo, session, ip))._id));
   return { id };
 }
 
