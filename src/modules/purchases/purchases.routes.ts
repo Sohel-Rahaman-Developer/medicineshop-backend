@@ -81,7 +81,7 @@ purchasesRouter.post(
   }),
 );
 
-// D77: a supplier's file (DOCX now, PDF next) read into lines and previewed — nothing is saved.
+// D77: a supplier’s file (PDF or DOCX) read into lines and previewed — nothing is saved.
 purchasesRouter.post(
   '/import/read',
   create,

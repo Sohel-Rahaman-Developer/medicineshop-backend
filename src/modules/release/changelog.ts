@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.4.0',
+    date: '2026-10-05',
+    title: 'Supplier bills as PDF',
+    shop: [
+      'Purchases → From bill now reads the PDF the supplier’s billing software makes, as well as Word, Excel and CSV.',
+      'Bills laid out in columns, with centred or two-line titles, over several pages, or printed DOS-style all read the same.',
+      'A scanned photo or a PDF locked with a password says so plainly — ask the supplier for the file their software makes.',
+      'সাহায্য (Help) on the bill screen explains every colour, in Bengali.',
+    ],
+    admin: [],
+    api: ['POST /purchases/import/read takes a PDF — up to 20 pages, about 800 KB. The server needs Node 22.13 or newer.'],
+  },
+  {
     version: '1.3.0',
     date: '2026-10-05',
     title: 'Purchase straight from the supplier’s bill',

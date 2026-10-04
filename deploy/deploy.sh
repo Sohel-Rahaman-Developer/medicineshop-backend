@@ -32,6 +32,8 @@ ver() { node -p "require('$ROOT/$1/package.json').version"; }
 VERSION=$(ver backend)
 [ "$(ver frontend)" = "$VERSION" ] && [ "$(ver admin)" = "$VERSION" ] || { echo "Versions differ: backend $VERSION · shop $(ver frontend) · admin $(ver admin) — bump all three package.json to the same version"; exit 1; }
 echo "  version: $VERSION"
+# PDF bill reading (pdfjs-dist) needs Node 22.13 or newer.
+node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)' || { echo "Node $(node -v) is too old — MedShop needs Node 22.13+ (nvm install 24 && nvm alias default 24), then pm2 update"; exit 1; }
 
 test -f "$ROOT/backend/.env" || { echo "Missing $ROOT/backend/.env — copy deploy/env.production.example and fill it"; exit 1; }
 grep -q "^PORT=$API_PORT$" "$ROOT/backend/.env" || { echo "backend/.env must say PORT=$API_PORT"; exit 1; }
