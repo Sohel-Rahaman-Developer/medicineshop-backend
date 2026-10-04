@@ -19,6 +19,8 @@ import { actorOf } from '../user/actor';
 import { istDay } from '../../core/zod';
 import { CHANGELOG } from '../release/changelog';
 import { release } from '../release/release';
+import * as ai from '../ai/ai-admin';
+import { aiSettingsSchema, type AiSettingsInput } from '../ai/ai-settings';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -81,6 +83,18 @@ adminRouter.post('/payments/manual', moneyRole, validate({ body: z.object({ shop
 adminRouter.put('/plans', superOnly, validate({ body: z.object({ plans: z.array(planSchema).min(1).max(6), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { plans: z.infer<typeof planSchema>[]; reason: string }; sent(res, await svc.setPlans(adminOf(req), b.plans, b.reason, req.ip), 'Plans saved'); }));
 adminRouter.get('/settings', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.settings()); }));
 adminRouter.put('/settings', superOnly, validate({ body: z.object({ settings: settingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: z.infer<typeof settingsSchema>; reason: string }; sent(res, await svc.saveSettings(adminOf(req), b.settings, b.reason, req.ip), 'Platform settings saved'); }));
+
+// D78: AI bill reading — settings and the key are super's; coins by hand are accounts'; usage is for every role.
+const readsQuery = z.object({ shopId: objectId.optional(), status: z.enum(['running', 'done', 'failed']).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
+adminRouter.get('/ai', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await ai.aiOverview()); }));
+adminRouter.get('/ai/reads', validate({ query: readsQuery }), asyncHandler(async (req: Request, res: Response) => { const r = await ai.aiReads(req.query as unknown as { shopId?: string; status?: string; cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
+adminRouter.get('/ai/orders', moneyRole, validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await ai.coinOrders(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
+adminRouter.put('/ai/settings', superOnly, validate({ body: z.object({ settings: aiSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: AiSettingsInput; reason: string }; sent(res, await ai.updateAiSettings(adminOf(req), b.settings, b.reason, req.ip), 'AI settings saved'); }));
+adminRouter.put('/ai/key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^sk-ant-[A-Za-z0-9_-]{20,200}$/, 'An Anthropic API key starts with sk-ant-'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip), 'API key saved'); }));
+adminRouter.delete('/ai/key', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await ai.updateApiKey(adminOf(req), null, (req.body as { reason: string }).reason, req.ip), 'API key removed — AI reading is off'); }));
+adminRouter.post('/ai/key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey(); sent(res, r, r.message); }));
+adminRouter.get('/shops/:id/coins', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await ai.shopCoins((req.params as { id: string }).id)); }));
+adminRouter.post('/shops/:id/coins', moneyRole, validate({ params: idParams, body: z.object({ coins: z.number().int().min(-100_000).max(100_000).refine((n) => n !== 0, 'Give or take at least 1 coin'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { coins: number; reason: string }; sent(res, await ai.grantCoins(adminOf(req), (req.params as { id: string }).id, b.coins, b.reason, req.ip), b.coins > 0 ? `${String(b.coins)} coins added` : `${String(-b.coins)} coins taken back`); }));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));
 adminRouter.post('/team', superOnly, validate({ body: z.object({ email, name: z.string().trim().min(2).max(80), role: z.enum(ADMIN_ROLES), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; name: string; role: (typeof ADMIN_ROLES)[number]; reason: string }; sent(res, await svc.invite(adminOf(req), b, b.reason, req.ip), `${b.name} added`); }));

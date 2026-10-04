@@ -77,6 +77,8 @@ const schema = z.object({
   BILLING_STATE: z.string().default('West Bengal'),
   BILLING_GSTIN: z.string().optional().transform((v) => v || undefined),
   BILLING_SAC: z.string().default('998314'),
+  /** D78 tests only: a stand-in for api.anthropic.com. The API key itself lives sealed in the database, set from the admin app. */
+  AI_BASE_URL: z.url().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
@@ -91,6 +93,7 @@ const parsed = schema
     message: 'must differ from JWT_ACCESS_SECRET',
   })
   .refine((e) => e.NODE_ENV !== 'production' || Boolean(e.ADMIN_TOTP_KEY), { message: 'is required in production', path: ['ADMIN_TOTP_KEY'] })
+  .refine((e) => !(e.NODE_ENV === 'production' && e.AI_BASE_URL), { message: 'is for tests only — remove it in production', path: ['AI_BASE_URL'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENTS_MODE === 'test'), { message: 'PAYMENTS_MODE=test is refused in production', path: ['PAYMENTS_MODE'] })
   .refine((e) => e.PAYMENTS_MODE !== 'razorpay' || Boolean(e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET && e.RAZORPAY_WEBHOOK_SECRET), { message: 'needs RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET', path: ['PAYMENTS_MODE'] })
   // Live keys take real money, so real tax invoices; test keys (rzp_test_) may run in production as a rehearsal.

@@ -18,6 +18,7 @@ import { offFor, wants } from './notifications.service';
 import { digestEmail, monitorAlertEmail, summaryEmail } from '../../services/email-templates';
 import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
 import { AdminUserModel } from '../admin/admin.model';
+import { settleStuckReads } from '../ai/bill-ai';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -125,6 +126,15 @@ export async function tick(now = new Date()) {
       await signal('job_fail', now);
     });
     ran.push('reconcile');
+  }
+  // D78: an AI read cut off by a restart gives its coins back (every 10 minutes).
+  if (await claim(`aireads:${now.toISOString().slice(0, 15)}`, now)) {
+    const back = await settleStuckReads(now).catch(async (err: unknown) => {
+      logger.error({ err }, 'AI read settle failed');
+      await signal('job_fail', now);
+      return 0;
+    });
+    if (back) ran.push(`aireads:${String(back)}`);
   }
   for (const s of shops) {
     const n = s.settings.notifications;

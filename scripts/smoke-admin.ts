@@ -216,7 +216,7 @@ async function main() {
   check('nothing new → no new email', a3.length === 0 && (await EmailJobModel.countDocuments({ kind: 'monitor_alert' })) === 2);
   check('an hour later the window is clear → quiet', (await checkAlerts(new Date(T.getTime() + 60 * 60_000))).length === 0);
   const sig = data<{ signals: { kind: string; last24h: number; limit: number }[] }>(await vee.get('/admin/health')).signals;
-  check('health lists every signal with its limit and 24-hour count', sig.length === 6 && (sig.find((s) => s.kind === 'admin_login_fail')?.last24h ?? 0) >= 1, JSON.stringify(sig));
+  check('health lists every signal with its limit and 24-hour count', sig.length === 7 && sig.find((s) => s.kind === 'ai_fail')?.limit === 3 && (sig.find((s) => s.kind === 'admin_login_fail')?.last24h ?? 0) >= 1, JSON.stringify(sig));
 
   section('12. Idle lock: PIN or authenticator to carry on (the session stays)');
   await AdminUserModel.create({ email: 'lock@medshop.test', name: 'Lena', role: 'support' });

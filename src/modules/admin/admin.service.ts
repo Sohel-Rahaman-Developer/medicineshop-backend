@@ -25,7 +25,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const ALL = { crossTenant: true } as const;
 
 /** Every admin action: why, by whom — on the admin log, and on the shop's own audit log when it touches a shop (D15). */
-async function log(a: AdminActor, action: string, reason: string, text: string, shop?: { id: Types.ObjectId; name: string }, changes?: unknown, ip?: string) {
+export async function log(a: AdminActor, action: string, reason: string, text: string, shop?: { id: Types.ObjectId; name: string }, changes?: unknown, ip?: string) {
   await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, ...(shop ? { shopId: shop.id, shopName: shop.name } : {}), action, reason, text, ...(changes ? { changes } : {}), ip });
   if (shop) await audit({ shopId: shop.id, userId: a.id, userName: `MedShop · ${a.name}`, action: 'update', module: 'subscription', entityId: String(shop.id), entityName: shop.name, text: `MedShop (${a.name}) ${text} — ${reason}`, ip });
 }

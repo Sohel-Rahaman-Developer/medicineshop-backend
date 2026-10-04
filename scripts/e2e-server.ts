@@ -2,7 +2,9 @@
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { startFakeClaude } from './lib/fake-claude';
 import { crash, startHarness } from './lib/harness';
+import { MA_AI } from './lib/ma-bill';
 
 const API_PORT = Number(process.env.E2E_API_PORT ?? 5000);
 const HELPER_PORT = Number(process.env.E2E_HELPER_PORT ?? 5099);
@@ -11,6 +13,10 @@ async function main() {
   process.env.PORT = String(API_PORT);
   // Every Playwright project signs in from the same IP; the per-email limits stay real.
   process.env.RATE_OTP_REQUEST_PER_IP ??= '1000';
+  // D78: AI reading goes to a local stand-in for Anthropic that copies the M.A. Pharma bill.
+  const claude = await startFakeClaude();
+  claude.answer = { bill: MA_AI };
+  process.env.AI_BASE_URL = claude.url;
   const h = await startHarness({ port: API_PORT, dbPath: join(tmpdir(), `medshop-e2e-db-${String(API_PORT)}`) });
 
   const { AdminUserModel } = await import('../src/modules/admin/admin.model.js');
@@ -49,16 +55,30 @@ async function main() {
     await SessionModel.updateMany({ userId: u._id, revokedAt: null }, { $set: { lastUsedAt: new Date(Date.now() - (b.minutes ?? 0) * 60_000) } });
   };
 
+  const { setApiKey, saveAiSettings } = await import('../src/modules/ai/ai-settings.js');
+  const { moveCoins } = await import('../src/modules/ai/coins.js');
+  const { inTransaction } = await import('../src/core/transaction.js');
+  const { DEFAULT_PACKS } = await import('../src/modules/ai/ai.model.js');
+  /** AI suite (D78): AI reading on with the stand-in's key, and coins for the named shop. */
+  const seedAi = async (b: { shopName?: string; coins?: number }) => {
+    await setApiKey(claude.key, 'E2E');
+    await saveAiSettings({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 1, maxPages: 10, usdInr: 88, packs: DEFAULT_PACKS }, 'E2E');
+    if (!b.shopName || !b.coins) return;
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop) throw new Error('shop not found');
+    await inTransaction((session) => moveCoins(shop._id, 'grant', b.coins ?? 0, 'E2E coins', 'MedShop · E2E', 'e2e', session));
+  };
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number };
-      (req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number };
+      (req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );
@@ -69,6 +89,7 @@ async function main() {
 
   const stop = () => {
     helper.close();
+    void claude.close();
     void h.close().finally(() => process.exit(0));
   };
   process.on('SIGINT', stop);

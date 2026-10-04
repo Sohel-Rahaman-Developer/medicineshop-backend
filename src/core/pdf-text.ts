@@ -17,6 +17,20 @@ export class PdfTextError extends Error {
 
 const fonts = `${path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'standard_fonts').split(path.sep).join('/')}/`;
 
+/** Page count only (AI reading charges by the page). */
+export async function pdfPageCount(file: Buffer): Promise<number> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = pdfjs.getDocument({ data: new Uint8Array(file), disableFontFace: true, useSystemFonts: false, enableXfa: false, standardFontDataUrl: fonts, verbosity: 0 });
+  try {
+    const doc = await task.promise.catch((e: unknown) => {
+      throw new PdfTextError(e instanceof Error && e.name === 'PasswordException' ? 'password' : 'broken');
+    });
+    return doc.numPages;
+  } finally {
+    await task.destroy();
+  }
+}
+
 /** The text of each page with where it sits. Nothing is run from the file — no scripts, no fonts loaded. */
 export async function pdfWords(file: Buffer, maxPages = 20): Promise<PdfWord[][]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');

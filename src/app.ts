@@ -34,12 +34,15 @@ import { expensesRouter } from './modules/expenses/expenses.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { plansRouter, razorpayWebhook, subscriptionRouter } from './modules/subscription/subscription.routes';
+import { aiRouter } from './modules/ai/ai.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
 const BILL_PATH = /^\/purchases\/import\/read$/;
+// D78: a scan or a phone photo for AI reading — up to about 4 MB (Nginx has its own block for this path).
+const AI_BILL_PATH = /^\/purchases\/import\/ai$/;
 
 export function createApp() {
   const app = express();
@@ -80,8 +83,10 @@ export function createApp() {
 
   // Document photos (supplier invoice, damaged stock) are the only bodies allowed past 100 KB.
   const photoJson = express.json({ limit: '850kb' });
+  const aiJson = express.json({ limit: '6mb' });
   app.use(env.API_PREFIX, (req, res, next) => {
     if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path)) photoJson(req, res, next);
+    else if (AI_BILL_PATH.test(req.path)) aiJson(req, res, next);
     else next();
   });
   app.use(express.json({ limit: '100kb' }));
@@ -135,6 +140,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/dashboard`, dashboardRouter);
   app.use(`${env.API_PREFIX}/plans`, plansRouter);
   app.use(`${env.API_PREFIX}/subscription`, subscriptionRouter);
+  app.use(`${env.API_PREFIX}/ai`, aiRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);

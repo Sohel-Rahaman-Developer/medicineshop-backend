@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.5.0',
+    date: '2026-10-05',
+    title: 'Read any bill with AI',
+    shop: [
+      'Purchases → From bill → Read with AI: a scan, a phone photo, any PDF or Word file — the lines fill in the same coloured way.',
+      'Paid in coins, a few a page; a read that fails gives the coins back.',
+      'Settings → AI coins: buy coin packs by UPI or card (GST invoice), see every coin and every AI read.',
+      'Bills from the supplier’s software still read free.',
+    ],
+    admin: [
+      'AI bill reading: the Claude API key (sealed, last 4 shown, test button), model, coins a page, coin packs.',
+      'Every AI read with its shop, user, file, pages, coins and Anthropic’s real cost; coin sales against cost.',
+      'Give or take back a shop’s coins on its page, with a reason.',
+    ],
+    api: ['POST /purchases/import/ai, /ai/offer, /ai/wallet, /ai/coins/* and /admin/ai/*; coin packs paid through the same Razorpay webhook.'],
+  },
+  {
     version: '1.4.0',
     date: '2026-10-05',
     title: 'Supplier bills as PDF',

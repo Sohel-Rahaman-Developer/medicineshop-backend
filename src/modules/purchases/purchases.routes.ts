@@ -10,6 +10,7 @@ import { sendFile } from '../../core/export';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { purchasePdf } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
+import { aiReadSchema, readWithAi, type AiReadInput } from '../ai/bill-ai';
 import { billImportSchema, billPreviewSchema, billReadSchema, importBill, previewBill, readAndPreview, type BillImportInput, type BillPreviewInput, type BillReadInput } from './bill-import';
 import * as svc from './purchases.service';
 import {
@@ -88,6 +89,16 @@ purchasesRouter.post(
   validate({ body: billReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await readAndPreview(tenantOf(req), req.body as BillReadInput));
+  }),
+);
+
+// D78: any bill — a scan, a photo, a PDF or Word — read by Claude for coins; same preview, nothing is saved.
+purchasesRouter.post(
+  '/import/ai',
+  create,
+  validate({ body: aiReadSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await readWithAi(tenantOf(req), await actorOf(req), req.body as AiReadInput));
   }),
 );
 

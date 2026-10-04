@@ -252,6 +252,11 @@ export type BillReadInput = z.infer<typeof billReadSchema>;
 /** Upload → the bill's lines, each with what saving it would do. Lines the reader can't use are listed, not dropped silently. */
 export async function readAndPreview(t: TenantContext, input: BillReadInput) {
   const read = input.rows ? readRows(input.rows) : await readBillFile(input.fileName, Buffer.from((input.data ?? '').replace(/^data:[^,]*,/, ''), 'base64'));
+  return previewRead(t, input.supplierId, read);
+}
+
+/** Lines read by any reader (file, sheet or AI) → the preview the shop confirms. */
+export async function previewRead(t: TenantContext, supplierId: string, read: ReturnType<typeof readRows>) {
   const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
   const skipped = [...read.skipped];
   for (const r of read.lines) {
@@ -260,7 +265,7 @@ export async function readAndPreview(t: TenantContext, input: BillReadInput) {
     else skipped.push(`${r.name} — ${ok.error.issues[0]?.message ?? 'not readable'}`);
   }
   if (!usable.length) throw AppError.validation('No item lines could be read from this bill', [{ field: 'body.data', message: skipped.slice(0, 3).join(' | ') || 'No lines' }]);
-  const preview = await previewBill(t, { supplierId: input.supplierId, lines: usable.map((u) => u.line) });
+  const preview = await previewBill(t, { supplierId, lines: usable.map((u) => u.line) });
   return {
     meta: read.meta,
     billCheck: read.billCheck,

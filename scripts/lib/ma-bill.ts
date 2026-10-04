@@ -32,3 +32,12 @@ export const MA2_LINES = [
 ];
 export const MA2_TOP = ['M/S M.A.PHARMA', 'Hridaypur, Kolkata · GSTIN 19AAKFM1234B1Z5', 'GST INVOICE · CREDIT', 'Invoice No : A085014', 'Invoice Date : 08-09-2026'];
 export const MA2_FOOT = ['Please Pay 1312.00', 'Rupees One Thousand Three Hundred Twelve Only', 'Bank: SBI · A/c 30123456789 · IFSC SBIN0001234', 'Goods once sold will not be taken back.'];
+
+/** The A085013 bill as Claude copies it (D78): items as printed, the note and the TOTAL row as notes. */
+export const MA_AI = {
+  invoiceNumber: 'A085013',
+  invoiceDate: '01-09-2026',
+  toPay: '2449.00',
+  lines: MA_LINES.filter((r) => r[0]).map(([qty = '', company = '', pack = '', name = '', oldMrp = '', mrp = '', expiry = '', hsn = '', batch = '', rate = '', discount = '', sgst = '0', cgst = '0', amount = '', net = '']) => ({ qty, free: '', company, pack, name, oldMrp, mrp, expiry, hsn, batch, rate, discount, gst: String(Number(sgst) + Number(cgst)), amount, net })),
+  notes: ['3 PICE ER PATA DEBE', 'TOTAL 2455.17'],
+};

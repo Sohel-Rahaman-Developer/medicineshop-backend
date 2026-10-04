@@ -14,6 +14,8 @@ export const logger = pino({
       '*.accessToken',
       '*.SMTP_PASS',
       '*.RAZORPAY_KEY_SECRET',
+      '*.apiKey',
+      'req.headers["x-api-key"]',
     ],
     censor: '[redacted]',
   },

@@ -23,6 +23,8 @@ import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { priceFor } from './terms';
 
 const DAY = 24 * 60 * 60 * 1000;
+// Loaded when used: the coins module builds its invoices from this one.
+const coins = () => import('../ai/coins.js');
 const daysBetween = (a: Date, b: Date) => Math.ceil((b.getTime() - a.getTime()) / DAY);
 
 /** The buyable plans; a fresh database gets the placeholder list (PLAN §8). */
@@ -92,7 +94,7 @@ export async function order(t: TenantContext, actor: Actor, planCode: string) {
 }
 
 /** Inside the payment's transaction, so a retried transaction never skips a number (consecutive per FY, ≤ 16 characters). */
-async function nextInvoice(at: Date, session: ClientSession) {
+export async function nextInvoice(at: Date, session: ClientSession) {
   const fy = fyOf(at);
   const c = await PlatformCounterModel.findOneAndUpdate({ _id: `subInvoice:${fy}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after', session }).lean();
   return `MS-${fy}-${String(c.seq).padStart(5, '0')}`;
@@ -218,6 +220,19 @@ export async function webhook(raw: string, signature: string, eventId: string) {
     result = await refundEvent(type, body.payload?.refund?.entity);
   } else if (type.startsWith('payment.dispute.')) {
     result = await disputeEvent(type, body.payload?.dispute?.entity);
+  } else if ((type === 'payment.captured' || type === 'order.paid' || type === 'payment.failed') && e?.order_id && (await (await coins()).isCoinOrder(e.order_id))) {
+    // D78: a coin pack, not a plan — its own credit, same idempotency.
+    const c = await coins();
+    if (type === 'payment.failed') {
+      await c.coinOrderFailed(e.order_id, e.error_description ?? 'Payment failed');
+      result = 'failed';
+    } else if (e.id) {
+      const r = await c.coinsPaid(e.order_id, e.id, typeof e.amount === 'number' ? e.amount : null, e.method ?? 'razorpay', null).catch((err: unknown) => {
+        if (err instanceof AppError) return { error: err.message };
+        throw err;
+      });
+      result = 'error' in r ? `error: ${r.error}` : r.replayed ? 'already paid' : 'coins added';
+    }
   } else if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id && !(await SubscriptionPaymentModel.exists({ razorpayOrderId: e.order_id }))) {
     // Autopay charges carry Razorpay's own order ids; they are paid through subscription.charged.
     result = 'ignored: not our order';
