@@ -10,7 +10,7 @@ import { sendFile } from '../../core/export';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { purchasePdf } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
-import { billImportSchema, billPreviewSchema, importBill, previewBill, type BillImportInput, type BillPreviewInput } from './bill-import';
+import { billImportSchema, billPreviewSchema, billReadSchema, importBill, previewBill, readAndPreview, type BillImportInput, type BillPreviewInput, type BillReadInput } from './bill-import';
 import * as svc from './purchases.service';
 import {
   cancelSchema,
@@ -78,6 +78,16 @@ purchasesRouter.post(
     const msg = `${result.purchaseNumber} saved`;
     if (replayed) sent(res, result, msg);
     else created(res, result, msg);
+  }),
+);
+
+// D77: a supplier's file (DOCX now, PDF next) read into lines and previewed — nothing is saved.
+purchasesRouter.post(
+  '/import/read',
+  create,
+  validate({ body: billReadSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await readAndPreview(tenantOf(req), req.body as BillReadInput));
   }),
 );
 

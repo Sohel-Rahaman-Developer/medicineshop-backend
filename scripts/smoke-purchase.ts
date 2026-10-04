@@ -577,6 +577,46 @@ async function main() {
   check('new product with a name the shop has → 422 on that line', nameClash.status === 422 && JSON.stringify(nameClash.json.error?.details).includes('lines.0.newProduct.name'), code(nameClash));
   check('cashier → 403', (await cashier.post('/purchases/import', { ...importBody, clientRequestId: randomUUID(), invoiceNumber: 'B3' })).status === 403);
 
+  section('18. Read the supplier’s Word file (D77) — the M.A. Pharma bill of 1 Sep 2026');
+  const { makeDocx } = await import('./lib/docx.js');
+  const H = ['Qty', 'Mfr', 'Pack', 'Product Name', 'OMRP', 'MRP', 'Exp', 'HSN', 'Batch', 'Rate', 'DIS', 'SGST', 'CGST', 'Amount', 'Net Amount'];
+  const MA = [
+    ['1', 'ADIREX', '200 ML', 'VIRCOCO OIL', '300.00', '300.00', '12/27', '30049099', 'VC-64', '228.58', '6.00', '2.50', '2.50', '228.58', '225.61'],
+    ['10', 'GENERIC', '10*3', 'AZIKEM 500 TAB', '80.50', '75.53', '1/28', '30022019', '25443288', '28.19', '0.00', '2.50', '2.50', '281.90', '296.00'],
+    ['', '', '', '3 PICE ER PATA DEBE', '', '', '', '', '', '', '', '', '', '', ''],
+    ['1', 'GENERIC', '75GM', 'KETOKEM SOAP', '143.00', '127.25', '11/28', '21069099', 'KKS25514ED', '41.50', '0.00', '2.50', '2.50', '41.50', '43.58'],
+    ['1', 'ALKEM', '10', 'ALSITA M 50 TAB', '110.15', '110.15', '4/28', '30049099', '26441762', '83.92', '6.00', '2.50', '2.50', '83.92', '82.82'],
+    ['1', 'ALKEM', '10*15', 'DAPANORM 10 TAB', '296.70', '296.70', '2/28', '30049099', '26441046', '226.06', '6.00', '2.50', '2.50', '226.06', '223.12'],
+    ['3', 'EAST IND', '10 20', 'EQ TAB', '61.00', '61.00', '11/29', '30049099', 'EQ5324', '46.48', '4.00', '2.50', '2.50', '139.44', '140.56'],
+    ['1', 'INTAS', '10*15T', 'ZAPTRA 25 CAP', '329.06', '329.06', '4/28', '30049099', 'K2601326', '250.71', '6.00', '2.50', '2.50', '250.71', '247.45'],
+    ['5', 'MACLEODS', '10 TAB', 'OMNACORTIL 10 TAB', '12.88', '12.88', '3/30', '30049099', '13260540A', '10.31', '4.00', '2.50', '2.50', '51.55', '51.97'],
+    ['2', 'MANKIND', '15 30', 'RIVOTRIL 0.5 TAB', '55.30', '55.30', '4/28', '30049099', '6BAF2008', '42.13', '6.00', '2.50', '2.50', '84.26', '83.16'],
+    ['1', 'PIRAMAL', '10 15', 'SUPRADYN DAILY TAB', '75.00', '75.00', '10/27', '30049099', 'MH0056', '57.14', '4.00', '2.50', '2.50', '57.14', '57.59'],
+    ['2', 'RANBAXY', '15 TAB', 'ROSUVAS F 10 TAB', '460.00', '460.00', '11/28', '30049099', 'SIH1116A', '350.48', '6.00', '2.50', '2.50', '700.96', '691.84'],
+    ['1', 'TABLETI', '10 10', 'BIFILAC HP CAPS', '228.00', '228.00', '2/28', '30049099', 'BLA26S02', '173.71', '6.00', '2.50', '2.50', '173.71', '171.45'],
+    ['2', 'USV', '10 TAB', 'GLYCOMET GP 0.5 TAB', '88.88', '88.88', '3/28', '30049099', '60002821', '67.72', '6.00', '2.50', '2.50', '135.44', '133.67'],
+    ['', '', '', 'TOTAL', '', '', '', '', '', '', '', '', '', '2455.17', ''],
+  ];
+  const top = ['M/S M.A.PHARMA', 'GST INVOICE · CREDIT', 'Invoice No : A085013', 'Invoice Date : 01-09-2026', 'Please Pay 2449.00'];
+  const send = (rows: string[][], over: Record<string, unknown> = {}) => owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'A085013.docx', data: makeDocx(top, [H, ...rows]).toString('base64'), ...over });
+  const readRes = await send(MA);
+  type RL = PL & { name: string; quantity: number; mrp: number; oldMrp?: number; rate: number; discountPercent: number; gstRate?: number; expiry?: string; checks: string[] };
+  const readData = readRes.status === 200 ? data<{ meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; skipped: string[]; lines: RL[] }>(readRes) : null;
+  check('13 item lines read; the note and the total row are listed, not dropped silently', readData?.lines.length === 13 && readData.skipped.some((s) => s.includes('3 PICE ER PATA DEBE')) && readData.skipped.some((s) => s.includes('TOTAL')), code(readRes));
+  check('invoice A085013, 1 Sep 2026, to pay ₹2,449.00', readData?.meta.invoiceNumber === 'A085013' && readData.meta.invoiceDate === '2026-09-01' && readData.meta.toPay === 244_900, JSON.stringify(readData?.meta));
+  const azr = readData?.lines.find((l) => l.name === 'AZIKEM 500 TAB');
+  check('Azikem: 10 strips, MRP ₹75.53 (old ₹80.50), rate ₹28.19, exp 1/28, GST 5%', azr?.quantity === 10 && azr.mrp === 7553 && azr.oldMrp === 8050 && azr.rate === 2819 && azr.expiry === '2028-01' && azr.gstRate === 5, JSON.stringify(azr));
+  check('…and it is the Azikem batch already on the shelf', azr?.productId === azikem && azr.status === 'same');
+  check('every line’s Amount and Net agree with qty × rate − discount + GST', readData?.lines.every((l) => l.checks.length === 0) ?? false, JSON.stringify(readData?.lines.filter((l) => l.checks.length).map((l) => [l.name, l.checks])));
+  check('the lines add up to Please Pay 2,449.00', readData?.billCheck === null);
+  const misread = MA.map((r) => (r[3] === 'EQ TAB' ? r.map((c, i) => (i === 14 ? '104.56' : c)) : r));
+  const bad = data<{ billCheck: string | null; lines: RL[] }>(await send(misread));
+  check('a misread Net shows on its line and on the bill total', (bad.lines.find((l) => l.name === 'EQ TAB')?.checks.length ?? 0) > 0 && bad.billCheck !== null, JSON.stringify(bad.billCheck));
+  check('a PDF → 422 (PDF reading comes next)', (await send(MA, { fileName: 'a.pdf', data: Buffer.from('%PDF-1.4 x').toString('base64') })).status === 422);
+  check('not a Word file → 422', (await send(MA, { fileName: 'a.docx', data: Buffer.from('hello').toString('base64') })).status === 422);
+  check('a table without a header → 422', (await owner.post('/purchases/import/read', { supplierId: gupta, fileName: 'x.docx', data: makeDocx(top, MA).toString('base64') })).status === 422);
+  check('cashier → 403', (await cashier.post('/purchases/import/read', { supplierId: gupta, fileName: 'a.docx', data: makeDocx(top, [H, ...MA]).toString('base64') })).status === 403);
+
   await books('end');
   await ledgerEqualsStock('end');
   await h.close();

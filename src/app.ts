@@ -38,6 +38,8 @@ import { adminRouter, platformRouter, supportAccessRouter } from './modules/admi
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
+// A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
+const BILL_PATH = /^\/purchases\/import\/read$/;
 
 export function createApp() {
   const app = express();
@@ -79,7 +81,7 @@ export function createApp() {
   // Document photos (supplier invoice, damaged stock) are the only bodies allowed past 100 KB.
   const photoJson = express.json({ limit: '850kb' });
   app.use(env.API_PREFIX, (req, res, next) => {
-    if (PHOTO_PATH.test(req.path)) photoJson(req, res, next);
+    if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path)) photoJson(req, res, next);
     else next();
   });
   app.use(express.json({ limit: '100kb' }));

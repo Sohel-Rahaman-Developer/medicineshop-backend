@@ -8,6 +8,7 @@ import { clientRequestId, istDay, monthEnd, objectId, paise } from '../../core/z
 import type { Actor } from '../user/actor';
 import { insertProduct, prepareProduct } from '../products/products.service';
 import { createProductSchema } from '../products/products.validation';
+import { readBillFile } from './bill-read';
 import { savePurchase } from './purchases.service';
 import { purchaseLineObject, type PurchaseInput } from './purchases.validation';
 import { inr } from '../../utils/money';
@@ -233,4 +234,36 @@ export async function importBill(t: TenantContext, actor: Actor, input: BillImpo
     );
     return { ...out, newProducts: made.size };
   });
+}
+
+export const billReadSchema = z
+  .object({
+    supplierId: objectId,
+    fileName: z.string().trim().min(1).max(200),
+    /** The file, base64. */
+    data: z.string().max(1_100_000, 'That file is too large — at most about 800 KB'),
+  })
+  .strict();
+export type BillReadInput = z.infer<typeof billReadSchema>;
+
+/** Upload → the bill's lines, each with what saving it would do. Lines the reader can't use are listed, not dropped silently. */
+export async function readAndPreview(t: TenantContext, input: BillReadInput) {
+  const read = readBillFile(input.fileName, Buffer.from(input.data.replace(/^data:[^,]*,/, ''), 'base64'));
+  const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
+  const skipped = [...read.skipped];
+  for (const r of read.lines) {
+    const ok = billLineSchema.safeParse({ name: r.name, company: r.company, pack: r.pack, batchNumber: r.batchNumber, expiry: r.expiry, mrp: r.mrp, oldMrp: r.oldMrp, rate: r.rate, quantity: r.quantity, freeQuantity: r.freeQuantity, discountPercent: r.discountPercent, gstRate: r.gstRate, hsn: r.hsn });
+    if (ok.success) usable.push({ read: r, line: ok.data });
+    else skipped.push(`${r.name} — ${ok.error.issues[0]?.message ?? 'not readable'}`);
+  }
+  if (!usable.length) throw AppError.validation('No item lines could be read from this bill', [{ field: 'body.data', message: skipped.slice(0, 3).join(' | ') || 'No lines' }]);
+  const preview = await previewBill(t, { supplierId: input.supplierId, lines: usable.map((u) => u.line) });
+  return {
+    meta: read.meta,
+    billCheck: read.billCheck,
+    header: read.header,
+    skipped,
+    counts: preview.counts,
+    lines: usable.map((u, i) => ({ ...u.read, ...preview.lines[i] })),
+  };
 }
