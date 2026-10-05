@@ -71,6 +71,8 @@ export const billLineSchema = z
     discountPercent: z.number().min(0).max(100).default(0),
     gstRate: z.number().min(0).max(40).optional(),
     hsn: z.string().trim().max(8).default(''),
+    /** The shop picked this product itself: preview the line against it. */
+    productId: objectId.optional(),
   })
   .strict();
 export const billPreviewSchema = z.object({ supplierId: objectId, lines: z.array(billLineSchema).min(1, 'The bill has no lines').max(300, 'At most 300 lines in one bill') }).strict();
@@ -90,7 +92,7 @@ export async function previewBill(t: TenantContext, input: BillPreviewInput) {
   const aliases = await BillAliasModel.find({ shopId: t.shopId, supplierId, key: { $in: input.lines.map((l) => aliasKey(l.name, l.pack)) } }).lean();
   const byKey = new Map(aliases.map((a) => [a.key, a.productId]));
   const out = [];
-  for (const [i, line] of input.lines.entries()) out.push({ index: i, ...(await previewLine(t, line, byKey.get(aliasKey(line.name, line.pack)))) });
+  for (const [i, line] of input.lines.entries()) out.push({ index: i, ...(await previewLine(t, line, line.productId ? new Types.ObjectId(line.productId) : byKey.get(aliasKey(line.name, line.pack)))) });
   return { lines: out, counts: countOf(out.map((l) => l.status)) };
 }
 

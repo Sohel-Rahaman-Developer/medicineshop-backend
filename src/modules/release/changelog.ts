@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.6.0',
+    date: '2026-10-05',
+    title: 'Fix a bill before you save it',
+    shop: [
+      'Purchase from bill: “Search product” on any line — pick any product the shop has, not only the suggestions.',
+      'A line matched to the wrong product? “Wrong product? Change” — the line is checked again against the right one.',
+      '“Add a line the bill reading missed”: pick a product or add a new one, type batch, expiry, quantity, rate and MRP.',
+      'The supplier’s names you fix are remembered for the next bill.',
+    ],
+    admin: [],
+    api: ['POST /purchases/import/preview takes an optional productId per line.'],
+  },
+  {
     version: '1.5.0',
     date: '2026-10-05',
     title: 'Read any bill with AI',

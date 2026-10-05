@@ -539,6 +539,12 @@ async function main() {
   const otherSupplier = data<{ lines: PL[] }>(await owner.post('/purchases/import/preview', { supplierId: sharma, lines: [bill('AZI 500', { batchNumber: 'X1' })] })).lines[0];
   check('…only for that supplier', otherSupplier?.matchedBy !== 'alias');
   check('another shop’s supplier → 404', (await owner.post('/purchases/import/preview', { supplierId: s2.id, lines: [bill('AZIKEM 500 TAB')] })).status === 404);
+  const picked = data<{ lines: PL[] }>(await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('ZX MYSTERY 9', { productId: azikem }), bill('ZX MYSTERY 9', { productId: azikem, mrp: 8050 })] })).lines;
+  check('the shop searched and picked Azikem for a name nothing matches → same batch, 30 on the shelf', picked[0]?.status === 'same' && picked[0].productId === azikem && picked[0].batch?.quantity === 30, JSON.stringify(picked[0]));
+  check('…picked, at another MRP → MRP flag', picked[1]?.status === 'mrp' && picked[1].productId === azikem);
+  const foreign = data<{ lines: PL[] }>(await other.post('/purchases/import/preview', { supplierId: s2.id, lines: [bill('AZIKEM 500 TAB', { productId: azikem })] })).lines[0];
+  check('shop 2 sends shop 1’s product id → never matched to it', foreign !== undefined && foreign.productId === null, JSON.stringify(foreign));
+  check('a bad product id → 422', (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('X', { productId: 'abc' })] })).status === 422);
   check('cashier → 403', (await cashier.post('/purchases/import/preview', { supplierId: gupta, lines: [bill('AZIKEM 500 TAB')] })).status === 403);
   check('no lines or unknown field → 422', (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [] })).status === 422 && (await owner.post('/purchases/import/preview', { supplierId: gupta, lines: [{ ...bill('X'), shopId: 'x' }] })).status === 422);
 
