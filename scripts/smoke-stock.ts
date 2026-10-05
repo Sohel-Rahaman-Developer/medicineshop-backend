@@ -355,6 +355,10 @@ async function main() {
   const importId = randomUUID();
   const saved = await owner.post('/products/import', { clientRequestId: importId, dryRun: false, rows: rows.slice(0, 3) });
   check('clean rows save → 200', saved.status === 200 && (saved.json.data as { saved: boolean }).saved, code(saved));
+  const prog = await owner.get(`/products/import/progress/${importId}`);
+  check('progress of that import: 3 rows + the closing step, all done', prog.status === 200 && JSON.stringify(prog.json.data) === '{"done":4,"total":4}', JSON.stringify(prog.json.data));
+  check('shop 2 asks for shop 1’s import → nothing (0 / 0)', JSON.stringify((await other.get(`/products/import/progress/${importId}`)).json.data) === '{"done":0,"total":0}');
+  check('an id never imported → 0 / 0; not an id → 422; cashier → 403', JSON.stringify((await owner.get(`/products/import/progress/${randomUUID()}`)).json.data) === '{"done":0,"total":0}' && (await owner.get('/products/import/progress/abc')).status === 422 && (await cashier.get(`/products/import/progress/${importId}`)).status === 403);
   await owner.post('/products/import', { clientRequestId: importId, dryRun: false, rows: rows.slice(0, 3) });
   check('same import sent twice → products and batches once', (await ProductModel.countDocuments({ shopId: shop1, nameLower: 'azithral 500' })) === 1 && (await BatchModel.countDocuments({ shopId: shop1, batchNumber: 'AZ77' })) === 1);
   const az = await ProductModel.findOne({ shopId: shop1, nameLower: 'azithral 500' }).lean();

@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.6.1',
+    date: '2026-10-05',
+    title: 'Clearer bill screen, import progress, month picker',
+    shop: [
+      'Purchase from bill: an ⓘ next to every colour, box (Free, Rate, MRP…), note and button — tap it for the meaning in Bengali.',
+      'Excel import shows how far it is (rows saved and %), and locks the screen until it finishes — reload or leaving asks first.',
+      'Licence expiry (shop setup and Settings) opens a month grid with the year on top — months already gone can’t be picked.',
+      'Add supplier: Credit days says what it means — the bill is due that many days after its date.',
+    ],
+    admin: [],
+    api: ['GET /products/import/progress/:id — rows saved so far of a running import.'],
+  },
+  {
     version: '1.6.0',
     date: '2026-10-05',
     title: 'Fix a bill before you save it',

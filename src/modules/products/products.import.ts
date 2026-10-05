@@ -198,18 +198,37 @@ const view = (p: Plan[]) => ({
   },
 });
 
+// Rows saved so far per running import, for the progress bar. In memory: the API runs as one process (PM2).
+const progress = new Map<string, { done: number; total: number; at: number }>();
+const progressKey = (t: TenantContext, id: string) => `${String(t.shopId)}|${id}`;
+function setProgress(key: string, done: number, total: number) {
+  const now = Date.now();
+  for (const [k, v] of progress) if (now - v.at > 10 * 60_000) progress.delete(k);
+  progress.set(key, { done, total, at: now });
+}
+
+/** How far a running import is: rows saved, out of rows + 1 (the closing step). 0 / 0 when unknown. */
+export function importProgress(t: TenantContext, clientRequestId: string) {
+  const p = progress.get(progressKey(t, clientRequestId));
+  return { done: p?.done ?? 0, total: p?.total ?? 0 };
+}
+
 export async function importRows(t: TenantContext, actor: Actor, input: ImportInput, ip?: string) {
   const preview = await plan(t, input.rows);
   if (input.dryRun) return { ...view(preview), saved: false };
   if (preview.some((p) => p.errors.length)) throw AppError.validation('Fix the rows with errors first', view(preview).rows.filter((r) => r.errors.length));
 
+  const tracking = progressKey(t, input.clientRequestId);
+  const total = input.rows.length + 1;
+  setProgress(tracking, 0, total);
   const { result } = await once(t.shopId, 'import', input.clientRequestId, async (session) => {
     const rows = await plan(t, input.rows, session);
     const now = new Date();
     const created = new Map<string, Types.ObjectId>();
     const touched = new Set<string>();
     let merged = 0;
-    for (const r of rows) {
+    for (const [i, r] of rows.entries()) {
+      setProgress(tracking, i, total);
       const key = r.name.toLowerCase();
       let productId = r.productId ?? created.get(key);
       if (!productId && r.draft) {
@@ -229,11 +248,16 @@ export async function importRows(t: TenantContext, actor: Actor, input: ImportIn
       if (out.how === 'merged') merged++;
       touched.add(String(productId));
     }
+    setProgress(tracking, rows.length, total);
     await refreshRollups(t.shopId, [...touched].map((id) => new Types.ObjectId(id)), session, now);
     const stocked = rows.filter((r) => r.stock).length;
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityName: 'Excel import', text: `${actor.name} imported ${String(rows.length)} rows — ${String(created.size)} new products, ${String(stocked)} stock rows`, ip }, session);
     return { rows: rows.length, newProducts: created.size, merged, stockRows: stocked };
+  }).catch((err: unknown) => {
+    progress.delete(tracking);
+    throw err;
   });
+  setProgress(tracking, total, total);
   return { ...view(preview), saved: true, result };
 }
 

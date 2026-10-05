@@ -4,11 +4,12 @@ import { requireAuth } from '../../core/middleware/require-auth';
 import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
-import { idParams } from '../../core/zod';
+import { z } from 'zod';
+import { clientRequestId, idParams } from '../../core/zod';
 import { sendFile } from '../../core/export';
 import { productsXlsx } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
-import { importRows, importSchema, importTemplate, type ImportInput } from './products.import';
+import { importProgress, importRows, importSchema, importTemplate, type ImportInput } from './products.import';
 import { addWithStock } from './products.add';
 import * as svc from './products.service';
 import { activeSchema, createProductSchema, listQuerySchema, updateProductSchema, type CreateProductInput, type ListQuery, type UpdateProductInput } from './products.validation';
@@ -60,6 +61,16 @@ productsRouter.get(
   asyncHandler(async (_req: Request, res: Response) => {
     sendFile(res, await importTemplate(), 'MedShop-product-import-template', 'xlsx');
   }),
+);
+
+// The Excel import's progress bar: rows saved so far of a running import.
+productsRouter.get(
+  '/import/progress/:id',
+  requirePermission('products', 'create'),
+  validate({ params: z.object({ id: clientRequestId }).strict() }),
+  (req: Request, res: Response) => {
+    fetched(res, importProgress(tenantOf(req), String(req.params.id)));
+  },
 );
 
 productsRouter.post(
