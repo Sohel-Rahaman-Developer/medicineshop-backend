@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.7.0',
+    date: '2026-10-06',
+    title: 'Refer a shop',
+    shop: [
+      'Settings → Plan → Refer a shop: your own code, with Copy, Copy link and WhatsApp.',
+      'A new shop that types your code (or opens your link) gets a discount on its first payment, if it pays in time.',
+      'You get a discount on your next payment once that shop has paid 3 months in a row — or one year at once. Each shop you bring is one reward.',
+      'The discount comes off by itself when you tap Pay, and shows on the plan, the payment and the tax invoice.',
+      'Shop setup has an optional Referral code box that says whose code it is before you start.',
+    ],
+    admin: [
+      'Referrals page: turn codes on or off, the new shop’s % and days, the referrer’s % and the months in a row — and every referral with its progress.',
+      'Shop page → Referral: its code, who referred it, the shops it brought; Set or Change referrer when an owner forgot the code.',
+      'Shops can be found by their referral code.',
+    ],
+    api: ['GET /referral, GET /referral/check; POST /shops takes referralCode; GET /admin/referrals, PUT /admin/referrals/settings, PUT /admin/shops/:id/referrer.'],
+  },
+  {
     version: '1.6.2',
     date: '2026-10-06',
     title: 'A compact bill screen, an app-like phone view, a proper rack list',

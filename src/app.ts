@@ -37,6 +37,7 @@ import { plansRouter, razorpayWebhook, subscriptionRouter } from './modules/subs
 import { aiRouter } from './modules/ai/ai.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
+import { referralRouter } from './modules/referral/referral.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
@@ -140,6 +141,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/dashboard`, dashboardRouter);
   app.use(`${env.API_PREFIX}/plans`, plansRouter);
   app.use(`${env.API_PREFIX}/subscription`, subscriptionRouter);
+  app.use(`${env.API_PREFIX}/referral`, referralRouter);
   app.use(`${env.API_PREFIX}/ai`, aiRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);

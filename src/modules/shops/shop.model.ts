@@ -92,11 +92,14 @@ const shopSchema = new Schema(
     status: { type: String, enum: ['active', 'suspended', 'closed'], default: 'active', required: true },
     suspendReason: { type: String },
     settings: { type: settingsSchema, default: () => ({}) },
+    /** D80: the code this shop gives to others; made the first time the owner opens Refer a shop. */
+    referralCode: { type: String },
   },
   { timestamps: true, versionKey: 'version', optimisticConcurrency: true },
 );
 
 shopSchema.index({ gstin: 1 }, { sparse: true });
+shopSchema.index({ referralCode: 1 }, { unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } });
 
 export const ShopModel = model('Shop', shopSchema);
 export type Shop = InferSchemaType<typeof shopSchema>;

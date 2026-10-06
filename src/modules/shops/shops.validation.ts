@@ -62,6 +62,8 @@ export const createShopSchema = z
       .refine(gstinMatchesState, gstinMessage),
     termsVersion: z.string().min(1),
     agree: z.literal(true, 'Please agree to the Terms to start'),
+    /** D80: optional; empty = none. */
+    referralCode: z.string().trim().max(20).optional(),
   })
   .strict();
 

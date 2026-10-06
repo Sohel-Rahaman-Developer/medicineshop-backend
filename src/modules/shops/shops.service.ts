@@ -13,6 +13,7 @@ import { RoleModel } from '../roles/role.model';
 import { SubscriptionModel } from '../subscription/subscription.model';
 import { UserModel } from '../user/user.model';
 import { ShopModel } from './shop.model';
+import { linkAtSignup, referralSettings } from '../referral/referral.service';
 import type { CreateShopInput, UpdateShopInput } from './shops.validation';
 import { TERMS_POINTS } from './terms.content';
 import { TermsAcceptanceModel } from './terms-acceptance.model';
@@ -27,6 +28,7 @@ export async function onboardingMeta() {
     terms: { version: env.TERMS_VERSION, points: TERMS_POINTS },
     states: STATES.map((s) => s.name),
     trialDays: (await platform()).trialDays,
+    referral: await referralSettings().then((r) => ({ enabled: r.enabled, newShopPct: r.newShopPct, newShopDays: r.newShopDays })),
     // Local testing only: the onboarding form offers a "Fill demo data" button.
     demoFill: env.NODE_ENV === 'development',
   };
@@ -96,6 +98,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
         { session },
       );
       await seedSystemCategories(shopId, session);
+      if (input.referralCode) await linkAtSignup(shopId, uid, input.referralCode, owner.name, now, session);
       await TermsAcceptanceModel.create(
         [{ shopId, version: env.TERMS_VERSION, userId: uid, userName: owner.name, ip: ctx.ip, userAgent: ctx.userAgent }],
         { session },

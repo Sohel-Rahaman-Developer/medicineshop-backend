@@ -21,6 +21,7 @@ import { CHANGELOG } from '../release/changelog';
 import { release } from '../release/release';
 import * as ai from '../ai/ai-admin';
 import { aiSettingsSchema, type AiSettingsInput } from '../ai/ai-settings';
+import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -95,6 +96,11 @@ adminRouter.delete('/ai/key', superOnly, validate({ body: z.object({ reason }).s
 adminRouter.post('/ai/key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey(); sent(res, r, r.message); }));
 adminRouter.get('/shops/:id/coins', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await ai.shopCoins((req.params as { id: string }).id)); }));
 adminRouter.post('/shops/:id/coins', moneyRole, validate({ params: idParams, body: z.object({ coins: z.number().int().min(-100_000).max(100_000).refine((n) => n !== 0, 'Give or take at least 1 coin'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { coins: number; reason: string }; sent(res, await ai.grantCoins(adminOf(req), (req.params as { id: string }).id, b.coins, b.reason, req.ip), b.coins > 0 ? `${String(b.coins)} coins added` : `${String(-b.coins)} coins taken back`); }));
+
+// D80: referral program — the terms are super's; who referred a shop is support's (shops role).
+adminRouter.get('/referrals', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.referrals()); }));
+adminRouter.put('/referrals/settings', superOnly, validate({ body: z.object({ settings: referralSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: ReferralSettings; reason: string }; sent(res, await svc.saveReferral(adminOf(req), b.settings, b.reason, req.ip), 'Referral settings saved'); }));
+adminRouter.put('/shops/:id/referrer', shopsRole, validate({ params: idParams, body: z.object({ referrerShopId: objectId.nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { referrerShopId: string | null; reason: string }; await svc.setReferrer(adminOf(req), (req.params as { id: string }).id, b.referrerShopId, b.reason, req.ip); sent(res, await svc.shop((req.params as { id: string }).id), b.referrerShopId ? 'Referrer saved' : 'Referrer removed'); }));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));
 adminRouter.post('/team', superOnly, validate({ body: z.object({ email, name: z.string().trim().min(2).max(80), role: z.enum(ADMIN_ROLES), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; name: string; role: (typeof ADMIN_ROLES)[number]; reason: string }; sent(res, await svc.invite(adminOf(req), b, b.reason, req.ip), `${b.name} added`); }));

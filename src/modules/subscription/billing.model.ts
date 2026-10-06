@@ -60,6 +60,10 @@ const paymentSchema = new Schema(
     failureReason: { type: String },
     periodStart: { type: Date },
     periodEnd: { type: Date },
+    /** D80: paid while a paid plan was still running — the referral streak goes on; false starts it again. */
+    continued: { type: Boolean },
+    /** D80: a referral discount taken off the plan price; `amount` above is what was charged. */
+    discount: { type: new Schema({ kind: { type: String, enum: ['welcome', 'reward'], required: true }, pct: { type: Number, required: true }, off: { type: Number, required: true }, listAmount: { type: Number, required: true }, referralId: { type: Schema.Types.ObjectId, required: true } }, { _id: false }) },
     invoiceNumber: { type: String },
     invoiceFrom: { type: partySchema },
     invoiceTo: { type: partySchema },

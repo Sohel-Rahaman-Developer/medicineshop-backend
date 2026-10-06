@@ -19,6 +19,7 @@ import { UserModel } from '../user/user.model';
 import { ADMIN_ROLES, AdminAuditModel, AdminUserModel, PlatformSettingsModel, type AdminRole } from './admin.model';
 import type { AdminActor } from './admin-auth';
 import { forgetPlatform, platform } from './platform';
+import { allReferrals, assignReferrer, codeOf, normCode, referralSettings, referralsOf, saveReferralSettings, type ReferralSettings } from '../referral/referral.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 // Admin reads go across shops on purpose (PLAN §21.1) — tenant collections need the explicit flag.
@@ -72,7 +73,8 @@ export async function overview(now = new Date()) {
 export async function shops(q: { q?: string; status?: string; cursor?: string; limit: number }, now = new Date()) {
   const sort = { field: 'createdAt', dir: -1 } as const;
   const filter: Record<string, unknown> = {};
-  if (q.q) filter.name = { $regex: q.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  // D80: a referral code finds its shop too.
+  if (q.q) filter.$and = [{ $or: [{ name: { $regex: q.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }, { referralCode: normCode(q.q) }] }];
   if (q.status === 'suspended') filter.status = 'suspended';
   const rows = await ShopModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).select('name address phone ownerUserId drugLicenseNumber drugLicenseExpiry status createdAt').lean<{ _id: Types.ObjectId; name: string; address?: { city?: string }; phone?: string; ownerUserId: Types.ObjectId; drugLicenseNumber: string; drugLicenseExpiry: Date; status: string; createdAt: Date }[]>();
   const { items, meta } = page(rows, q.limit, (r) => r.createdAt);
@@ -102,7 +104,7 @@ export async function shop(id: string, now = new Date()) {
   const shopId = new Types.ObjectId(id);
   const doc = await ShopModel.findById(shopId).lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const [sub, owner, members, pays, log, prices, autopay] = await Promise.all([
+  const [sub, owner, members, pays, log, prices, autopay, referral, code] = await Promise.all([
     SubscriptionModel.findOne({ shopId }).lean(),
     UserModel.findById(doc.ownerUserId).select('name email phone').lean(),
     MembershipModel.find({ shopId }).select('designation status lastActiveAt').lean(),
@@ -110,6 +112,8 @@ export async function shop(id: string, now = new Date()) {
     AdminAuditModel.find({ shopId }).sort({ createdAt: -1 }).limit(20).lean(),
     plansFor(shopId, now),
     autopayOf(shopId),
+    referralsOf(shopId),
+    codeOf(shopId),
   ]);
   return {
     id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null,
@@ -121,6 +125,7 @@ export async function shop(id: string, now = new Date()) {
     autopay,
     prices: prices.map((p) => ({ code: p.code, name: p.name, price: p.price, listPrice: p.listPrice, ownPrice: p.ownPrice, upcoming: p.upcoming })),
     log: log.map((l) => ({ id: String(l._id), at: (l as { createdAt?: Date }).createdAt ?? null, by: l.adminName, action: l.action, text: l.text, reason: l.reason })),
+    referral: { code, ...referral },
   };
 }
 
@@ -257,6 +262,24 @@ export async function saveSettings(a: AdminActor, input: Awaited<ReturnType<type
   await platform();
   await log(a, 'settings_update', reason, 'changed platform settings', undefined, { before, after: input }, ip);
   return settings();
+}
+
+export async function referrals() {
+  return { settings: await referralSettings(), rows: await allReferrals() };
+}
+
+export async function saveReferral(a: AdminActor, input: ReferralSettings, reason: string, ip?: string) {
+  const before = await referralSettings();
+  const after = await saveReferralSettings(input, a.name);
+  await log(a, 'referral_settings', reason, `changed referral settings: ${after.enabled ? 'on' : 'off'}, new shop ${String(after.newShopPct)}% within ${String(after.newShopDays)} days, referrer ${String(after.rewardPct)}% after ${String(after.qualifyMonths)} months in a row`, undefined, { before, after }, ip);
+  return referrals();
+}
+
+/** D80: the owner says on the phone who brought them — set, change or remove it. */
+export async function setReferrer(a: AdminActor, id: string, referrerId: string | null, reason: string, ip?: string) {
+  const r = await assignReferrer(new Types.ObjectId(id), referrerId ? new Types.ObjectId(referrerId) : null, `MedShop · ${a.name}`);
+  const text = r.after ? `set ${r.after} as the shop that referred it${r.before ? ` (was ${r.before})` : ''}` : `removed ${r.before ?? ''} as the referrer`;
+  await log(a, 'referral_set', reason, text, { id: new Types.ObjectId(id), name: r.shop }, { before: r.before, after: r.after }, ip);
 }
 
 export async function team() {
