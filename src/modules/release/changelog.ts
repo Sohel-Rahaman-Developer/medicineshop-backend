@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.6.2',
+    date: '2026-10-06',
+    title: 'A compact bill screen, an app-like phone view, a proper rack list',
+    shop: [
+      'Purchase from bill on a computer: one slim row per line, the box titles (with their ⓘ) once on top — about a third of the height it was.',
+      'On a phone or tablet: each line is a short card; tap it and the line opens in a sheet from the bottom — every box, ‹ › to the next line, Done.',
+      'Rack boxes (bill, opening stock, product form) show your racks in the app’s own list — type to narrow, arrows and Enter to pick, a new code says it will be created.',
+      'Dashboard on a computer: no second “Dashboard” row — the greeting card carries the shop, the range and the time.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.6.1',
     date: '2026-10-05',
     title: 'Clearer bill screen, import progress, month picker',
