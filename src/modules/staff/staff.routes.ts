@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import type { Action } from '../rbac/permissions';
@@ -10,7 +9,7 @@ import * as svc from './staff.service';
 import { inviteSchema, memberIdSchema, updateMemberSchema, type InviteInput, type UpdateMemberInput } from './staff.validation';
 
 export const staffRouter = Router();
-staffRouter.use(requireAuth, tenant);
+staffRouter.use(shopAuth);
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 

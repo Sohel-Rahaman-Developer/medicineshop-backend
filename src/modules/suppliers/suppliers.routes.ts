@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -12,7 +11,7 @@ import * as svc from './suppliers.service';
 import { ledgerQuerySchema, paymentSchema, supplierListSchema, supplierSchema, type PaymentInput, type SupplierInput, type SupplierListQuery } from './suppliers.validation';
 
 export const suppliersRouter = Router();
-suppliersRouter.use(requireAuth, tenant);
+suppliersRouter.use(shopAuth);
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 const view = requirePermission('suppliers', 'view');

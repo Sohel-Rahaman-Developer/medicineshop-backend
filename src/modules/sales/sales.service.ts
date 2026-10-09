@@ -45,26 +45,30 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
   const cost = seesCost(t);
   const filter: Record<string, unknown> = { shopId: t.shopId, isActive: true };
   const tokens = norm(q).split(' ').filter(Boolean).slice(0, 6);
-  let exactId: string | null = null;
-  if (/^[A-Za-z0-9-]{4,32}$/.test(q)) {
-    const hit = await ProductModel.findOne({ shopId: t.shopId, isActive: true, barcode: q }).select('_id').lean();
-    if (hit) exactId = String(hit._id);
-  }
+  const fields = 'name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId';
   if (ids?.length) filter._id = { $in: ids.map(oid) };
-  else if (exactId) filter._id = oid(exactId);
   else if (tokens.length) filter.$and = tokens.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } }));
   else filter['stock.sellable'] = { $gt: 0 };
-  const rows = await ProductModel.find(filter)
-    .sort(tokens.length || exactId ? { 'stock.sellable': -1, nameLower: 1 } : { lastSoldAt: -1, nameLower: 1 })
-    .limit(limit)
-    .select('name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId')
-    .lean();
-  const batches = await BatchModel.find({ shopId: t.shopId, productId: { $in: rows.map((p) => p._id) }, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now } })
-    .select('productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit')
-    .lean<SaleBatch[]>();
+  // The barcode lookup and the name search go out together; a barcode hit is the whole answer.
+  const [hit, found] = await Promise.all([
+    !ids?.length && /^[A-Za-z0-9-]{4,32}$/.test(q) ? ProductModel.findOne({ shopId: t.shopId, isActive: true, barcode: q }).select(fields).lean() : null,
+    ProductModel.find(filter)
+      .sort(tokens.length ? { 'stock.sellable': -1, nameLower: 1 } : { lastSoldAt: -1, nameLower: 1 })
+      .limit(limit)
+      .select(fields)
+      .lean(),
+  ]);
+  const exactId = hit ? String(hit._id) : null;
+  const rows = hit ? [hit] : found;
+  const [batches, categories] = await Promise.all([
+    BatchModel.find({ shopId: t.shopId, productId: { $in: rows.map((p) => p._id) }, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now } })
+      .select('productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit')
+      .lean<SaleBatch[]>(),
+    CategoryModel.find({ shopId: t.shopId }).select('name').lean(),
+  ]);
   const byProduct = new Map<string, SaleBatch[]>();
   for (const b of batches) byProduct.set(String(b.productId), [...(byProduct.get(String(b.productId)) ?? []), b]);
-  const cats = new Map((await CategoryModel.find({ shopId: t.shopId }).select('name').lean()).map((c) => [String(c._id), c.name]));
+  const cats = new Map(categories.map((c) => [String(c._id), c.name]));
   const items = rows.map((p) => {
     const u = p.units as Units;
     const list = fefo(byProduct.get(String(p._id)) ?? [], now);

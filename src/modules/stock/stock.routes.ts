@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -30,7 +29,7 @@ import {
 } from './stock.validation';
 
 export const stockRouter = Router();
-stockRouter.use(requireAuth, tenant);
+stockRouter.use(shopAuth);
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 const view = requirePermission('stock', 'view');

@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -40,6 +40,7 @@
     "admin:create": "tsx scripts/admin-create.ts",
     "admin:reset-totp": "tsx scripts/admin-reset-totp.ts",
     "load:pos": "tsx scripts/load-pos.ts",
+    "bench:screens": "tsx scripts/bench-screens.ts",
     "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:ai && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay && npm run smoke:referral"
   },
   "keywords": [],

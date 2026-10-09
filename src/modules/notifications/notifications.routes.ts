@@ -2,8 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { actorOf } from '../user/actor';
 import { AppError } from '../../core/errors';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched, sent } from '../../core/response';
 import * as svc from './notifications.service';
@@ -16,7 +15,7 @@ const userOf = (req: Request) => {
 
 // PLAN §17 / S72: everyone reads their own alerts (notifications:view); read, snooze and preferences are per person.
 export const notificationsRouter = Router();
-notificationsRouter.use(requireAuth, tenant, requirePermission('notifications', 'view'));
+notificationsRouter.use(shopAuth, requirePermission('notifications', 'view'));
 
 notificationsRouter.get(
   '/',

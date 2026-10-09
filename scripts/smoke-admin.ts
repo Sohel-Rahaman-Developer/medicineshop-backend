@@ -182,7 +182,8 @@ async function main() {
   check('health: mail queue, jobs, webhooks', hl.status === 200 && ['mail', 'jobs', 'webhooks'].every((k) => k in (hl.json.data as object)), code(hl));
   const { CHANGELOG } = await import('../src/modules/release/changelog.js');
   const nobody = h.client();
-  const live = data<{ version: string; deployedAt: string }>(await nobody.get('/health'));
+  const live = data<{ version: string; deployedAt: string; db: { pingMs: number | null } }>(await nobody.get('/health'));
+  check('public /health pings the database and gives the time', typeof live.db.pingMs === 'number' && live.db.pingMs >= 0, JSON.stringify(live.db));
   check('public /health carries the version and deploy time', live.version === CHANGELOG[0]?.version && !Number.isNaN(Date.parse(live.deployedAt)), JSON.stringify(live));
   const rel = await nobody.get('/release');
   const relData = data<{ version: string; notes: { version: string; items: string[] }[]; commits?: unknown }>(rel);

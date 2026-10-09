@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { z } from 'zod';
@@ -15,7 +14,7 @@ import * as svc from './products.service';
 import { activeSchema, createProductSchema, listQuerySchema, updateProductSchema, type CreateProductInput, type ListQuery, type UpdateProductInput } from './products.validation';
 
 export const productsRouter = Router();
-productsRouter.use(requireAuth, tenant);
+productsRouter.use(shopAuth);
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 const view = requirePermission('products', 'view');

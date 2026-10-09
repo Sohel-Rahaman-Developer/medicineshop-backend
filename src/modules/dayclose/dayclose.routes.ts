@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched } from '../../core/response';
 import { actorOf } from '../user/actor';
@@ -9,7 +8,7 @@ import * as svc from './dayclose.service';
 
 // PLAN §35.3: the counter closes its own drawer (pos:create); who else sees it is Q24.
 export const dayCloseRouter = Router();
-dayCloseRouter.use(requireAuth, tenant);
+dayCloseRouter.use(shopAuth);
 const counter = requirePermission('pos', 'create');
 
 dayCloseRouter.get(

@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -10,7 +9,7 @@ import { actorOf } from '../user/actor';
 import * as svc from './categories.service';
 
 export const categoriesRouter = Router();
-categoriesRouter.use(requireAuth, tenant);
+categoriesRouter.use(shopAuth);
 
 const createSchema = z.object({ name: z.string().trim().min(2, 'Give the category a name').max(40).transform((v) => v.replace(/\s+/g, ' ')) }).strict();
 

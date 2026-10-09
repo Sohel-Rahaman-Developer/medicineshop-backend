@@ -1,5 +1,5 @@
 import type { TenantContext } from '../../core/middleware/tenant';
-import { istDayStart, istIsoDay } from '../../utils/date';
+import { dayLabel, istDayStart, istIsoDay, monthLabel } from '../../utils/date';
 import { inr } from '../../utils/money';
 import { CustomerModel } from '../customers/customer.model';
 import { DayCloseModel } from '../dayclose/dayclose.model';
@@ -81,7 +81,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
           body: from === null ? 'Expired stock can’t be sold. Return it to the supplier or write it off.' : 'Sell these first or return them to the supplier in time.',
           route: `/expiry?bucket=${bucket}`,
           action: 'Open expiry',
-          items: rows.slice(0, 3).map((b) => ({ text: names.get(String(b.productId)) ?? '', sub: `Batch ${b.batchNumber} · ${istIsoDay(b.expiryDate)}` })),
+          items: rows.slice(0, 3).map((b) => ({ text: names.get(String(b.productId)) ?? '', sub: `Batch ${b.batchNumber} · exp ${monthLabel(b.expiryDate)}` })),
           at: at8,
         }),
       );
@@ -139,13 +139,13 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
       out.push(alert('LOYALTY_SETUP', { key: 'LOYALTY_SETUP', priority: 'medium', title: 'Loyalty points are not set up', body: 'Decide what a point is worth — until then customers earn no points.', route: '/loyalty', action: 'Set up points', at: at8 }));
     }
     const dl = shop ? Math.ceil((shop.drugLicenseExpiry.getTime() - now.getTime()) / DAY) : 999;
-    if (dl < 0) out.push(alert('DL_EXPIRY', { key: `DL_EXPIRED:${day}`, priority: 'critical', title: `Drug licence expired on ${istIsoDay(shop?.drugLicenseExpiry ?? now)}`, body: 'Selling medicines needs a valid licence. Update it in Settings → Shop profile.', route: '/settings', action: 'Update licence', at: at8 }));
-    else if (dl <= 60) out.push(alert('DL_EXPIRY', { key: `DL_SOON:${day}`, priority: 'high', title: `Drug licence expires in ${plural(dl, 'day')}`, body: `On ${istIsoDay(shop?.drugLicenseExpiry ?? now)}. Apply for renewal now — it takes weeks.`, route: '/settings', action: 'Shop profile', at: at8 }));
+    if (dl < 0) out.push(alert('DL_EXPIRY', { key: `DL_EXPIRED:${day}`, priority: 'critical', title: `Drug licence expired on ${dayLabel(shop?.drugLicenseExpiry ?? now)}`, body: 'Selling medicines needs a valid licence. Update it in Settings → Shop profile.', route: '/settings', action: 'Update licence', at: at8 }));
+    else if (dl <= 60) out.push(alert('DL_EXPIRY', { key: `DL_SOON:${day}`, priority: 'high', title: `Drug licence expires in ${plural(dl, 'day')}`, body: `On ${dayLabel(shop?.drugLicenseExpiry ?? now)}. Apply for renewal now — it takes weeks.`, route: '/settings', action: 'Shop profile', at: at8 }));
 
     const sub = t.subscription;
     const left = Math.ceil((sub.endDate.getTime() - now.getTime()) / DAY);
     if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: `Subscription ${sub.status} — read-only`, body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
-    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${istIsoDay(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
+    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${dayLabel(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
 
     // B8c: a failed autopay charge — Razorpay retries (pending), then gives up (halted); the plan screen has the fix.
     const auto = await AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean();

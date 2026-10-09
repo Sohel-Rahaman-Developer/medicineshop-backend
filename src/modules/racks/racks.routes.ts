@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -14,7 +13,7 @@ import { STORAGE_TYPES } from './rack.model';
 import * as svc from './racks.service';
 
 export const racksRouter = Router();
-racksRouter.use(requireAuth, tenant);
+racksRouter.use(shopAuth);
 
 const rackSchema = z
   .object({

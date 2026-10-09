@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -13,7 +12,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 // PLAN §22: settings and manual points need loyalty:edit (D23); the counter's redeem is checked on the bill.
 export const loyaltyRouter = Router();
-loyaltyRouter.use(requireAuth, tenant);
+loyaltyRouter.use(shopAuth);
 const view = requirePermission('loyalty', 'view');
 const edit = requirePermission('loyalty', 'edit');
 

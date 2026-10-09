@@ -4,8 +4,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { tenant, tenantOf, type TenantContext } from '../../core/middleware/tenant';
+import { shopAuth, tenantOf, type TenantContext } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched } from '../../core/response';
 import { istDay, LIMIT, objectId } from '../../core/zod';
@@ -30,7 +29,7 @@ type ListQuery = z.infer<typeof listSchema>;
 const ownerManager = (t: TenantContext) => t.isOwner || t.roleKey === 'owner' || t.roleKey === 'manager';
 
 export const auditRouter = Router();
-auditRouter.use(requireAuth, tenant, (req, _res, next) => {
+auditRouter.use(shopAuth, (req, _res, next) => {
   next(ownerManager(tenantOf(req)) ? undefined : AppError.forbidden('Only the Owner or Manager can see the audit log'));
 });
 

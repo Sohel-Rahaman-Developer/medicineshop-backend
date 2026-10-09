@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched } from '../../core/response';
 import { istDay } from '../../core/zod';
@@ -53,7 +52,7 @@ const cellValue = (col: Col, v: Cell | undefined): string | number => {
 
 // PLAN §20 / sandbox money.js: P&L and the day book need reports:view (the same gate as seeing cost).
 export const reportsRouter = Router();
-reportsRouter.use(requireAuth, tenant, requirePermission('reports', 'view'));
+reportsRouter.use(shopAuth, requirePermission('reports', 'view'));
 
 reportsRouter.get(
   '/pnl',

@@ -15,7 +15,7 @@ import { BatchModel } from '../stock/batch.model';
 import { expiryRange, NO_EXPIRY } from '../stock/stock.domain';
 import { MovementModel } from '../stock/movement.model';
 import { SupplierModel } from '../suppliers/supplier.model';
-import { daybook, pnl } from './pnl.service';
+import { daybook, pnl, pnlByDay } from './pnl.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX = 5000;
@@ -82,12 +82,10 @@ const REPORTS: Report[] = [
     note: 'Revenue is ex-GST and net of returns; cost is each batch’s landing cost.',
     cols: [c('day', 'Day', 'date'), c('bills', 'Bills', 'num'), c('revenue', 'Revenue', 'money'), c('cost', 'Cost', 'money'), c('profit', 'Profit', 'money'), c('margin', 'Margin %', 'pct')],
     rows: async (t, p) => {
-      const out: Row[] = [];
-      for (let d = p.from; d < end(p); d = new Date(d.getTime() + DAY)) {
-        const x = await pnl(t, d, d);
-        if (x.bills || x.returns) out.push({ day: istIsoDay(d), bills: x.bills, revenue: x.revenue, cost: x.cogs, profit: x.gross, margin: x.grossPct });
-      }
-      const rows = out.reverse();
+      const rows: Row[] = (await pnlByDay(t, p.from, p.to))
+        .filter((x) => x.bills || x.returns)
+        .map((x) => ({ day: x.day, bills: x.bills, revenue: x.revenue, cost: x.cogs, profit: x.gross, margin: x.grossPct }))
+        .reverse();
       const tot = totalRow(rows, { day: 'Total' }, ['bills', 'revenue', 'cost', 'profit']);
       const last = tot.at(-1);
       if (last?.__total) last.margin = pct(Number(last.profit), Number(last.revenue));
@@ -191,9 +189,12 @@ const REPORTS: Report[] = [
     rows: async (t) => {
       const g = await BatchModel.aggregate<{ _id: string; cost: number; mrp: number }>([
         { $match: { shopId: t.shopId, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: new Date() } } },
-        { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'p', pipeline: [{ $project: { categoryId: 1 } }] } },
-        { $lookup: { from: 'categories', localField: 'p.categoryId', foreignField: '_id', as: 'c', pipeline: [{ $project: { name: 1 } }] } },
-        { $group: { _id: { $ifNull: [{ $first: '$c.name' }, 'Other'] }, cost: { $sum: { $multiply: ['$quantity', '$costPerBaseUnit'] } }, mrp: { $sum: { $floor: { $add: [{ $divide: [{ $multiply: ['$mrp', '$quantity'] }, '$salePack'] }, 0.5] } } } } },
+        // Summed per product, then per category, so the lookups run once per product and category, not per batch.
+        { $group: { _id: '$productId', cost: { $sum: { $multiply: ['$quantity', '$costPerBaseUnit'] } }, mrp: { $sum: { $floor: { $add: [{ $divide: [{ $multiply: ['$mrp', '$quantity'] }, '$salePack'] }, 0.5] } } } } },
+        { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'p', pipeline: [{ $project: { categoryId: 1 } }] } },
+        { $group: { _id: { $first: '$p.categoryId' }, cost: { $sum: '$cost' }, mrp: { $sum: '$mrp' } } },
+        { $lookup: { from: 'categories', localField: '_id', foreignField: '_id', as: 'c', pipeline: [{ $project: { name: 1 } }] } },
+        { $group: { _id: { $ifNull: [{ $first: '$c.name' }, 'Other'] }, cost: { $sum: '$cost' }, mrp: { $sum: '$mrp' } } },
         { $sort: { cost: -1 } },
       ]);
       return totalRow(g.map((x) => ({ category: x._id, cost: x.cost, mrp: x.mrp, potential: x.mrp - x.cost })), { category: 'Total' }, ['cost', 'mrp', 'potential']);

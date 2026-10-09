@@ -96,6 +96,14 @@ export async function pnl(t: TenantContext, from: Date, to: Date) {
   return { from: istIsoDay(from), to: istIsoDay(to), ...compute(await parts(t.shopId, from, new Date(to.getTime() + DAY), false), null) };
 }
 
+/** The same P&L for every day of a range, read in one pass (oldest first). */
+export async function pnlByDay(t: TenantContext, from: Date, to: Date) {
+  const p = await parts(t.shopId, from, new Date(to.getTime() + DAY), true);
+  const out = [];
+  for (let d = from; d <= to; d = new Date(d.getTime() + DAY)) out.push({ day: istIsoDay(d), ...compute(p, istIsoDay(d)) });
+  return out;
+}
+
 const monthStart = (y: number, m: number) => new Date(Date.UTC(y, m, 1) - IST);
 
 /** The last 4 months; a month before the shop started is "partial", the running month is "so far". */
@@ -103,15 +111,14 @@ export async function months(t: TenantContext, now = new Date()) {
   const ist = new Date(now.getTime() + IST);
   const shop = await ShopModel.findById(t.shopId).select('createdAt').lean<{ createdAt?: Date }>();
   const started = shop?.createdAt ? new Date(Math.floor((shop.createdAt.getTime() + IST) / DAY) * DAY - IST) : new Date(0);
-  const out = [];
-  for (let back = 3; back >= 0; back--) {
+  const backs = [3, 2, 1, 0];
+  const all = await Promise.all(backs.map((back) => parts(t.shopId, monthStart(ist.getUTCFullYear(), ist.getUTCMonth() - back), monthStart(ist.getUTCFullYear(), ist.getUTCMonth() - back + 1), false)));
+  return backs.map((back, i) => {
     const a = monthStart(ist.getUTCFullYear(), ist.getUTCMonth() - back);
-    const b = monthStart(ist.getUTCFullYear(), ist.getUTCMonth() - back + 1);
-    const p = compute(await parts(t.shopId, a, b, false), null);
+    const p = compute(all[i] as Parts, null);
     const partial = a < started;
-    out.push({ month: istIsoDay(a).slice(0, 7), current: back === 0, partial, closed: back > 0 && !partial, revenue: p.revenue, gross: p.gross, grossPct: p.grossPct, expenses: p.expenses, writeOff: p.writeOff, points: p.points, net: p.net });
-  }
-  return out;
+    return { month: istIsoDay(a).slice(0, 7), current: back === 0, partial, closed: back > 0 && !partial, revenue: p.revenue, gross: p.gross, grossPct: p.grossPct, expenses: p.expenses, writeOff: p.writeOff, points: p.points, net: p.net };
+  });
 }
 
 /** PLAN §35.6 day book: every day of a month (to today) — its total row is the month's P&L to the paisa. */
@@ -119,7 +126,7 @@ export async function daybook(t: TenantContext, month: string, now = new Date())
   const [y = 0, m = 1] = month.split('-').map(Number);
   const a = monthStart(y, m - 1);
   const b = monthStart(y, m);
-  const p = await parts(t.shopId, a, b, true);
+  const [p, whole] = await Promise.all([parts(t.shopId, a, b, true), parts(t.shopId, a, b, false)]);
   const today = istIsoDay(now);
   const days = [];
   for (let d = a; d < b; d = new Date(d.getTime() + DAY)) {
@@ -128,6 +135,6 @@ export async function daybook(t: TenantContext, month: string, now = new Date())
     const c = compute(p, key);
     days.push({ day: key, bills: c.bills, sales: c.sales, returns: c.returns, purchases: c.purchases, gross: c.gross, expenses: c.expenses, writeOff: c.writeOff, points: c.points, net: c.net });
   }
-  const total = compute(await parts(t.shopId, a, b, false), null);
+  const total = compute(whole, null);
   return { month, days, total: { bills: total.bills, sales: total.sales, returns: total.returns, purchases: total.purchases, gross: total.gross, expenses: total.expenses, writeOff: total.writeOff, points: total.points, net: total.net } };
 }

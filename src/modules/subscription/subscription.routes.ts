@@ -2,8 +2,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { AppError } from '../../core/errors';
@@ -24,7 +23,7 @@ export const plansRouter = Router();
 plansRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.plans()); }));
 
 export const subscriptionRouter = Router();
-subscriptionRouter.use(requireAuth, tenant);
+subscriptionRouter.use(shopAuth);
 const view = requirePermission('subscription', 'view');
 const edit = requirePermission('subscription', 'edit');
 

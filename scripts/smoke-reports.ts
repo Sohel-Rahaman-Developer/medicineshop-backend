@@ -44,11 +44,14 @@ async function main() {
   const accountant = await invite('meera@rep1.test', 'accountant');
 
   const cats = data<{ id: string; name: string }[]>(await owner.get('/categories'));
-  const mk = async (name: string, gstRate: number, scheduleType = 'OTC') => data<{ id: string }>(await owner.post('/products', { name, company: 'Micro Labs', salt: name, strength: '', categoryId: cats.find((c) => c.name === 'Tablet')?.id, scheduleType, storageType: 'NORMAL', hsnCode: '30049099', gstRate, units: units15, packSize: '', defaultRack: '', reorderLevel: 0, reorderQuantity: 0 })).id;
+  const mk = async (name: string, gstRate: number, scheduleType = 'OTC', category = 'Tablet') => data<{ id: string }>(await owner.post('/products', { name, company: 'Micro Labs', salt: name, strength: '', categoryId: cats.find((c) => c.name === category)?.id, scheduleType, storageType: 'NORMAL', hsnCode: '30049099', gstRate, units: units15, packSize: '', defaultRack: '', reorderLevel: 0, reorderQuantity: 0 })).id;
   const dolo = await mk('Dolo 650 Tablet', 12);
   const alprax = await mk('Alprax 0.25', 5, 'H1');
+  // A second category, so the valuation report has two groups to keep apart.
+  const syrup = await mk('Benadryl Syrup', 12, 'OTC', 'Syrup');
   await owner.post('/stock/opening', { clientRequestId: randomUUID(), rack: '', productId: dolo, batchNumber: 'DL1', expiry: '2028-12', quantity: 150, mrp: 3000, purchaseRate: 1950 });
   await owner.post('/stock/opening', { clientRequestId: randomUUID(), rack: '', productId: alprax, batchNumber: 'AX1', expiry: '2028-12', quantity: 45, mrp: 5000, purchaseRate: 3000 });
+  await owner.post('/stock/opening', { clientRequestId: randomUUID(), rack: '', productId: syrup, batchNumber: 'BD1', expiry: '2028-12', quantity: 22, mrp: 14_300, purchaseRate: 10_100 });
   const apollo = data<{ id: string }>(await owner.post('/customers', { name: 'Dr Sen', phone: '98300 11111', gstin: '19AAACA1234B1Z5', businessName: 'Apollo Clinic' }));
   const sell = (body: Record<string, unknown>) => owner.post('/sales', { clientRequestId: randomUUID(), payments: [], ...body });
   const a = await sell({ items: [{ productId: dolo, quantity: 2, unit: 'STRIP' }], payments: [{ mode: 'CASH', amount: 6000 }] });
@@ -62,7 +65,7 @@ async function main() {
   await owner.post('/expenses', { clientRequestId: randomUUID(), date: isoDay(), category: 'Rent', description: '', amount: 12_000, paymentMode: 'UPI', fromDrawer: false, vendor: '', referenceNumber: '' });
   const range = `from=${isoDay()}&to=${isoDay()}`;
   const rep = async (key: string, q = range) => data<Report>(await owner.get(`/reports/r/${key}?${q}`));
-  const P = data<{ salesTaxable: number; revenue: number; salesGst: number; returnsGst: number; net: number }>(await owner.get(`/reports/pnl?${range}`));
+  const P = data<{ bills: number; gross: number; salesTaxable: number; revenue: number; salesGst: number; returnsGst: number; net: number }>(await owner.get(`/reports/pnl?${range}`));
 
   section('1. The catalog and who may');
   const cat = data<{ key: string }[]>(await owner.get('/reports/catalog'));
@@ -80,6 +83,8 @@ async function main() {
   const h1 = await rep('h1');
   check('H1 register: Alprax for Mita Das by Dr A Roy, 15 tablets', h1.count === 1 && h1.rows[0]?.patient === 'Mita Das' && h1.rows[0].doctor === 'Dr A Roy' && h1.rows[0].qty === 15, JSON.stringify(h1.rows[0]));
   check('staff report: Rohit, 3 bills', (await rep('staff')).rows[0]?.bills === 3);
+  const ss = await rep('sales-summary', `from=${isoDay(-2)}&to=${isoDay()}`);
+  check('sales summary over 3 days: one row, today — 3 bills, revenue and profit = the P&L', ss.count === 1 && ss.rows[0]?.day === isoDay() && ss.rows[0].bills === 3 && P.bills === 3 && ss.rows[0].revenue === P.revenue && ss.rows[0].profit === P.gross && P.gross !== P.revenue, JSON.stringify(ss.rows[0]));
 
   section('3. GST by each line’s own rate, returns taken out');
   const gs = await rep('gst-sales');
@@ -108,6 +113,15 @@ async function main() {
   check('day book report total = day book', dbk.total?.net === dbApi.total.net);
   const batches = await BatchModel.find({ shopId: shop1, status: 'active', quantity: { $gt: 0 } }).lean();
   const soh = await rep('stock-on-hand', '');
+  const val = await rep('valuation', '');
+  const group = (ids: string[]) => {
+    const mine = batches.filter((x) => ids.includes(String(x.productId)));
+    return { cost: mine.reduce((s, x) => s + x.quantity * x.costPerBaseUnit, 0), mrp: mine.reduce((s, x) => s + Math.floor((x.mrp * x.quantity) / x.salePack + 0.5), 0) };
+  };
+  const tab = group([dolo, alprax]);
+  const syr = group([syrup]);
+  const vRow = (name: string) => val.rows.find((r) => r.category === name);
+  check('valuation report: Tablet (Dolo + Alprax) and Syrup each = Σ their batches; nothing else', val.count === 2 && vRow('Tablet')?.cost === tab.cost && vRow('Tablet')?.mrp === tab.mrp && vRow('Syrup')?.cost === syr.cost && vRow('Syrup')?.mrp === syr.mrp && syr.cost > 0 && val.total?.cost === tab.cost + syr.cost, JSON.stringify(val.rows));
   check('stock on hand: cost total = Σ batch qty × cost', soh.total?.cost === batches.reduce((s, x) => s + x.quantity * x.costPerBaseUnit, 0) && soh.count === batches.length, String(soh.total?.cost));
 
   section('6. Exports');

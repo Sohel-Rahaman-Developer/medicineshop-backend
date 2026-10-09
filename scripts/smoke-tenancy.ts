@@ -218,6 +218,17 @@ async function main() {
   check('suspended shop → 403', (await owner.get('/staff')).status === 403);
   await ShopModel.updateOne({ _id: shop1 }, { $set: { status: 'active' } });
 
+  section('11b. A signed-out session, whatever shop it names');
+  const later = await h.signIn('rohit@shop1.test');
+  const cookie = `ms_at=${later.jar.get('ms_at') ?? ''}`;
+  const bare = h.client();
+  const asShop = async (shop: string) => (await bare.raw('GET', '/staff', undefined, { cookie, 'x-shop-id': shop })).status;
+  const before = [await asShop(shop1), await asShop(shop2), await asShop('nope')];
+  check('while signed in: own shop 200, another shop 403, no shop 400', before.join() === '200,403,400', before.join());
+  check('sign out', (await later.post('/auth/logout')).status === 200);
+  const after = [await asShop(shop1), await asShop(shop2), await asShop('nope')];
+  check('the same cookie after sign-out → 401 for own shop, another shop and no shop', after.join() === '401,401,401', after.join());
+
   section('12. Guards in the code itself');
   let threw = false;
   try {

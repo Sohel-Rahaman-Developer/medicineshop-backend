@@ -13,8 +13,7 @@ import * as svc from './admin.service';
 import { platform } from './platform';
 import * as support from './support';
 import { sendFilesZip } from '../attachments/files-zip';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { tenant, tenantOf } from '../../core/middleware/tenant';
+import { shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { actorOf } from '../user/actor';
 import { istDay } from '../../core/zod';
 import { CHANGELOG } from '../release/changelog';
@@ -137,6 +136,6 @@ platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { c
 
 /** Shop side (owner): see MedShop's requests, approve / deny / stop. */
 export const supportAccessRouter = Router();
-supportAccessRouter.use(requireAuth, tenant);
+supportAccessRouter.use(shopAuth);
 supportAccessRouter.get('/', asyncHandler(async (req: Request, res: Response) => { fetched(res, await support.forShop(tenantOf(req))); }));
 supportAccessRouter.post('/:id/:decision', validate({ params: z.object({ id: objectId, decision: z.enum(['approve', 'deny', 'revoke']) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const p = req.params as { id: string; decision: 'approve' | 'deny' | 'revoke' }; sent(res, await support.decide(tenantOf(req), await actorOf(req), p.id, p.decision, req.ip), p.decision === 'approve' ? 'Access given' : p.decision === 'deny' ? 'Request denied' : 'Access stopped'); }));

@@ -2,8 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -16,7 +15,7 @@ const verifySchema = z.object({ orderId: z.string().trim().min(6).max(60), payme
 
 // D78: AI coins. The bill screen asks /offer (purchases); the coins page and buying are the plan's (subscription).
 export const aiRouter = Router();
-aiRouter.use(requireAuth, tenant);
+aiRouter.use(shopAuth);
 const view = requirePermission('subscription', 'view');
 const edit = requirePermission('subscription', 'edit');
 

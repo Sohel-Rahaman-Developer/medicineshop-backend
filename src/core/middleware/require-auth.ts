@@ -1,5 +1,5 @@
 // requireAuth — verifies the access token from the httpOnly `ms_at` cookie.
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { readCookie } from '../cookies';
 import { AppError } from '../errors';
 import { verifyAccessToken } from '../../modules/auth/token.service';
@@ -15,21 +15,29 @@ declare global {
   }
 }
 
-// One indexed read per request so sign-out, suspension and removal take effect at once, not after 15 minutes.
-export const requireAuth: RequestHandler = (req, _res, next) => {
+/** The signed claims of the access cookie; throws when it is missing or does not verify. */
+export function claimsOf(req: Request): { sub: string; sid: string } {
   const token = readCookie(req, ACCESS_COOKIE);
-  if (!token) return next(AppError.unauthenticated('Please sign in to continue'));
+  if (!token) throw AppError.unauthenticated('Please sign in to continue');
+  return verifyAccessToken(token);
+}
 
-  let payload: { sub: string; sid: string };
+// One indexed read per request so sign-out, suspension and removal take effect at once, not after 15 minutes.
+export async function checkSession(claims: { sub: string; sid: string }): Promise<void> {
+  const live = await SessionModel.exists({ _id: claims.sid, userId: claims.sub, revokedAt: null, expiresAt: { $gt: new Date() } });
+  if (!live) throw AppError.unauthenticated('This session has ended. Please sign in again.');
+}
+
+export const requireAuth: RequestHandler = (req, _res, next) => {
+  let claims: { sub: string; sid: string };
   try {
-    payload = verifyAccessToken(token);
+    claims = claimsOf(req);
   } catch (err) {
     return next(err);
   }
-  SessionModel.exists({ _id: payload.sid, userId: payload.sub, revokedAt: null, expiresAt: { $gt: new Date() } })
-    .then((live) => {
-      if (!live) return next(AppError.unauthenticated('This session has ended. Please sign in again.'));
-      req.auth = { userId: payload.sub, sessionId: payload.sid };
+  checkSession(claims)
+    .then(() => {
+      req.auth = { userId: claims.sub, sessionId: claims.sid };
       next();
     })
     .catch(next);

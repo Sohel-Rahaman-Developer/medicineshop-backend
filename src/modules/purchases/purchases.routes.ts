@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -35,7 +34,7 @@ export const photoSchema = z.object({ photo: z.string().max(820_000, 'That photo
 const idOf = (req: Request) => (req.params as { id: string }).id;
 
 export const purchasesRouter = Router();
-purchasesRouter.use(requireAuth, tenant);
+purchasesRouter.use(shopAuth);
 const view = requirePermission('purchases', 'view');
 const create = requirePermission('purchases', 'create');
 
@@ -172,7 +171,7 @@ purchasesRouter.post(
 );
 
 export const returnsRouter = Router();
-returnsRouter.use(requireAuth, tenant);
+returnsRouter.use(shopAuth);
 
 returnsRouter.get(
   '/',

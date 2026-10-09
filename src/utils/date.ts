@@ -32,6 +32,12 @@ export function istIsoDay(at: Date): string {
   return `${String(ist.getUTCFullYear())}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
 }
 
+/** "16 Oct 2026" in IST, for messages. */
+export function dayLabel(at: Date): string {
+  const [y = '', m = '1', d = ''] = istIsoDay(at).split('-');
+  return `${String(Number(d))} ${MONTHS[Number(m) - 1] ?? ''} ${y}`;
+}
+
 /** 00:00 IST of the day an instant falls in. */
 export const istDayStart = (at: Date) => new Date(Math.floor((at.getTime() + IST_OFFSET_MS) / 86_400_000) * 86_400_000 - IST_OFFSET_MS);
 

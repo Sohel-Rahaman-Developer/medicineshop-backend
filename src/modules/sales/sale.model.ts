@@ -127,6 +127,7 @@ saleSchema.index({ shopId: 1, 'lines.batchId': 1 });
 saleSchema.index({ shopId: 1, fy: 1 });
 saleSchema.index({ shopId: 1, customerId: 1, billDate: -1 });
 saleSchema.index({ shopId: 1, customerId: 1, dueAmount: 1 }, { partialFilterExpression: { dueAmount: { $gt: 0 } } });
+saleSchema.index({ shopId: 1, cancelledAt: 1 }, { partialFilterExpression: { cancelledAt: { $exists: true } } });
 saleSchema.plugin(tenantScoped);
 
 export const SaleModel = model('Sale', saleSchema);

@@ -10,6 +10,27 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.8.0',
+    date: '2026-10-09',
+    title: 'Faster and more polished',
+    shop: [
+      'The app opens faster: about a quarter less to download at the start, and charts load lighter.',
+      'Reports over many days (Sales summary, month-wise P&L, Day book) and Stock valuation come back much faster.',
+      'Lists stay on screen while you search or change a filter, instead of blinking empty.',
+      'A bill from another day shows its date as well as the time (Dashboard, Sales).',
+      'Payments read Cash, UPI, Card, Udhaar or Split everywhere; counts read right (1 customer, 1 visit, 1 line).',
+      'Charts: dates along the bottom no longer pile up on a phone; the hourly heatmap draws again and suits dark mode.',
+      'On a phone the Save button sits above the New bill button; Purchase from bill keeps its bar at the bottom.',
+      'POS tiles show product names on two lines; P&L shows dates like 9 Sept – 8 Oct 2026; alerts say “exp Dec 2026”.',
+    ],
+    admin: ['Lighter to load.'],
+    api: [
+      'Every shop request checks the sign-in and the shop together (one database round trip, not three); POS search sends its lookups together.',
+      'GET /health pings the database and gives db.pingMs; no answer in 3 seconds makes it 503.',
+      'proxy-addr 2.0.8 (security fix in Express’s client-IP handling).',
+    ],
+  },
+  {
     version: '1.7.0',
     date: '2026-10-06',
     title: 'Refer a shop',

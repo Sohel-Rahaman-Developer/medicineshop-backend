@@ -89,16 +89,17 @@ async function purchaseVsSale(t: TenantContext, now: Date) {
   const today0 = istDayStart(now);
   const weeks = Array.from({ length: 12 }, (_, i) => new Date(today0.getTime() - (11 - i) * 7 * DAY - 6 * DAY));
   const start = weeks[0] ?? today0;
+  // Summed per week in the database; a busy shop has thousands of bills in 12 weeks.
+  const week = (date: string, value: string) => [{ $group: { _id: { $min: [11, { $floor: { $divide: [{ $subtract: [date, start] }, 7 * DAY] } }] }, v: { $sum: value } } }];
   const [p, s, r] = await Promise.all([
-    PurchaseModel.find({ shopId: t.shopId, status: 'active', invoiceDate: { $gte: start } }).select('invoiceDate taxableAmount').lean(),
-    SaleModel.find({ shopId: t.shopId, billDate: { $gte: start }, ...live }).select('billDate totalCost').lean(),
-    SaleReturnModel.find({ shopId: t.shopId, returnDate: { $gte: start } }).select('returnDate totalCost').lean(),
+    PurchaseModel.aggregate<{ _id: number; v: number }>([{ $match: { shopId: t.shopId, status: 'active', invoiceDate: { $gte: start } } }, ...week('$invoiceDate', '$taxableAmount')]),
+    SaleModel.aggregate<{ _id: number; v: number }>([{ $match: { shopId: t.shopId, billDate: { $gte: start }, ...live } }, ...week('$billDate', '$totalCost')]),
+    SaleReturnModel.aggregate<{ _id: number; v: number }>([{ $match: { shopId: t.shopId, returnDate: { $gte: start } } }, ...week('$returnDate', '$totalCost')]),
   ]);
-  const at = (d: Date) => Math.min(11, Math.floor((d.getTime() - start.getTime()) / (7 * DAY)));
   const out = weeks.map((w) => ({ week: istIsoDay(w), purchases: 0, cogs: 0 }));
-  for (const x of p) { const o = out[at(x.invoiceDate)]; if (o) o.purchases += x.taxableAmount; }
-  for (const x of s) { const o = out[at(x.billDate)]; if (o) o.cogs += x.totalCost; }
-  for (const x of r) { const o = out[at(x.returnDate)]; if (o) o.cogs -= x.totalCost; }
+  for (const x of p) { const o = out[x._id]; if (o) o.purchases += x.v; }
+  for (const x of s) { const o = out[x._id]; if (o) o.cogs += x.v; }
+  for (const x of r) { const o = out[x._id]; if (o) o.cogs -= x.v; }
   return out;
 }
 

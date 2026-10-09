@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requireAuth } from '../../core/middleware/require-auth';
-import { requirePermission, tenant, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -32,7 +31,7 @@ const userOf = (req: Request) => {
 };
 
 export const posRouter = Router();
-posRouter.use(requireAuth, tenant);
+posRouter.use(shopAuth);
 
 posRouter.get(
   '/search',
@@ -53,7 +52,7 @@ posRouter.get(
 );
 
 export const salesRouter = Router();
-salesRouter.use(requireAuth, tenant);
+salesRouter.use(shopAuth);
 const view = requirePermission('sales', 'view');
 
 salesRouter.post(
@@ -118,7 +117,7 @@ salesRouter.post(
 );
 
 export const saleReturnsRouter = Router();
-saleReturnsRouter.use(requireAuth, tenant);
+saleReturnsRouter.use(shopAuth);
 
 // PLAN §15: sales:create starts a return (an accountant can't); the record scope applies to the bill.
 saleReturnsRouter.post(
