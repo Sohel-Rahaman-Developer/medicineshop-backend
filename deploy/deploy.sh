@@ -11,6 +11,8 @@ API_PORT=${MEDSHOP_API_PORT:-5300}
 API_URL=${MEDSHOP_API_URL:-https://api.medbox24.in/api/v1}
 # Canonical links, sitemap and share cards of the public site.
 SITE_URL=${MEDSHOP_SITE_URL:-https://medbox24.in}
+# Google Analytics on the public pages only; MEDSHOP_GA_ID= (empty) turns it off.
+GA_ID=${MEDSHOP_GA_ID-G-W53CDNKHCS}
 # gh-pharma-<repo> host aliases (one deploy key each), or plain github.com when the account key can read all three
 GH_HOST=${MEDSHOP_GH_HOST:-alias}
 ROOT=$MEDSHOP_ROOT
@@ -48,7 +50,11 @@ npm run build --silent
 for app in frontend admin; do
   step "$([ "$app" = frontend ] && echo "Shop app" || echo "Admin") — install + build"
   cd "$ROOT/$app"
-  printf 'NEXT_PUBLIC_API_BASE_URL=%s\nNEXT_PUBLIC_SITE_URL=%s\n' "$API_URL" "$SITE_URL" > .env.production.local
+  if [ "$app" = frontend ]; then
+    printf 'NEXT_PUBLIC_API_BASE_URL=%s\nNEXT_PUBLIC_SITE_URL=%s\nNEXT_PUBLIC_GA_ID=%s\n' "$API_URL" "$SITE_URL" "$GA_ID" > .env.production.local
+  else
+    printf 'NEXT_PUBLIC_API_BASE_URL=%s\n' "$API_URL" > .env.production.local
+  fi
   npm ci --no-fund --no-audit --loglevel=error
   npm run build --silent
 done

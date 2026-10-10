@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.11.1',
+    date: '2026-10-11',
+    title: 'One look for the MedBox24 name',
+    shop: [
+      'The name reads the same everywhere, as in the logo: “MedBox” in navy and “24” in teal (white and bright teal in dark mode).',
+      'The public pages count visits with Google Analytics and tell search engines the company name and logo; the app itself sends nothing to Google.',
+    ],
+    admin: ['MedBox24 Admin in the same two colours.'],
+    api: ['Deploy writes NEXT_PUBLIC_GA_ID for the shop build (public pages only; MEDSHOP_GA_ID empty turns it off).'],
+  },
+  {
     version: '1.11.0',
     date: '2026-10-11',
     title: 'MedShop is now MedBox24',
