@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.12.0',
+    date: '2026-10-11',
+    title: 'A new medbox24.in, with a product tour',
+    shop: [
+      'The public site has a new look that fills big monitors and laptops, with real screens from a medical store.',
+      'A product tour on medbox24.in walks through nine screens — dashboard, billing, purchase from the supplier’s bill, expiry, udhaar, GST, day close, Ask your shop, staff — and says where to find each one.',
+      'Five pages for owners searching for pharmacy billing, medical store, GST billing, inventory and expiry software, in English, Hindi and Bengali.',
+      'Two free tools: a medicine GST calculator (CGST, SGST or IGST from an MRP) and a pharmacy margin calculator.',
+      'A product guide for the MedBox24 team to share: medbox24.in/medbox24-guide.pdf.',
+    ],
+    admin: ['No change.'],
+    api: ['No change. The sitemap now lists 24 public pages; analytics and indexing cover only those pages.'],
+  },
+  {
     version: '1.11.1',
     date: '2026-10-11',
     title: 'One look for the MedBox24 name',
