@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.9.0',
+    date: '2026-10-10',
+    title: 'Feels like an app on the phone',
+    shop: [
+      'Android’s Back button closes an open sheet or dialog instead of leaving the screen.',
+      'On a phone, drag a sheet down by its top to close it.',
+      'Pull a screen down from the top to refresh it: only its data is fetched again, nothing typed is lost.',
+      'Lists load the next page as you scroll; coming back to a list puts you where you were.',
+      'A short buzz on Android when an item goes on the bill, a barcode is read or a bill is saved.',
+      'Screens fade in softly (not when the phone is set to reduce motion); “Back online” shows when the network returns.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.8.0',
     date: '2026-10-09',
     title: 'Faster and more polished',
