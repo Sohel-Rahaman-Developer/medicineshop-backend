@@ -35,7 +35,7 @@ async function main() {
   const { ShopModel } = await import('../src/modules/shops/shop.model.js');
   const { SupportAccessModel } = await import('../src/modules/admin/support.js');
   const { emit } = await import('../src/modules/notifications/notifications.service.js');
-  /** Shop suite: MedShop support asks to look at the named shop; console suite: its own admin, already allowed. */
+  /** Shop suite: MedBox24 support asks to look at the named shop; console suite: its own admin, already allowed. */
   const seedSupport = async (b: { shopName?: string; adminEmail?: string; approve?: boolean }) => {
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop) throw new Error('shop not found');
@@ -44,7 +44,7 @@ async function main() {
     const now = new Date();
     const d = await SupportAccessModel.create({ shopId: shop._id, adminUserId: admin._id, agentName: admin.name, reason: 'Owner asked about a bill total', hours: 4, ...(b.approve ? { status: 'approved', decidedBy: 'Shop Owner', decidedAt: now, startedAt: now, endsAt: new Date(now.getTime() + 4 * 3_600_000) } : {}) });
     if (b.approve) return;
-    await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: 'MedShop support asks to look at your shop for 4 h', body: 'Approve or deny in Settings → Support access.', route: '/settings/support', roles: ['owner'] });
+    await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: 'MedBox24 support asks to look at your shop for 4 h', body: 'Approve or deny in Settings → Support access.', route: '/settings/support', roles: ['owner'] });
   };
 
   const { SessionModel } = await import('../src/modules/auth/models/session.model.js');
@@ -67,7 +67,7 @@ async function main() {
     if (!b.shopName || !b.coins) return;
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop) throw new Error('shop not found');
-    await inTransaction((session) => moveCoins(shop._id, 'grant', b.coins ?? 0, 'E2E coins', 'MedShop · E2E', 'e2e', session));
+    await inTransaction((session) => moveCoins(shop._id, 'grant', b.coins ?? 0, 'E2E coins', 'MedBox24 · E2E', 'e2e', session));
   };
 
   /** Chat suite (D81): AI questions on with the stand-in's key (every project, any order). */

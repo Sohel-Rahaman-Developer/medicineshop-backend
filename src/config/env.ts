@@ -52,7 +52,7 @@ const schema = z.object({
   JOBS_ENABLED: boolish(true),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  MAIL_FROM_NAME: z.string().default('Medicine Shop'),
+  MAIL_FROM_NAME: z.string().default('MedBox24'),
   MAIL_FROM_EMAIL: z.string().default('no-reply@example.com'),
   /** Local login without reading the terminal: every OTP is this code. Refused outside development. */
   DEV_STATIC_OTP: z.string().optional().transform((v) => v || undefined),
@@ -73,8 +73,8 @@ const schema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
-  /** MedShop's own details on subscription invoices and credit notes (CGST Rule 46); SAC to be confirmed by the CA. */
-  BILLING_LEGAL_NAME: z.string().default('MedShop'),
+  /** MedBox24's own details on subscription invoices and credit notes (CGST Rule 46); SAC to be confirmed by the CA. */
+  BILLING_LEGAL_NAME: z.string().default('MedBox24'),
   BILLING_ADDRESS: z.string().default(''),
   BILLING_STATE: z.string().default('West Bengal'),
   BILLING_GSTIN: z.string().optional().transform((v) => v || undefined),

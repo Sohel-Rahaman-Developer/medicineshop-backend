@@ -51,7 +51,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
   if (!found) throw AppError.forbidden('You do not have access to this shop');
   const { role: [role], ...membership } = found;
   if (!shop || !role || !sub) throw AppError.forbidden('You do not have access to this shop');
-  if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedShop support.');
+  if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedBox24 support.');
   // The date moves the plan along (trial → grace → expired); the nightly job does the same for shops nobody opens.
   const status = statusAt(sub, new Date());
   if (status !== sub.status) await SubscriptionModel.updateOne({ shopId, _id: sub._id, status: sub.status }, { $set: { status, graceEndDate: graceEndOf(sub.endDate) } });

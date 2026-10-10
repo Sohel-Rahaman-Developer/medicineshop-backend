@@ -40,7 +40,7 @@ export interface PdfTable<T> {
 /** A shop-headed table PDF (sandbox exporter.pdfTable): header on every page, page numbers at the foot. */
 export async function pdfTable<T>(o: PdfTable<T>): Promise<Buffer> {
   const shop = await ShopModel.findById(o.shopId).select('name address phone gstin drugLicenseNumber').lean();
-  const doc = new PDFDocument({ size: 'A4', layout: o.landscape ? 'landscape' : 'portrait', margin: 36, bufferPages: true, info: { Title: o.title, Producer: 'MedShop' } });
+  const doc = new PDFDocument({ size: 'A4', layout: o.landscape ? 'landscape' : 'portrait', margin: 36, bufferPages: true, info: { Title: o.title, Producer: 'MedBox24' } });
   doc.registerFont('r', FONT);
   doc.registerFont('b', BOLD);
   const chunks: Buffer[] = [];
@@ -54,7 +54,7 @@ export async function pdfTable<T>(o: PdfTable<T>): Promise<Buffer> {
   const bottom = () => doc.page.height - doc.page.margins.bottom - 24;
 
   const head = () => {
-    doc.font('b').fontSize(13).fillColor('#0b3b43').text(shop?.name ?? 'MedShop', left, doc.page.margins.top);
+    doc.font('b').fontSize(13).fillColor('#0b3b43').text(shop?.name ?? 'MedBox24', left, doc.page.margins.top);
     const addr = shop ? [shop.address?.line1, shop.address?.city, shop.phone, shop.gstin ? `GSTIN ${shop.gstin}` : '', `DL ${shop.drugLicenseNumber}`].filter(Boolean).join(' · ') : '';
     doc.font('r').fontSize(8).fillColor('#555').text(addr, { width });
     doc.moveDown(0.6).font('b').fontSize(12).fillColor('#000').text(o.title, { width });
@@ -101,7 +101,7 @@ export async function pdfTable<T>(o: PdfTable<T>): Promise<Buffer> {
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(range.start + i);
-    doc.font('r').fontSize(7.5).fillColor('#777').text(`MedShop · page ${String(i + 1)} of ${String(range.count)}`, left, doc.page.height - doc.page.margins.bottom - 10, { width, align: 'right', lineBreak: false });
+    doc.font('r').fontSize(7.5).fillColor('#777').text(`MedBox24 · page ${String(i + 1)} of ${String(range.count)}`, left, doc.page.height - doc.page.margins.bottom - 10, { width, align: 'right', lineBreak: false });
   }
   doc.end();
   return done;

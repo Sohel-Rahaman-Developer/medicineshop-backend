@@ -28,8 +28,8 @@ async function main() {
     totals: [{ label: 'Subtotal (MRP)', value: '₹1,615.00' }, { label: 'Discount', value: '−₹60.00' }, { label: 'Taxable', value: '₹1,385.40' }, { label: 'CGST', value: '₹84.80' }, { label: 'SGST', value: '₹84.80' }, { label: 'Round off', value: '₹0.00' }, { label: 'TOTAL', value: '₹1,555.00', strong: true }],
     words: rupeesInWords(155_500),
     notes: ['Paid: UPI ₹1,000.00 + Udhaar ₹555.00', 'Points: +15 on this bill · balance 240 pts', 'Billed by Sunita. Returns as per the shop’s policy. Get well soon!'],
-    qr: { text: 'MEDSHOP|INV-2026-27-00142|2026-10-03|155500', caption: 'Scan to check this bill' },
-    footer: 'Computer-generated invoice · MedShop',
+    qr: { text: 'MEDBOX24|INV-2026-27-00142|2026-10-03|155500', caption: 'Scan to check this bill' },
+    footer: 'Computer-generated invoice · MedBox24',
   });
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- the developer names the output folder
   writeFileSync(join(out, 'bill.pdf'), bill);
@@ -39,14 +39,14 @@ async function main() {
     meta: [['Invoice no.', 'MS-2026-27-00002'], ['Date', '03 Oct 2026'], ['Place of supply', 'West Bengal (19)'], ['Reverse charge', 'No']],
     stamp: 'PAID',
     logo: true,
-    issuer: { name: 'MedShop Technologies Pvt Ltd', lines: ['5 Camac Street, Kolkata 700017', 'GSTIN 19AABCM1234A1Z5 · support@medshop.in'] },
+    issuer: { name: 'MedBox24 Technologies Pvt Ltd', lines: ['5 Camac Street, Kolkata 700017', 'GSTIN 19AABCM1234A1Z5 · support@medbox24.in'] },
     parties: [{ label: 'Billed to', lines: ['Shri Ram Medical Store', '14B Park Street, Kolkata, West Bengal 700016', 'GSTIN 19ABCDE1234F1Z5'] }, { label: 'Subscription', lines: ['Monthly plan · up to 5 users', 'Period 03 Oct 2026 – 02 Nov 2026', 'Paid by UPI · pay_RdX81Kq2'] }],
     columns: [{ label: '#', w: 0.4 }, { label: 'Description', w: 4 }, { label: 'SAC', w: 1, num: true }, { label: 'Taxable', w: 1.2, num: true }, { label: 'GST', w: 0.7, num: true }, { label: 'Amount', w: 1.2, num: true }],
-    rows: [{ cells: ['1', 'MedShop software subscription — Monthly', '998314', '₹677.12', '18%', '₹799.00'], sub: '30 days · up to 5 users · 03 Oct 2026 – 02 Nov 2026' }],
+    rows: [{ cells: ['1', 'MedBox24 software subscription — Monthly', '998314', '₹677.12', '18%', '₹799.00'], sub: '30 days · up to 5 users · 03 Oct 2026 – 02 Nov 2026' }],
     totals: [{ label: 'Taxable value', value: '₹677.12' }, { label: 'CGST 9%', value: '₹60.94' }, { label: 'SGST 9%', value: '₹60.94' }, { label: 'Total', value: '₹799.00', strong: true }],
     words: rupeesInWords(79_900),
-    notes: ['Thank you for running your shop on MedShop.', 'Questions about this invoice: support@medshop.in'],
-    footer: 'Computer-generated invoice — no signature needed · MedShop Technologies Pvt Ltd',
+    notes: ['Thank you for running your shop on MedBox24.', 'Questions about this invoice: support@medbox24.in'],
+    footer: 'Computer-generated invoice — no signature needed · MedBox24 Technologies Pvt Ltd',
   });
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- the developer names the output folder
   writeFileSync(join(out, 'subscription.pdf'), inv);

@@ -40,7 +40,7 @@ export async function codeOf(shopId: Types.ObjectId): Promise<string> {
   const s = await ShopModel.findById(shopId).select('name referralCode').lean();
   if (!s) throw AppError.notFound('Shop not found');
   if (s.referralCode) return s.referralCode;
-  const stem = `${s.name.toUpperCase().replace(/[^A-Z]/g, '')}MEDSHOP`.slice(0, 5);
+  const stem = `${s.name.toUpperCase().replace(/[^A-Z]/g, '')}MEDBOX`.slice(0, 5);
   for (let i = 0; i < 8; i++) {
     const code = stem + Array.from({ length: i < 4 ? 3 : 5 }, () => DIGITS[randomInt(DIGITS.length)]).join('');
     try {

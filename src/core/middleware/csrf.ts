@@ -50,7 +50,7 @@ export const csrfProtection: RequestHandler = (req, _res, next) => {
 
   const origin = req.get('origin');
   if (!origin || !allowedOrigins.includes(origin)) {
-    return next(AppError.csrf('This request did not come from a MedShop app'));
+    return next(AppError.csrf('This request did not come from a MedBox24 app'));
   }
 
   const header = req.get(CSRF_HEADER);

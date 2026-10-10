@@ -120,11 +120,11 @@ export async function signOut(req: Request, res: Response) {
 
 async function liveSession(req: Request) {
   const raw = readCookie(req, ADMIN_COOKIE);
-  if (!raw) throw AppError.unauthenticated('Please sign in to MedShop Admin');
+  if (!raw) throw AppError.unauthenticated('Please sign in to MedBox24 Admin');
   const s = await AdminSessionModel.findOne({ tokenHash: sha256(raw), stage: 'full', revokedAt: null });
   if (!s || s.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('Your admin session has ended — sign in again');
   const a = await AdminUserModel.findOne({ _id: s.adminUserId, status: 'active' });
-  if (!a?.totpEnabledAt) throw AppError.unauthenticated('Please sign in to MedShop Admin');
+  if (!a?.totpEnabledAt) throw AppError.unauthenticated('Please sign in to MedBox24 Admin');
   return { s, a };
 }
 

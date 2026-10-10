@@ -138,11 +138,11 @@ adminRouter.get('/support/:id/files.zip', shopsRole, validate({ params: idParams
 
 adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.auditLog(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 
-/** Public: the shop app shows the maintenance banner and support contacts from here. */
+/** Public: the maintenance banner, support contacts and the trial, for the shop app and the public site. */
 export const platformRouter = Router();
-platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone }); }));
+platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers }); }));
 
-/** Shop side (owner): see MedShop's requests, approve / deny / stop. */
+/** Shop side (owner): see MedBox24's requests, approve / deny / stop. */
 export const supportAccessRouter = Router();
 supportAccessRouter.use(shopAuth);
 supportAccessRouter.get('/', asyncHandler(async (req: Request, res: Response) => { fetched(res, await support.forShop(tenantOf(req))); }));

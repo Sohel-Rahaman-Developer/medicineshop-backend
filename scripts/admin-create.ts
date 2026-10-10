@@ -1,4 +1,4 @@
-// The first platform admin: `npm run admin:create -- owner@medshop.in "Sohel Rahaman"`. They set up the authenticator on first sign-in.
+// The first platform admin: `npm run admin:create -- owner@medbox24.in "Sohel Rahaman"`. They set up the authenticator on first sign-in.
 import { connectDb, disconnectDb } from '../src/config/db';
 import { AdminUserModel } from '../src/modules/admin/admin.model';
 

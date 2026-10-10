@@ -50,7 +50,7 @@ export async function request(a: AdminActor, shopId: string, hours: number, reas
   const open = await SupportAccessModel.findOne({ shopId: shop._id, status: { $in: ['pending', 'approved'] }, $or: [{ status: 'pending' }, { endsAt: { $gt: new Date() } }] }).lean();
   if (open) throw AppError.conflict('There is already an open request for this shop');
   const d = await SupportAccessModel.create({ shopId: shop._id, adminUserId: new Types.ObjectId(a.id), agentName: a.name, reason, hours });
-  await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: `MedShop support asks to look at your shop for ${String(hours)} h`, body: `${a.name}: ${reason}. Approve or deny in Settings → Support access.`, route: '/settings/support', roles: ['owner'] });
+  await emit(shop._id, { key: `SUPPORT_ACCESS:${String(d._id)}`, type: 'SUPPORT_ACCESS', priority: 'high', title: `MedBox24 support asks to look at your shop for ${String(hours)} h`, body: `${a.name}: ${reason}. Approve or deny in Settings → Support access.`, route: '/settings/support', roles: ['owner'] });
   await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, shopId: shop._id, shopName: shop.name, action: 'support_request', reason, text: `asked for ${String(hours)} h of read-only support access`, ip });
   return shape(d.toObject(), shop.name);
 }
@@ -68,7 +68,7 @@ export async function forShop(t: TenantContext) {
 
 /** The owner's yes / no / stop (owner only — the person who agreed to the Terms). */
 export async function decide(t: TenantContext, actor: Actor, id: string, decision: 'approve' | 'deny' | 'revoke', ip?: string) {
-  if (!t.isOwner) throw AppError.forbidden('Only the shop owner decides on MedShop support access');
+  if (!t.isOwner) throw AppError.forbidden('Only the shop owner decides on MedBox24 support access');
   const d = await SupportAccessModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id) });
   if (!d) throw AppError.notFound('Request not found');
   const now = new Date();
@@ -80,7 +80,7 @@ export async function decide(t: TenantContext, actor: Actor, id: string, decisio
     d.set(decision === 'approve' ? { status: 'approved', decidedBy: actor.name, decidedAt: now, startedAt: now, endsAt: new Date(now.getTime() + d.hours * HOUR) } : { status: 'denied', decidedBy: actor.name, decidedAt: now });
   }
   await d.save();
-  const verb = decision === 'approve' ? `let MedShop support (${d.agentName}) look for ${String(d.hours)} h` : decision === 'deny' ? `said no to MedShop support (${d.agentName})` : `stopped MedShop support access (${d.agentName})`;
+  const verb = decision === 'approve' ? `let MedBox24 support (${d.agentName}) look for ${String(d.hours)} h` : decision === 'deny' ? `said no to MedBox24 support (${d.agentName})` : `stopped MedBox24 support access (${d.agentName})`;
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'permission_change', module: 'settings', entityId: id, entityName: 'Support access', text: `${actor.name} ${verb}`, ip });
   return shape(d.toObject(), t.shopName);
 }
@@ -97,7 +97,7 @@ export async function runReport(a: AdminActor, id: string, key: string, p: Param
   const { ctx } = await contextFor(d.shopId, shop.ownerUserId);
   const rows = await r.rows(ctx, p);
   await SupportAccessModel.updateOne({ shopId: d.shopId, _id: d._id }, { $inc: { views: 1 } });
-  await audit({ shopId: d.shopId, userId: a.id, userName: `MedShop Support · ${a.name}`, action: 'share_initiated', module: 'reports', entityId: id, entityName: r.name, text: `MedShop Support (${a.name}) viewed ${r.name}`, ip });
+  await audit({ shopId: d.shopId, userId: a.id, userName: `MedBox24 Support · ${a.name}`, action: 'share_initiated', module: 'reports', entityId: id, entityName: r.name, text: `MedBox24 Support (${a.name}) viewed ${r.name}`, ip });
   await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, shopId: d.shopId, shopName: shop.name, action: 'support_view', reason: d.reason, text: `viewed ${r.name} (support access)`, ip });
   const total = rows.at(-1)?.__total ? rows.at(-1) : null;
   const body = total ? rows.slice(0, -1) : rows;
@@ -111,7 +111,7 @@ export async function filesZip(a: AdminActor, id: string, ip?: string) {
   if (live(d) !== 'approved') throw AppError.forbidden('This support access is not running — ask the owner again');
   const plan = await filesZipPlan(d.shopId);
   await SupportAccessModel.updateOne({ shopId: d.shopId, _id: d._id }, { $inc: { views: 1 } });
-  await audit({ shopId: d.shopId, userId: a.id, userName: `MedShop Support · ${a.name}`, action: 'share_initiated', module: 'settings', entityId: id, entityName: 'Photos ZIP', text: `MedShop Support (${a.name}) downloaded the shop's photos (${String(plan.files)} files)`, ip });
+  await audit({ shopId: d.shopId, userId: a.id, userName: `MedBox24 Support · ${a.name}`, action: 'share_initiated', module: 'settings', entityId: id, entityName: 'Photos ZIP', text: `MedBox24 Support (${a.name}) downloaded the shop's photos (${String(plan.files)} files)`, ip });
   await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, shopId: d.shopId, shopName: plan.shopName, action: 'support_files', reason: d.reason, text: `downloaded ${String(plan.files)} photos as a ZIP (support access)`, ip });
   return { shopId: d.shopId, ...plan };
 }

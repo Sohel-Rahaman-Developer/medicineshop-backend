@@ -35,7 +35,7 @@ subscriptionRouter.get(
   validate({ params: idParams }),
   asyncHandler(async (req: Request, res: Response) => {
     const f = await svc.invoicePdf(tenantOf(req), (req.params as { id: string }).id);
-    sendFile(res, f.buf, `MedShop-invoice-${f.name}`, 'pdf');
+    sendFile(res, f.buf, `MedBox24-invoice-${f.name}`, 'pdf');
   }),
 );
 subscriptionRouter.post('/order', edit, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await svc.order(tenantOf(req), await actorOf(req), (req.body as { planCode: string }).planCode), 'Order created'); }));
@@ -48,7 +48,7 @@ subscriptionRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const p = req.params as { id: string; refundId: string };
     const f = await autopay.creditNotePdf(tenantOf(req), p.id, p.refundId);
-    sendFile(res, f.buf, `MedShop-credit-note-${f.name}`, 'pdf');
+    sendFile(res, f.buf, `MedBox24-credit-note-${f.name}`, 'pdf');
   }),
 );
 // B8c autopay: UPI Autopay / card mandate through Razorpay Subscriptions.

@@ -45,7 +45,7 @@ async function paper(t: TenantContext, p: Paper) {
     tone: p.danger ? 'danger' : 'brand',
     meta: [[p.numberLabel, p.number], ['Date', dayTime(p.at)], ...(p.extraMeta ?? [])],
     issuer: {
-      name: shop?.name ?? 'MedShop',
+      name: shop?.name ?? 'MedBox24',
       lines: [[a?.line1, a?.line2, a ? `${a.city} ${a.pincode}` : '', shop?.phone].filter(Boolean).join(', '), [shop?.gstin ? `GSTIN ${shop.gstin}` : '', shop ? `DL ${shop.drugLicenseNumber}` : ''].filter(Boolean).join(' · ')],
     },
     parties: p.parties,
@@ -57,7 +57,7 @@ async function paper(t: TenantContext, p: Paper) {
     notes: p.foot,
     alert: p.alert,
     qr: p.qr ? { text: p.qr, caption: 'Scan to check this bill' } : undefined,
-    footer: 'Computer-generated invoice · MedShop',
+    footer: 'Computer-generated invoice · MedBox24',
   });
 }
 

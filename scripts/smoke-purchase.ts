@@ -408,7 +408,7 @@ async function main() {
   const files = zr.status === 200 ? unzip(zr.body) : new Map<string, Buffer>();
   const names = [...files.keys()];
   const folder = `Shri-Ram-Medical-Store_${shop1}/`;
-  check('owner downloads a real ZIP named after the shop', zr.status === 200 && zr.headers.get('content-type') === 'application/zip' && /medshop-files-Shri-Ram-Medical-Store-\d{4}-\d{2}-\d{2}\.zip/.test(zr.headers.get('content-disposition') ?? ''), code(zr));
+  check('owner downloads a real ZIP named after the shop', zr.status === 200 && zr.headers.get('content-type') === 'application/zip' && /medbox24-files-Shri-Ram-Medical-Store-\d{4}-\d{2}-\d{2}\.zip/.test(zr.headers.get('content-disposition') ?? ''), code(zr));
   check('one folder per shop: <name>_<id>/ holds everything', names.length === 4 && names.every((n) => n.startsWith(folder)), names.join(' | '));
   check('product photo, supplier invoice, damage photo in their own folders', names.some((n) => n === `${folder}products/Dolo-650-Tablet_${dolo}.webp`) && names.some((n) => /\/purchases\/\d{4}-\d{2}\/PUR-.+_Sharma-Distributors-invoice-.+\.webp$/.test(n)) && names.some((n) => /\/stock\/\d{4}-\d{2}\/.+_DAMAGE\.webp$/.test(n)), names.join(' | '));
   check('bytes come back exactly as stored', files.get(`${folder}products/Dolo-650-Tablet_${dolo}.webp`)?.equals(thumb) === true && [...files.values()].filter((b) => b.subarray(8, 12).toString('latin1') === 'WEBP').length === 3);

@@ -237,7 +237,7 @@ export async function settleStuckQuestions(now = new Date()) {
       const claimed = await AskQuestionModel.updateOne({ _id: q._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished' } }, { session });
       if (!claimed.modifiedCount) return;
       if (q.free) await CoinWalletModel.updateOne({ shopId: q.shopId, askFree: { $gt: 0 } }, { $inc: { askFree: -1 } }, { session });
-      else await moveCoins(q.shopId, 'refund', q.coins, 'Back: AI question — it stopped before it finished', 'MedShop', String(q._id), session);
+      else await moveCoins(q.shopId, 'refund', q.coins, 'Back: AI question — it stopped before it finished', 'MedBox24', String(q._id), session);
     });
   }
   return stuck.length;

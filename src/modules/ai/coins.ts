@@ -92,7 +92,7 @@ export async function wallet(t: TenantContext) {
 export async function orderCoins(t: TenantContext, actor: Actor, packCode: string) {
   const offer = await aiOffer();
   if (!offer.enabled) throw AppError.forbidden('AI bill reading is off');
-  if (env.PAYMENTS_MODE === 'off') throw AppError.forbidden('Online payment is off — ask MedShop to add coins');
+  if (env.PAYMENTS_MODE === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add coins');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
@@ -148,7 +148,7 @@ export async function coinOrderFailed(orderId: string, reason: string) {
   await CoinOrderModel.updateOne({ razorpayOrderId: orderId, status: 'created' }, { $set: { status: 'failed', failureReason: reason } });
 }
 
-/** MedShop's tax invoice for a coin pack (CGST Rule 46), on the shared invoice layout. */
+/** MedBox24's tax invoice for a coin pack (CGST Rule 46), on the shared invoice layout. */
 export async function coinInvoicePdf(t: TenantContext, id: string) {
   const o = await CoinOrderModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!o?.invoiceNumber) throw AppError.notFound('Invoice not found');
@@ -165,11 +165,11 @@ export async function coinInvoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'AI coins', lines: [`${o.packName} · ${String(o.coins)} coins`, 'For reading supplier bills with AI', how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedShop AI bill reading — ${String(o.coins)} coins`, env.BILLING_SAC, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
+    rows: [{ cells: ['1', `MedBox24 AI bill reading — ${String(o.coins)} coins`, env.BILLING_SAC, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
     totals: [{ label: 'Taxable value', value: rupees(o.amount - o.gst) }, ...gstLines(o.gst, from, to), { label: 'Total', value: rupees(o.amount), strong: true }],
     words: rupeesInWords(o.amount),
     notes: ['Coins do not expire and are not refundable as cash.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
-    footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedShop'}`,
+    footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedBox24'}`,
   });
   return { buf, name: o.invoiceNumber };
 }

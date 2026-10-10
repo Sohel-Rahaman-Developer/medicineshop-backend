@@ -116,14 +116,14 @@ export async function buyerOf(shopId: Types.ObjectId, session?: ClientSession): 
   return { name: s.legalName || s.name, address: [a.line1, a.line2, a.city, `${a.state} ${a.pincode}`].filter(Boolean).join(', '), gstin: s.gstin ?? '', state: a.state, stateCode: a.stateCode };
 }
 
-/** CGST Rule 46: place of supply is the shop's state (IGST Act s.12(2)) — MedShop's own state → CGST + SGST, else IGST. */
+/** CGST Rule 46: place of supply is the shop's state (IGST Act s.12(2)) — MedBox24's own state → CGST + SGST, else IGST. */
 export function gstLines(gst: number, from: Party, to: Party) {
   const intra = Boolean(from.stateCode) && from.stateCode === to.stateCode;
   const cgst = Math.floor(gst / 2);
   return intra ? [{ label: 'CGST 9%', value: rupees(cgst) }, { label: 'SGST 9%', value: rupees(gst - cgst) }] : [{ label: 'IGST 18%', value: rupees(gst) }];
 }
 export const placeOf = (to: Party) => `${to.state ?? ''} (${to.stateCode ?? ''})`;
-export const issuerOf = (from: Party, email: string) => ({ name: from.name ?? 'MedShop', lines: [from.address ?? '', [`GSTIN ${from.gstin || '—'}`, email].filter(Boolean).join(' · ')].filter(Boolean) });
+export const issuerOf = (from: Party, email: string) => ({ name: from.name ?? 'MedBox24', lines: [from.address ?? '', [`GSTIN ${from.gstin || '—'}`, email].filter(Boolean).join(' · ')].filter(Boolean) });
 export const billedTo = (to: Party) => ({ label: 'Billed to', lines: [to.name ?? '', to.address ?? '', to.gstin ? `GSTIN ${to.gstin}` : 'Unregistered'] });
 export const SUB_COLUMNS = [{ label: '#', w: 0.4 }, { label: 'Description', w: 4 }, { label: 'SAC', w: 1, num: true }, { label: 'Taxable', w: 1.2, num: true }, { label: 'GST', w: 0.7, num: true }, { label: 'Amount', w: 1.2, num: true }];
 
@@ -265,7 +265,7 @@ export async function payments(t: TenantContext) {
   return rows.map(shapePayment);
 }
 
-/** MedShop's tax invoice for a paid plan (CGST Rule 46), on the shared invoice layout. */
+/** MedBox24's tax invoice for a paid plan (CGST Rule 46), on the shared invoice layout. */
 export async function invoicePdf(t: TenantContext, id: string) {
   const p = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!p?.invoiceNumber || !p.periodStart || !p.periodEnd) throw AppError.notFound('Invoice not found');
@@ -283,11 +283,11 @@ export async function invoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'Subscription', lines: [`${p.planName} plan · up to ${String(p.maxUsers)} users`, `Period ${period}`, how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedShop software subscription — ${p.planName}`, env.BILLING_SAC, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }],
+    rows: [{ cells: ['1', `MedBox24 software subscription — ${p.planName}`, env.BILLING_SAC, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }],
     totals: [{ label: 'Taxable value', value: rupees(p.amount - p.gst) }, ...gstLines(p.gst, from, to), { label: 'Total', value: rupees(p.amount), strong: true }],
     words: rupeesInWords(p.amount),
-    notes: ['Thank you for running your shop on MedShop.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
-    footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedShop'}`,
+    notes: ['Thank you for running your shop on MedBox24.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
+    footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedBox24'}`,
   });
   return { buf, name: p.invoiceNumber };
 }

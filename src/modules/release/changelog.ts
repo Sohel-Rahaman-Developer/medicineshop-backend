@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.11.0',
+    date: '2026-10-11',
+    title: 'MedShop is now MedBox24',
+    shop: [
+      'A new name and a new look: MedBox24, with a medicine-box logo. Your shop, bills, stock and sign-in stay exactly as they were.',
+      'Bills, invoices, emails and downloads now carry the MedBox24 name; old bills and invoice numbers do not change.',
+      'Where the app was added to a phone’s home screen, the new icon can take a few days to show.',
+    ],
+    admin: ['MedBox24 Admin, with the new logo. Authenticator codes keep working; a new authenticator set-up shows “MedBox24 Admin”.'],
+    api: ['A public page for search engines in English, Hindi and Bengali (/, /hi, /bn) with the plans from GET /plans, robots.txt and sitemap.xml. GET /platform also gives trialDays and trialMaxUsers.'],
+  },
+  {
     version: '1.10.0',
     date: '2026-10-10',
     title: 'Ask your shop',

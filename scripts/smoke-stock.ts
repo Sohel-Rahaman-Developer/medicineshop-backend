@@ -369,7 +369,7 @@ async function main() {
 
   // Every kind of shop item (D59): product-only rows, devices without expiry, lots, lowest price, purchase pack, cold storage.
   const tpl = await owner.get('/products/import/template');
-  check('template: an .xlsx file', tpl.status === 200 && tpl.text.startsWith('PK') && (tpl.headers.get('content-disposition') ?? '').includes('MedShop-product-import-template.xlsx'), code(tpl));
+  check('template: an .xlsx file', tpl.status === 200 && tpl.text.startsWith('PK') && (tpl.headers.get('content-disposition') ?? '').includes('MedBox24-product-import-template.xlsx'), code(tpl));
   check('cashier can’t download the template → 403', (await cashier.get('/products/import/template')).status === 403);
   const kinds = [
     { name: 'Pantocid 40 Tablet', saleUnit: 'STRIP', baseUnit: 'TABLET', pack: '15', purchaseUnit: 'BOX', purchasePack: '10', category: 'Tablet', schedule: 'H', rack: 'A-1-3' },

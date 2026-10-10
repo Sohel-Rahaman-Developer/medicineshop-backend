@@ -78,7 +78,7 @@ async function main() {
   const readAi = (c: Client, file: Buffer, type: string, name: string, supplierId = ma) => c.post('/purchases/import/ai', { supplierId, fileName: name, data: b64(file, type) });
   const photo = () => readAi(owner, PHOTO, 'image/jpeg', 'bill-photo.jpg');
 
-  section('1. Off until MedShop turns it on');
+  section('1. Off until MedBox24 turns it on');
   const offer0 = data<{ enabled: boolean; balance: number }>(await owner.get('/ai/offer'));
   check('a new platform: AI reading off, 0 coins', !offer0.enabled && offer0.balance === 0, JSON.stringify(offer0));
   check('reading with AI while off → 403, nothing asked of Claude', (await photo()).status === 403 && fake.seen.length === 0);
@@ -115,7 +115,7 @@ async function main() {
   const broke = await photo();
   check('0 coins → 409 NOT_ENOUGH_COINS, Claude not asked, no read recorded', broke.status === 409 && reason(broke) === 'NOT_ENOUGH_COINS' && fake.seen.length === 0 && (await AiReadModel.countDocuments({ shopId: shop })) === 0, code(broke));
 
-  section('5. Coins by hand (MedShop) and by Razorpay');
+  section('5. Coins by hand (MedBox24) and by Razorpay');
   check('viewer can’t give coins → 403', (await viewer.post(`/admin/shops/${shopId}/coins`, { coins: 10, reason: 'trial coins for the demo' })).status === 403);
   check('0 coins → 422', (await acc.post(`/admin/shops/${shopId}/coins`, { coins: 0, reason: 'trial coins for the demo' })).status === 422);
   const gift = await acc.post(`/admin/shops/${shopId}/coins`, { coins: 10, reason: 'trial coins for the demo' });
@@ -229,7 +229,7 @@ async function main() {
   const saved = await owner.post('/purchases/import', { clientRequestId: randomUUID(), supplierId: ma, invoiceNumber: 'A085013', invoiceDate: '2026-09-01', lines: azr ? [{ productId: azr.productId, batchNumber: azr.batchNumber, expiry: azr.expiry, quantity: azr.quantity, freeQuantity: 0, unit: 'STRIP', rate: azr.rate, discountPercent: azr.discountPercent, mrp: azr.mrp, gstRate: azr.gstRate, rack: '', billName: azr.name, billPack: azr.pack }] : [] });
   check('the Azikem line from the photo saves: 30 tablets more on the shelf', saved.status === 201 && (await shelf()) - before === 30, code(saved));
 
-  section('12. MedShop sees every read and what it cost');
+  section('12. MedBox24 sees every read and what it cost');
   const list = await viewer.get('/admin/ai/reads?limit=50');
   const rows = data<{ shopName: string; userName: string; fileName: string; coins: number; costPaise: number; status: string; refunded: boolean; model: string }[]>(list);
   check('every read listed: shop, who, file, coins, real cost, status', list.status === 200 && rows.length === (await AiReadModel.countDocuments({})) && rows.some((r) => r.shopName === 'Shri Ram Medical Store' && r.fileName === 'bill-photo.jpg' && r.costPaise === 268 && r.model === 'claude-sonnet-5-5'), code(list));

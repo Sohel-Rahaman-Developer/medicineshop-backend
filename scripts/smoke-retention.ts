@@ -75,7 +75,7 @@ async function main() {
   await root.put(`/admin/shops/${shopId}/retention`, { tier: 'y10', legalHold: false, legalHoldReason: '', reason: 'Bought the 10-year add-on' });
   const y10 = (await prev()).years.find((y) => y.fy === '2017-18');
   check('10 years: FY 2017-18 kept to 31 Mar 2028 — not due', y10?.due === false && y10.blocked?.startsWith('kept until 2028-03-31') === true, JSON.stringify(y10));
-  check('the shop’s audit shows MedShop changed it', Boolean(await AuditLogModel.exists({ shopId: sid, text: { $regex: 'data kept: 10 years' } })));
+  check('the shop’s audit shows MedBox24 changed it', Boolean(await AuditLogModel.exists({ shopId: sid, text: { $regex: 'data kept: 10 years' } })));
 
   section('5. New Terms: only the owner agrees, it’s on the audit log');
   check('signed up on the current Terms → accepted', data<{ accepted: boolean }>(await owner.get('/shop/terms')).accepted);

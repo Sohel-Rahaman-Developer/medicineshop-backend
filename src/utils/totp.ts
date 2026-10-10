@@ -59,7 +59,7 @@ export function checkTotp(secret: string, code: string, now = Date.now()): numbe
   return null;
 }
 
-export const otpauthUrl = (secret: string, email: string) => `otpauth://totp/MedShop%20Admin:${encodeURIComponent(email)}?secret=${secret}&issuer=MedShop%20Admin&algorithm=SHA1&digits=6&period=30`;
+export const otpauthUrl = (secret: string, email: string) => `otpauth://totp/MedBox24%20Admin:${encodeURIComponent(email)}?secret=${secret}&issuer=MedBox24%20Admin&algorithm=SHA1&digits=6&period=30`;
 
 const keyOf = (key: string) => createHash('sha256').update(key).digest();
 

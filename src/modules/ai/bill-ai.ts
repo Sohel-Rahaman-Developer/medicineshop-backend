@@ -171,7 +171,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   } catch (err) {
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : String(err) }, 'AI bill read failed');
     await signal('ai_fail');
-    const why = err instanceof Anthropic.AuthenticationError ? 'the AI key was refused — MedShop has been told' : err instanceof Anthropic.RateLimitError ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';
+    const why = err instanceof Anthropic.AuthenticationError ? 'the AI key was refused — MedBox24 has been told' : err instanceof Anthropic.RateLimitError ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';
     throw new AppError(503, 'SERVICE_UNAVAILABLE', `Could not read the bill: ${await giveBack(why)}. ${FAILED(coins)}`);
   }
   if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', `${await giveBack(answer.error, answer.usage)}. ${FAILED(coins)}`);
@@ -207,7 +207,7 @@ export async function settleStuckReads(now = new Date()) {
   for (const r of stuck) {
     await inTransaction(async (session) => {
       const claimed = await AiReadModel.updateOne({ _id: r._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished' } }, { session });
-      if (claimed.modifiedCount) await moveCoins(r.shopId, 'refund', r.coins, `Back: ${r.fileName} — the read stopped before it finished`, 'MedShop', String(r._id), session);
+      if (claimed.modifiedCount) await moveCoins(r.shopId, 'refund', r.coins, `Back: ${r.fileName} — the read stopped before it finished`, 'MedBox24', String(r._id), session);
     });
   }
   return stuck.length;

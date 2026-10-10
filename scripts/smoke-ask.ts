@@ -255,7 +255,7 @@ async function main() {
   await AskQuestionModel.create({ shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'x', route: 'ai', voice: 'en', costPaise: 9000, createdAt: new Date() });
   await root.put('/admin/ai/chat', chatOn({ budgetUsd: 1 }));
   const broke2 = await askAs(manager, 'Dolo kis kaam aati hai', { confirm: true });
-  check('this month’s spend ≥ $1 budget (₹88) → AI rests, a monitor signal for MedShop', broke2.a.route === 'blocked' && broke2.a.text === 'Is mahine AI aaram kar raha hai. Free sawal chalte hain.' && Boolean(await SignalModel.exists({ kind: 'ask_budget' })), JSON.stringify(broke2.a));
+  check('this month’s spend ≥ $1 budget (₹88) → AI rests, a monitor signal for MedBox24', broke2.a.route === 'blocked' && broke2.a.text === 'Is mahine AI aaram kar raha hai. Free sawal chalte hain.' && Boolean(await SignalModel.exists({ kind: 'ask_budget' })), JSON.stringify(broke2.a));
   await root.put('/admin/ai/chat', chatOn({ budgetUsd: 50 }));
   const stuck = await AskQuestionModel.create({ shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'x', route: 'ai', voice: 'en', status: 'running', coins: 1 });
   // Timestamps never take a past createdAt from create(); the collection does.

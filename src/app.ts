@@ -73,7 +73,7 @@ export function createApp() {
       // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
       credentials: true,
       allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id'],
-      // PDF / Excel names come in Content-Disposition; unexposed, every download was "medshop-file".
+      // PDF / Excel names come in Content-Disposition; unexposed, every download was "medbox24-file".
       exposedHeaders: ['Content-Disposition'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
       maxAge: 600,

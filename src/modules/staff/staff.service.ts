@@ -134,7 +134,7 @@ export async function invite(t: TenantContext, actor: Actor, input: InviteInput,
   const user =
     (await UserModel.findOne({ email: input.email })) ??
     (await UserModel.create({ email: input.email, name: input.name, phone: input.phone }));
-  if (user.status !== 'active') throw AppError.conflict('This email address can’t be invited. Please contact MedShop support.');
+  if (user.status !== 'active') throw AppError.conflict('This email address can’t be invited. Please contact MedBox24 support.');
   if (!user.name) await UserModel.updateOne({ _id: user._id }, { $set: { name: input.name } });
 
   const existing = await MembershipModel.findOne({ shopId: t.shopId, userId: user._id });

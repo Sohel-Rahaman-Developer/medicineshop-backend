@@ -90,7 +90,7 @@ async function encrypt(plain: string, out: string, k: Buffer) {
 async function decrypt(file: string, out: string, k: Buffer) {
   const size = statSync(file).size;
   const head = readAt(file, 0, MAGIC.length + 12);
-  if (!head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Not a MedShop encrypted backup');
+  if (!head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Not a MedBox24 encrypted backup');
   const tag = readAt(file, size - 16, 16);
   const d = createDecipheriv('aes-256-gcm', k, head.subarray(MAGIC.length), { authTagLength: 16 });
   d.setAuthTag(tag);

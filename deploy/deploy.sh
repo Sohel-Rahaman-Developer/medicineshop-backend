@@ -8,7 +8,9 @@ export MEDSHOP_ROOT=${MEDSHOP_ROOT:-/srv/medshop}
 export MEDSHOP_SHOP_PORT=${MEDSHOP_SHOP_PORT:-3300}
 export MEDSHOP_ADMIN_PORT=${MEDSHOP_ADMIN_PORT:-3301}
 API_PORT=${MEDSHOP_API_PORT:-5300}
-API_URL=${MEDSHOP_API_URL:-https://medapi.trackcloud.in/api/v1}
+API_URL=${MEDSHOP_API_URL:-https://api.medbox24.in/api/v1}
+# Canonical links, sitemap and share cards of the public site.
+SITE_URL=${MEDSHOP_SITE_URL:-https://medbox24.in}
 # gh-pharma-<repo> host aliases (one deploy key each), or plain github.com when the account key can read all three
 GH_HOST=${MEDSHOP_GH_HOST:-alias}
 ROOT=$MEDSHOP_ROOT
@@ -33,7 +35,7 @@ VERSION=$(ver backend)
 [ "$(ver frontend)" = "$VERSION" ] && [ "$(ver admin)" = "$VERSION" ] || { echo "Versions differ: backend $VERSION · shop $(ver frontend) · admin $(ver admin) — bump all three package.json to the same version"; exit 1; }
 echo "  version: $VERSION"
 # PDF bill reading (pdfjs-dist) needs Node 22.13 or newer.
-node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)' || { echo "Node $(node -v) is too old — MedShop needs Node 22.13+ (nvm install 24 && nvm alias default 24), then pm2 update"; exit 1; }
+node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)' || { echo "Node $(node -v) is too old — MedBox24 needs Node 22.13+ (nvm install 24 && nvm alias default 24), then pm2 update"; exit 1; }
 
 test -f "$ROOT/backend/.env" || { echo "Missing $ROOT/backend/.env — copy deploy/env.production.example and fill it"; exit 1; }
 grep -q "^PORT=$API_PORT$" "$ROOT/backend/.env" || { echo "backend/.env must say PORT=$API_PORT"; exit 1; }
@@ -46,7 +48,7 @@ npm run build --silent
 for app in frontend admin; do
   step "$([ "$app" = frontend ] && echo "Shop app" || echo "Admin") — install + build"
   cd "$ROOT/$app"
-  echo "NEXT_PUBLIC_API_BASE_URL=$API_URL" > .env.production.local
+  printf 'NEXT_PUBLIC_API_BASE_URL=%s\nNEXT_PUBLIC_SITE_URL=%s\n' "$API_URL" "$SITE_URL" > .env.production.local
   npm ci --no-fund --no-audit --loglevel=error
   npm run build --silent
 done

@@ -58,7 +58,7 @@ productsRouter.get(
   '/import/template',
   requirePermission('products', 'create'),
   asyncHandler(async (_req: Request, res: Response) => {
-    sendFile(res, await importTemplate(), 'MedShop-product-import-template', 'xlsx');
+    sendFile(res, await importTemplate(), 'MedBox24-product-import-template', 'xlsx');
   }),
 );
 

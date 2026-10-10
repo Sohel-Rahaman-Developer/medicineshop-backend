@@ -25,7 +25,7 @@ async function rzp<T>(path: string, body?: unknown): Promise<T> {
 
 /** Off refuses; test mode makes local ids (signatures stay real HMAC); razorpay calls the API. */
 function live() {
-  if (env.PAYMENTS_MODE === 'off') throw AppError.serviceUnavailable('Online payment isn’t set up yet. Please contact MedShop support.');
+  if (env.PAYMENTS_MODE === 'off') throw AppError.serviceUnavailable('Online payment isn’t set up yet. Please contact MedBox24 support.');
   return env.PAYMENTS_MODE === 'razorpay';
 }
 const testId = (prefix: string) => `${prefix}_test_${randomBytes(9).toString('hex')}`;

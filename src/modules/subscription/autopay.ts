@@ -28,7 +28,7 @@ async function rzpPlanFor(code: string, name: string, amount: number) {
   const key = `${env.PAYMENTS_MODE}:${code}:${String(amount)}`;
   const have = await RzpPlanModel.findById(key).lean();
   if (have) return have.rzpPlanId;
-  const id = await createPlan(code === 'yearly' ? 'yearly' : 'monthly', amount, `MedShop ${name}`);
+  const id = await createPlan(code === 'yearly' ? 'yearly' : 'monthly', amount, `MedBox24 ${name}`);
   await RzpPlanModel.updateOne({ _id: key }, { $setOnInsert: { rzpPlanId: id } }, { upsert: true });
   return (await RzpPlanModel.findById(key).lean())?.rzpPlanId ?? id;
 }
@@ -130,7 +130,7 @@ export async function testApprove(t: TenantContext, actor: Actor, subscriptionId
   return verifyAutopay(t, actor, { subscriptionId, paymentId, signature: subscriptionSignature(paymentId, subscriptionId) });
 }
 
-/** The owner (or MedShop) stops autopay: Razorpay cancels the mandate first, so nothing is charged after we say stopped. */
+/** The owner (or MedBox24) stops autopay: Razorpay cancels the mandate first, so nothing is charged after we say stopped. */
 export async function stopAutopay(shopId: Types.ObjectId, by: { id: string; name: string }, reason: string, ip?: string, now = new Date()) {
   const a = await AutopayModel.findOne({ shopId, status: { $nin: STOPPED } }).sort({ createdAt: -1 });
   if (!a) return false;
@@ -178,7 +178,7 @@ export async function autopayEvent(type: string, s: SubEntity | undefined, p: Pa
   a.set({ ...(keep ? {} : { status: next }), ...(chargeAt ? { chargeAt } : {}), ...(STOPPED.includes(next) ? { live: undefined } : {}), ...(STOPPED.includes(next) && !a.stoppedAt ? { stoppedAt: now, stopReason: `Razorpay: ${next}` } : {}) });
   await a.save();
   if (!keep && (next === 'pending' || next === 'halted')) {
-    await audit({ shopId: a.shopId, userId: String(a.createdBy), userName: 'MedShop', action: 'update', module: 'subscription', entityId: String(a._id), entityName: 'Autopay', text: next === 'pending' ? 'Autopay payment failed — Razorpay will try again' : 'Autopay stopped after failed payments — pay once or turn autopay on again', ip: undefined });
+    await audit({ shopId: a.shopId, userId: String(a.createdBy), userName: 'MedBox24', action: 'update', module: 'subscription', entityId: String(a._id), entityName: 'Autopay', text: next === 'pending' ? 'Autopay payment failed — Razorpay will try again' : 'Autopay stopped after failed payments — pay once or turn autopay on again', ip: undefined });
   }
   return next;
 }
@@ -269,7 +269,7 @@ export async function settleRefund(paymentDocId: Types.ObjectId | string, refund
 /** Shop log line for a refund settled by a webhook or the reconcile (the admin's own refund is logged by the admin service). */
 export async function auditSettled(s: { shopId: Types.ObjectId; settled: boolean; status: string; amount: number; creditNote: string; days: number }) {
   if (!s.settled) return;
-  await audit({ shopId: s.shopId, userId: String(s.shopId), userName: 'MedShop', action: 'update', module: 'subscription', entityId: String(s.shopId), entityName: s.creditNote || 'Refund', text: s.status === 'failed' ? `Refund of ${inr(s.amount)} did not go through — nothing was refunded` : `Refund of ${inr(s.amount)} confirmed by Razorpay — credit note ${s.creditNote}${s.days ? `, ${String(s.days)} plan days removed` : ''}`, ip: undefined });
+  await audit({ shopId: s.shopId, userId: String(s.shopId), userName: 'MedBox24', action: 'update', module: 'subscription', entityId: String(s.shopId), entityName: s.creditNote || 'Refund', text: s.status === 'failed' ? `Refund of ${inr(s.amount)} did not go through — nothing was refunded` : `Refund of ${inr(s.amount)} confirmed by Razorpay — credit note ${s.creditNote}${s.days ? `, ${String(s.days)} plan days removed` : ''}`, ip: undefined });
 }
 
 export interface RefundEntity { id?: string; payment_id?: string; amount?: number; status?: string; receipt?: string | null }
@@ -301,7 +301,7 @@ export async function refundEvent(type: string, e: RefundEntity | undefined, now
       p.refunded -= r.amount;
       await p.save({ session });
       await shiftEnd(p.shopId, days, session);
-      await audit({ shopId: p.shopId, userId: String(p.createdBy), userName: 'MedShop', action: 'update', module: 'subscription', entityId: String(p._id), entityName: r.creditNote ?? 'Refund', text: `Refund of ${inr(r.amount)} failed at the bank${days ? ` — ${String(days)} plan days given back` : ''}`, ip: undefined }, session);
+      await audit({ shopId: p.shopId, userId: String(p.createdBy), userName: 'MedBox24', action: 'update', module: 'subscription', entityId: String(p._id), entityName: r.creditNote ?? 'Refund', text: `Refund of ${inr(r.amount)} failed at the bank${days ? ` — ${String(days)} plan days given back` : ''}`, ip: undefined }, session);
       return 'refund failed';
     }
     return 'no change';
@@ -324,7 +324,7 @@ export async function disputeEvent(type: string, e: DisputeEntity | undefined, n
     p.set({ dispute: { id: e.id ?? p.dispute?.id ?? '', status, amount: e.amount ?? p.dispute?.amount ?? p.amount, reason: e.reason_code ?? p.dispute?.reason ?? '', at: now, daysRemoved: before + days } });
     await p.save({ session });
     await shiftEnd(p.shopId, -days, session);
-    await audit({ shopId: p.shopId, userId: String(p.createdBy), userName: 'MedShop', action: 'update', module: 'subscription', entityId: String(p._id), entityName: p.invoiceNumber ?? 'Payment', text: `Card dispute ${status} on ${p.invoiceNumber ?? 'a payment'}${days ? ` — ${String(days)} plan days removed` : ''}`, ip: undefined }, session);
+    await audit({ shopId: p.shopId, userId: String(p.createdBy), userName: 'MedBox24', action: 'update', module: 'subscription', entityId: String(p._id), entityName: p.invoiceNumber ?? 'Payment', text: `Card dispute ${status} on ${p.invoiceNumber ?? 'a payment'}${days ? ` — ${String(days)} plan days removed` : ''}`, ip: undefined }, session);
     return `dispute ${status}`;
   });
 }
@@ -346,11 +346,11 @@ export async function creditNotePdf(t: TenantContext, paymentId: string, refundI
     logo: true,
     parties: [billedTo(to), { label: 'Refund', lines: [`${rupees(r.amount)} of ${rupees(p.amount)} paid`, `Reason: ${r.reason}`, r.daysRemoved ? `${String(r.daysRemoved)} plan days removed` : 'Plan days unchanged'] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `Refund — MedShop software subscription (${p.planName})`, env.BILLING_SAC, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
+    rows: [{ cells: ['1', `Refund — MedBox24 software subscription (${p.planName})`, env.BILLING_SAC, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
     totals: [{ label: 'Taxable value', value: rupees(r.amount - gst) }, ...gstLines(gst, from, to), { label: 'Refunded', value: rupees(r.amount), strong: true }],
     words: rupeesInWords(r.amount),
     notes: [`This credit note reduces invoice ${p.invoiceNumber ?? ''}; the invoice itself stays as issued.`, ...(support ? [`Questions: ${support}`] : [])],
-    footer: `Computer-generated credit note — no signature needed · ${from.name ?? 'MedShop'}`,
+    footer: `Computer-generated credit note — no signature needed · ${from.name ?? 'MedBox24'}`,
   });
   return { buf, name: r.creditNote };
 }

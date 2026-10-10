@@ -28,13 +28,13 @@ export async function filesInfo(shopId: Types.ObjectId) {
   const files = (p[0]?.n ?? 0) + (a[0]?.n ?? 0);
   const bytes = (p[0]?.bytes ?? 0) + (a[0]?.bytes ?? 0);
   const folder = `${slug(shop.name, 40)}_${String(shopId)}`;
-  return { shopName: shop.name, folder, files, bytes, products: p[0]?.n ?? 0, papers: a[0]?.n ?? 0, name: `medshop-files-${shop.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'shop'}-${new Date(Date.now() + IST).toISOString().slice(0, 10)}` };
+  return { shopName: shop.name, folder, files, bytes, products: p[0]?.n ?? 0, papers: a[0]?.n ?? 0, name: `medbox24-files-${shop.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'shop'}-${new Date(Date.now() + IST).toISOString().slice(0, 10)}` };
 }
 
 /** Checks the limits before anything is logged or sent. */
 export async function filesZipPlan(shopId: Types.ObjectId) {
   const info = await filesInfo(shopId);
-  if (info.files > ZIP_MAX_FILES || info.bytes > ZIP_MAX_BYTES) throw AppError.conflict('Too many files for one ZIP — ask MedShop support for a full export');
+  if (info.files > ZIP_MAX_FILES || info.bytes > ZIP_MAX_BYTES) throw AppError.conflict('Too many files for one ZIP — ask MedBox24 support for a full export');
   if (running.has(String(shopId))) throw busy();
   return info;
 }

@@ -45,6 +45,6 @@ aiRouter.get(
   validate({ params: idParams }),
   asyncHandler(async (req: Request, res: Response) => {
     const f = await coinInvoicePdf(tenantOf(req), (req.params as { id: string }).id);
-    sendFile(res, f.buf, `MedShop-invoice-${f.name}`, 'pdf');
+    sendFile(res, f.buf, `MedBox24-invoice-${f.name}`, 'pdf');
   }),
 );

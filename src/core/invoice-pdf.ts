@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import qrcode from 'qrcode-generator';
 import { BOLD, FONT } from './export';
 
-/** One designed layout for every invoice-like paper: the shop's bill and credit note, MedShop's own invoice. */
+/** One designed layout for every invoice-like paper: the shop's bill and credit note, MedBox24's own invoice. */
 export interface InvoiceSpec {
   size: 'A4' | 'A5';
   title: string;
@@ -11,7 +11,7 @@ export interface InvoiceSpec {
   meta: [string, string][];
   stamp?: string;
   issuer: { name: string; lines: string[] };
-  /** MedShop's own papers carry the app mark beside the issuer. */
+  /** MedBox24's own papers carry the app mark beside the issuer. */
   logo?: boolean;
   parties: { label: string; lines: string[] }[];
   columns: { label: string; w: number; num?: boolean }[];
@@ -27,26 +27,26 @@ export interface InvoiceSpec {
 
 const C = { ink: '#0f172a', muted: '#64748b', brand: '#0fb5a8', dark: '#0b3b43', soft: '#e8f7f5', line: '#dbe4e8', zebra: '#f6f9fa', danger: '#b42318', dangerSoft: '#fdecea', ok: '#067647', okSoft: '#e7f6ec' };
 
-/** The capsule-and-cross app mark (frontend app/icon.svg) on its gradient tile. */
+/** The MedBox24 box-and-plus (frontend public/brand/mark-compact.svg), drawn in the PDF so it stays sharp. */
 function mark(doc: PDFKit.PDFDocument, x: number, y: number, size: number) {
-  const g = doc.linearGradient(x, y, x + size, y + size);
-  g.stop(0, '#0fb5a8').stop(0.55, '#06b6d4').stop(1, '#0ea5e9');
-  doc.roundedRect(x, y, size, size, size * 0.227).fill(g);
-  doc.save().translate(x, y).scale(size / 512);
-  doc.save().rotate(-45, { origin: [268, 284] });
-  doc.path('M262 214h-84a70 70 0 0 0 0 140h84z').fill('#ffffff');
-  doc.path('M274 214h84a70 70 0 0 1 0 140h-84z').fillOpacity(0.42).fill('#ffffff');
+  const plus = 'M306 110h40v40h40v40h-40v40h-40v-40h-40v-40h40z';
+  doc.save().translate(x, y).scale(size / 512).translate(256, 256).scale(1.5).translate(-249, -262);
+  const box = doc.linearGradient(113, 0, 349, 0);
+  box.stop(0, '#2a6cf5').stop(1, '#12b7a7');
+  doc.roundedRect(113, 124, 236, 290, 50).fill(box);
+  doc.path(plus).lineWidth(28).lineJoin('round').fillAndStroke('#ffffff', '#ffffff');
+  const cross = doc.linearGradient(266, 0, 386, 0);
+  cross.stop(0, '#2a6cf5').stop(1, '#12b7a7');
+  doc.path(plus).fill(cross);
   doc.restore();
-  doc.lineWidth(30).lineCap('round').strokeOpacity(1).moveTo(148, 92).lineTo(148, 184).moveTo(102, 138).lineTo(194, 138).stroke('#ffffff');
-  doc.restore();
-  doc.fillOpacity(1).lineWidth(1).lineCap('butt');
+  doc.fillOpacity(1).lineWidth(1).lineJoin('miter');
 }
 
 export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
   const big = s.size === 'A4';
   const k = big ? 1.22 : 1;
   const M = big ? 36 : 22;
-  const doc = new PDFDocument({ size: s.size, margin: M, bufferPages: true, info: { Title: `${s.title} ${s.meta[0]?.[1] ?? ''}`, Producer: 'MedShop' } });
+  const doc = new PDFDocument({ size: s.size, margin: M, bufferPages: true, info: { Title: `${s.title} ${s.meta[0]?.[1] ?? ''}`, Producer: 'MedBox24' } });
   doc.registerFont('r', FONT);
   doc.registerFont('b', BOLD);
   const chunks: Buffer[] = [];

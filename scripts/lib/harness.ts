@@ -209,7 +209,7 @@ export async function startHarness(opts: { port?: number; dbPath?: string } = {}
     RAZORPAY_KEY_ID: 'rzp_test_local',
     RAZORPAY_KEY_SECRET: 'smoke-razorpay-key-secret',
     RAZORPAY_WEBHOOK_SECRET: 'smoke-razorpay-webhook-secret',
-    BILLING_LEGAL_NAME: 'MedShop Technologies Pvt Ltd',
+    BILLING_LEGAL_NAME: 'MedBox24 Technologies Pvt Ltd',
     BILLING_ADDRESS: '5 Camac Street, Kolkata 700017',
     BILLING_STATE: 'West Bengal',
     BILLING_GSTIN: '19AABCM1234A1Z5',

@@ -32,7 +32,7 @@ export const TYPES = {
   SUBSCRIPTION_EXPIRING: { label: 'Plan ending', group: 'system', channels: ['inapp', 'email'] },
   SUBSCRIPTION_EXPIRED: { label: 'Plan ended', group: 'system', channels: ['inapp', 'email'], locked: true },
   // The owner must see a support request; it can't be switched off (D15).
-  SUPPORT_ACCESS: { label: 'MedShop support access', group: 'system', channels: ['inapp'], locked: true },
+  SUPPORT_ACCESS: { label: 'MedBox24 support access', group: 'system', channels: ['inapp'], locked: true },
 } as const satisfies Record<string, TypeInfo>;
 
 export type NotificationType = keyof typeof TYPES;

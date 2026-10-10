@@ -191,7 +191,7 @@ async function main() {
   await own2.post('/subscription/autopay/verify', { subscriptionId: subB, paymentId: payB1, signature: sign(KEY, `${payB1}|${subB}`) });
   const pB = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: payB1 }).lean();
   const pA = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: 'pay_AUTO0001' }).lean();
-  check('invoice parties frozen: MedShop (19) → Kolkata shop (19) same state, Mumbai shop (27) another', pA?.invoiceFrom?.stateCode === '19' && pA.invoiceTo?.stateCode === '19' && pB?.invoiceFrom?.gstin === '19AABCM1234A1Z5' && pB.invoiceTo?.stateCode === '27' && pB.invoiceTo.name === 'Lifeline Chemists', JSON.stringify(pB?.invoiceTo));
+  check('invoice parties frozen: MedBox24 (19) → Kolkata shop (19) same state, Mumbai shop (27) another', pA?.invoiceFrom?.stateCode === '19' && pA.invoiceTo?.stateCode === '19' && pB?.invoiceFrom?.gstin === '19AABCM1234A1Z5' && pB.invoiceTo?.stateCode === '27' && pB.invoiceTo.name === 'Lifeline Chemists', JSON.stringify(pB?.invoiceTo));
   const inv = await own2.raw('GET', `/subscription/payments/${String(pB?._id)}/invoice`);
   check('the tax invoice PDF still downloads', inv.status === 200 && (inv.headers.get('content-type') ?? '').includes('pdf'));
 
@@ -215,7 +215,7 @@ async function main() {
 
   const pid = String(pB?._id);
   const hold = async (amount: number, minsAgo: number) => {
-    const doc = await SubscriptionPaymentModel.findByIdAndUpdate(pid, { $push: { refunds: { amount, status: 'pending', reason: 'Crash test', removeDays: false, byName: 'MedShop · Accounts', at: new Date(Date.now() - minsAgo * 60_000), daysRemoved: 0 } }, $inc: { refunded: amount } }, { returnDocument: 'after' }).lean();
+    const doc = await SubscriptionPaymentModel.findByIdAndUpdate(pid, { $push: { refunds: { amount, status: 'pending', reason: 'Crash test', removeDays: false, byName: 'MedBox24 · Accounts', at: new Date(Date.now() - minsAgo * 60_000), daysRemoved: 0 } }, $inc: { refunded: amount } }, { returnDocument: 'after' }).lean();
     return String(doc?.refunds[doc.refunds.length - 1]?._id);
   };
   const refundOf = async (id: string) => (await SubscriptionPaymentModel.findById(pid).lean())?.refunds.find((x) => String(x._id) === id);

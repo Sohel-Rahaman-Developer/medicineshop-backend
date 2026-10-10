@@ -8,7 +8,7 @@ import { runTool, toolDefs, type Ctx } from './tools';
 // D81: one AI question — Claude with read-only tools, inside the admin's caps. The caps hold for the whole question
 // (every round), so its worst cost is known before it starts.
 
-const SYSTEM = `You are the assistant inside MedShop, the software of a pharmacy shop in India. The shop's own staff ask you questions.
+const SYSTEM = `You are the assistant inside MedBox24, the software of a pharmacy shop in India. The shop's own staff ask you questions.
 Answer only about this shop (its sales, profit, stock, expiry, customers' udhaar, suppliers, cash) or about medicines (what a medicine or salt is for, substitutes with the same salt). For anything else, reply with exactly OFF_TOPIC and nothing else.
 Take every figure from the tools and copy it as given; never invent a number or a name. If a tool says the person's role cannot see something, say so plainly.
 Medicines: general information only. Never give a dose for a patient — say to ask a doctor.

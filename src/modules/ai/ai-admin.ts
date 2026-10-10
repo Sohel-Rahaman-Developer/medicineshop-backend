@@ -68,7 +68,7 @@ export async function grantCoins(a: AdminActor, shopId: string, coins: number, r
   const shop = await ShopModel.findById(shopId).select('name').lean();
   if (!shop) throw AppError.notFound('Shop not found');
   const text = coins > 0 ? `gave ${String(coins)} AI coins` : `took back ${String(-coins)} AI coins`;
-  const balance = await inTransaction((session) => moveCoins(shop._id, 'grant', coins, `MedShop ${coins > 0 ? 'added' : 'took back'} ${String(Math.abs(coins))} coins — ${reason}`, `MedShop · ${a.name}`, `admin:${a.id}`, session));
+  const balance = await inTransaction((session) => moveCoins(shop._id, 'grant', coins, `MedBox24 ${coins > 0 ? 'added' : 'took back'} ${String(Math.abs(coins))} coins — ${reason}`, `MedBox24 · ${a.name}`, `admin:${a.id}`, session));
   await log(a, 'coins', reason, `${text} — balance ${String(balance)}`, { id: shop._id, name: shop.name }, undefined, ip);
   return { balance };
 }

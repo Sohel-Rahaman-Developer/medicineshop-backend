@@ -28,7 +28,7 @@ const ALL = { crossTenant: true } as const;
 /** Every admin action: why, by whom — on the admin log, and on the shop's own audit log when it touches a shop (D15). */
 export async function log(a: AdminActor, action: string, reason: string, text: string, shop?: { id: Types.ObjectId; name: string }, changes?: unknown, ip?: string) {
   await AdminAuditModel.create({ adminUserId: new Types.ObjectId(a.id), adminName: a.name, ...(shop ? { shopId: shop.id, shopName: shop.name } : {}), action, reason, text, ...(changes ? { changes } : {}), ip });
-  if (shop) await audit({ shopId: shop.id, userId: a.id, userName: `MedShop · ${a.name}`, action: 'update', module: 'subscription', entityId: String(shop.id), entityName: shop.name, text: `MedShop (${a.name}) ${text} — ${reason}`, ip });
+  if (shop) await audit({ shopId: shop.id, userId: a.id, userName: `MedBox24 · ${a.name}`, action: 'update', module: 'subscription', entityId: String(shop.id), entityName: shop.name, text: `MedBox24 (${a.name}) ${text} — ${reason}`, ip });
 }
 
 export async function overview(now = new Date()) {
@@ -221,7 +221,7 @@ export async function payments(q: { status?: string; cursor?: string; limit: num
 
 /** B8c: money back (accounts / super, with a reason) — Razorpay refund, GST credit note, and the plan days when asked. */
 export async function refundPayment(a: AdminActor, id: string, input: { amount: number; removeDays: boolean; reason: string }, ip?: string) {
-  const r = await refund(id, input, { id: a.id, name: `MedShop · ${a.name}` });
+  const r = await refund(id, input, { id: a.id, name: `MedBox24 · ${a.name}` });
   const doc = await ShopModel.findById(r.shopId).select('name').lean();
   await log(a, 'refund', input.reason, `refunded ${inr(r.amount)} on ${r.invoiceNumber} — credit note ${r.creditNote}${r.days ? `, ${String(r.days)} plan days removed` : ''}`, { id: r.shopId, name: doc?.name ?? '' }, undefined, ip);
   return r;
@@ -230,7 +230,7 @@ export async function refundPayment(a: AdminActor, id: string, input: { amount: 
 export async function stopShopAutopay(a: AdminActor, id: string, reason: string, ip?: string) {
   const doc = await ShopModel.findById(id).select('name').lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  if (!(await stopAutopay(doc._id, { id: a.id, name: `MedShop · ${a.name}` }, reason, ip))) throw AppError.conflict('Autopay is not on');
+  if (!(await stopAutopay(doc._id, { id: a.id, name: `MedBox24 · ${a.name}` }, reason, ip))) throw AppError.conflict('Autopay is not on');
   await log(a, 'autopay_stop', reason, 'stopped autopay', { id: doc._id, name: doc.name }, undefined, ip);
 }
 
@@ -238,7 +238,7 @@ export async function stopShopAutopay(a: AdminActor, id: string, reason: string,
 export async function manualPayment(a: AdminActor, input: { shopId: string; planCode: string; reference: string; reason: string }, ip?: string) {
   const doc = await ShopModel.findById(input.shopId).select('name').lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const p = await recordManual(new Types.ObjectId(input.shopId), input.planCode, input.reference, { id: a.id, name: `MedShop · ${a.name}` });
+  const p = await recordManual(new Types.ObjectId(input.shopId), input.planCode, input.reference, { id: a.id, name: `MedBox24 · ${a.name}` });
   await log(a, 'payment_manual', input.reason, `recorded ${inr(p.amount)} for ${p.planName} (${input.reference}) — invoice ${p.invoiceNumber ?? ''}`, { id: doc._id, name: doc.name }, undefined, ip);
   return p;
 }
@@ -277,7 +277,7 @@ export async function saveReferral(a: AdminActor, input: ReferralSettings, reaso
 
 /** D80: the owner says on the phone who brought them — set, change or remove it. */
 export async function setReferrer(a: AdminActor, id: string, referrerId: string | null, reason: string, ip?: string) {
-  const r = await assignReferrer(new Types.ObjectId(id), referrerId ? new Types.ObjectId(referrerId) : null, `MedShop · ${a.name}`);
+  const r = await assignReferrer(new Types.ObjectId(id), referrerId ? new Types.ObjectId(referrerId) : null, `MedBox24 · ${a.name}`);
   const text = r.after ? `set ${r.after} as the shop that referred it${r.before ? ` (was ${r.before})` : ''}` : `removed ${r.before ?? ''} as the referrer`;
   await log(a, 'referral_set', reason, text, { id: new Types.ObjectId(id), name: r.shop }, { before: r.before, after: r.after }, ip);
 }
