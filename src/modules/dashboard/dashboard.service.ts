@@ -27,12 +27,12 @@ export function kindOf(t: TenantContext): HomeKind {
   return can(t.permissions, 'reports', 'view') ? 'owner' : 'counter';
 }
 
-const seesCost = (t: TenantContext) => can(t.permissions, 'reports', 'view');
+export const seesCost = (t: TenantContext) => can(t.permissions, 'reports', 'view');
 /** Cashier `sales: own` sees only own bills here too (D20). */
 const scopeOf = (t: TenantContext, userId: string) => (t.scopes.sales === 'own' ? { createdBy: new Types.ObjectId(userId) } : {});
 
 /** Bills and returns in [from, to): net sales = bills − returns; profit only for reports:view (PLAN §7). */
-async function kpis(t: TenantContext, userId: string, from: Date, to: Date) {
+export async function kpis(t: TenantContext, userId: string, from: Date, to: Date) {
   const own = scopeOf(t, userId);
   const [[s], [r], cancelled] = await Promise.all([
     SaleModel.aggregate<{ bills: number; gross: number; taxable: number; cost: number; items: number; points: number }>([
@@ -55,7 +55,7 @@ async function kpis(t: TenantContext, userId: string, from: Date, to: Date) {
   return { ...out, profit: { revenue, cogs, gross: revenue - cogs, margin: revenue ? Math.round(((revenue - cogs) * 10_000) / revenue) / 100 : 0 } };
 }
 
-async function stockBlock(t: TenantContext) {
+export async function stockBlock(t: TenantContext) {
   const [[p], top] = await Promise.all([
     ProductModel.aggregate<{ value: number; mrpValue: number; low: number; out: number; products: number }>([
       { $match: { shopId: t.shopId, isActive: true } },
@@ -74,7 +74,7 @@ async function stockBlock(t: TenantContext) {
 }
 
 /** The expiry centre's own buckets (stock.domain expiryRange), so Home and Expiry show the same numbers. */
-async function expiryBlock(t: TenantContext, now: Date) {
+export async function expiryBlock(t: TenantContext, now: Date) {
   const one = async (k: 'expired' | 'd30' | 'd60' | 'd90') => {
     const r = expiryRange(k, now);
     const expiryDate = { ...(r.from ? { [k === 'd30' ? '$gte' : '$gt']: r.from } : {}), ...(r.to ? { [k === 'expired' ? '$lt' : '$lte']: r.to } : {}) };
@@ -88,7 +88,7 @@ async function expiryBlock(t: TenantContext, now: Date) {
   return { expired, d30, d60, d90 };
 }
 
-async function supplierDue(t: TenantContext, now: Date) {
+export async function supplierDue(t: TenantContext, now: Date) {
   const d0 = istDayStart(now);
   const [[s], [p]] = await Promise.all([
     SupplierModel.aggregate<{ total: number; suppliers: number }>([{ $match: { shopId: t.shopId, payableBalance: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$payableBalance' }, suppliers: { $sum: 1 } } }]),
@@ -100,7 +100,7 @@ async function supplierDue(t: TenantContext, now: Date) {
   return { total: s?.total ?? 0, suppliers: s?.suppliers ?? 0, overdue: p?.overdue ?? 0, dueWeek: p?.week ?? 0 };
 }
 
-async function udhaar(t: TenantContext) {
+export async function udhaar(t: TenantContext) {
   const [c] = await CustomerModel.aggregate<{ total: number; customers: number }>([{ $match: { shopId: t.shopId, creditBalance: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$creditBalance' }, customers: { $sum: 1 } } }]);
   return { total: c?.total ?? 0, customers: c?.customers ?? 0 };
 }

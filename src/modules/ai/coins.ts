@@ -12,7 +12,8 @@ import { audit } from '../audit/audit.model';
 import { platform } from '../admin/platform';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, nextInvoice, placeOf, supplier } from '../subscription/subscription.service';
 import type { Actor } from '../user/actor';
-import { aiOffer } from './ai-settings';
+import { AskQuestionModel } from '../ask/ask.model';
+import { aiOffer, aiSettings } from './ai-settings';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 
 const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
@@ -66,17 +67,21 @@ export const shapeRead = (r: { _id: Types.ObjectId; userName: string; supplierNa
 
 /** The shop's coin page: balance, packs, every coin in or out, its AI reads and its coin invoices. */
 export async function wallet(t: TenantContext) {
-  const [offer, balance, entries, reads, orders] = await Promise.all([
+  const [offer, s, w, entries, reads, questions, orders] = await Promise.all([
     aiOffer(),
-    balanceOf(t.shopId),
+    aiSettings(),
+    CoinWalletModel.findOne({ shopId: t.shopId }).lean(),
     CoinEntryModel.find({ shopId: t.shopId }).sort({ createdAt: -1, _id: -1 }).limit(100).lean(),
     AiReadModel.find({ shopId: t.shopId }).sort({ createdAt: -1, _id: -1 }).limit(50).lean(),
+    AskQuestionModel.find({ shopId: t.shopId, route: { $in: ['ai', 'off_topic'] } }).sort({ createdAt: -1, _id: -1 }).limit(50).lean(),
     CoinOrderModel.find({ shopId: t.shopId, status: { $in: ['paid', 'failed'] } }).sort({ createdAt: -1 }).limit(50).lean(),
   ]);
   return {
     ...offer,
-    balance,
+    balance: w?.balance ?? 0,
     payments: env.PAYMENTS_MODE,
+    ask: { available: s.chat.enabled && s.hasKey, on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) },
+    questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
     reads: reads.map(shapeRead),
     orders: orders.map(shapeOrder),

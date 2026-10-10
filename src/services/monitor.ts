@@ -8,7 +8,8 @@ export const SIGNALS = {
   webhook_bad_signature: { label: 'Payment webhooks with a bad signature', limit: 1 },
   job_fail: { label: 'Scheduled jobs that failed', limit: 1 },
   mail_fail: { label: 'Emails given up after 3 tries', limit: 1 },
-  ai_fail: { label: 'AI bill reads that failed (key, Anthropic down)', limit: 3 },
+  ai_fail: { label: 'AI calls that failed — bill reads and chat (key, Anthropic down)', limit: 3 },
+  ask_budget: { label: 'Shop chat stopped: this month’s AI budget is used up', limit: 1 },
 } as const;
 export type Signal = keyof typeof SIGNALS;
 export const ALERT_WINDOW_MIN = 15;

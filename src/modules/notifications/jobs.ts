@@ -19,6 +19,7 @@ import { digestEmail, monitorAlertEmail, summaryEmail } from '../../services/ema
 import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
 import { AdminUserModel } from '../admin/admin.model';
 import { settleStuckReads } from '../ai/bill-ai';
+import { settleStuckQuestions } from '../ask/ask.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -134,6 +135,12 @@ export async function tick(now = new Date()) {
       await signal('job_fail', now);
       return 0;
     });
+    const asks = await settleStuckQuestions(now).catch(async (err: unknown) => {
+      logger.error({ err }, 'AI question settle failed');
+      await signal('job_fail', now);
+      return 0;
+    });
+    if (asks) ran.push(`asks:${String(asks)}`);
     if (back) ran.push(`aireads:${String(back)}`);
   }
   for (const s of shops) {

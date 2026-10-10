@@ -5,7 +5,10 @@ export type Reply =
   | { bill: unknown; input?: number; output?: number }
   | { status: number; type?: string }
   | { text: string }
-  | { stop: 'refusal' | 'max_tokens' };
+  | { stop: 'refusal' | 'max_tokens' }
+  /** Chat (not streamed): call these tools, or answer this text. */
+  | { tools: { name: string; input: unknown }[]; input?: number; output?: number }
+  | { say: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 
 export interface Seen {
   key: string;
@@ -15,6 +18,11 @@ export interface Seen {
   system: string;
   blocks: string[];
   schema: boolean;
+  /** Tool names offered, the system prompt cached or not, and every message sent (chat). */
+  tools: string[];
+  cached: boolean;
+  messages: { role: string; content: unknown }[];
+  maxTokens: number;
 }
 
 export interface FakeClaude {
@@ -24,6 +32,8 @@ export interface FakeClaude {
   /** One-off replies, used in order; when empty, `answer`. */
   queue: Reply[];
   answer: Reply;
+  /** What a chat request (one that offers tools) gets when the queue is empty; bill reads keep `answer`. */
+  chat?: Reply;
   seen: Seen[];
   close: () => Promise<void>;
 }
@@ -60,11 +70,31 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
         fail(res, 404, 'not_found_error');
         return;
       }
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; stream?: boolean; system?: string; output_config?: { effort?: string; format?: unknown }; messages: { content: { type: string }[] }[] };
-      fake.seen.push({ key: fake.key, model: body.model, effort: body.output_config?.effort ?? null, stream: body.stream === true, system: body.system ?? '', blocks: body.messages.flatMap((m) => m.content.map((c) => c.type)), schema: Boolean(body.output_config?.format) });
-      const reply = fake.queue.shift() ?? fake.answer;
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; max_tokens: number; stream?: boolean; system?: string | { text: string; cache_control?: unknown }[]; tools?: { name: string }[]; output_config?: { effort?: string; format?: unknown }; messages: { role: string; content: string | { type: string }[] }[] };
+      const system = typeof body.system === 'string' ? body.system : (body.system ?? []).map((b) => b.text).join(' ');
+      fake.seen.push({
+        key: fake.key,
+        model: body.model,
+        effort: body.output_config?.effort ?? null,
+        stream: body.stream === true,
+        system,
+        blocks: body.messages.flatMap((m) => (typeof m.content === 'string' ? ['text'] : m.content.map((c) => c.type))),
+        schema: Boolean(body.output_config?.format),
+        tools: (body.tools ?? []).map((t) => t.name),
+        cached: Array.isArray(body.system) && body.system.some((b) => Boolean(b.cache_control)),
+        messages: body.messages,
+        maxTokens: body.max_tokens,
+      });
+      const reply = fake.queue.shift() ?? (body.tools?.length && fake.chat ? fake.chat : fake.answer);
       if ('status' in reply) {
         fail(res, reply.status, reply.type ?? 'api_error');
+        return;
+      }
+      if ('tools' in reply || 'say' in reply) {
+        const content = 'tools' in reply ? reply.tools.map((t, i) => ({ type: 'tool_use', id: `toolu_fake_${String(fake.seen.length)}_${String(i)}`, name: t.name, input: t.input })) : [{ type: 'text', text: reply.say }];
+        const cache = 'say' in reply ? { cache_read_input_tokens: reply.cacheRead ?? 0, cache_creation_input_tokens: reply.cacheWrite ?? 0 } : {};
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: 'msg_fake', type: 'message', role: 'assistant', model: body.model, content, stop_reason: 'tools' in reply ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: reply.input ?? 1200, output_tokens: reply.output ?? 60, ...cache } }));
         return;
       }
       const text = 'bill' in reply ? JSON.stringify(reply.bill) : 'text' in reply ? reply.text : '';

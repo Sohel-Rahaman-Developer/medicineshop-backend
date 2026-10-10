@@ -42,6 +42,8 @@ const schema = z.object({
   RATE_REFRESH_PER_USER: z.coerce.number().int().positive().default(120),
   /** Default for protected API routes — per user, per minute. */
   RATE_API_PER_USER_PER_MIN: z.coerce.number().int().positive().default(300),
+  /** D81: chat questions a minute, per person. */
+  RATE_ASK_PER_USER_PER_MIN: z.coerce.number().int().positive().default(20),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

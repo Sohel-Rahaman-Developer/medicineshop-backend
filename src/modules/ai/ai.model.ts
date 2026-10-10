@@ -4,17 +4,37 @@ import { tenantScoped } from '../../core/tenant-scope';
 // D78: reading a supplier's bill with Claude, paid in coins. Settings, reads and coin orders are platform-side (the
 // admin lists them across shops, every shop-facing query filters by shopId); the wallet and its ledger are per shop.
 
-/** Models the admin can pick, with Anthropic's list price in US$ per million tokens (input / output). */
+/** Models the admin can pick, with Anthropic's list price in US$ per million tokens (input / output); the admin can override. */
 export const AI_MODELS = {
-  'claude-opus-5-5': { name: 'Claude Opus 5.5', input: 4, output: 20 },
-  'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', input: 2, output: 10 },
-  'claude-fable-5-1': { name: 'Claude Fable 5.1', input: 10, output: 50 },
+  'claude-opus-5-5': { name: 'Claude Opus 5.5', input: 4, output: 20, effort: true },
+  'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', input: 2, output: 10, effort: true },
+  'claude-fable-5-1': { name: 'Claude Fable 5.1', input: 10, output: 50, effort: true },
+  // Prompts over 100K tokens cost 5× on Haiku 5.5; the chat's input cap keeps every question far below that.
+  'claude-haiku-5-5': { name: 'Claude Haiku 5.5', input: 0.1, output: 0.5, effort: false },
+  'claude-haiku-4-5-20251001': { name: 'Claude Haiku 4.5', input: 1, output: 5, effort: false },
 } as const;
 export type AiModelId = keyof typeof AI_MODELS;
 export const AI_MODEL_IDS = Object.keys(AI_MODELS) as [AiModelId, ...AiModelId[]];
 export const AI_EFFORTS = ['low', 'medium', 'high'] as const;
 
 const packSchema = new Schema({ code: String, name: String, coins: Number, price: Number }, { _id: false });
+/** US$ per million tokens; cache reads and writes are priced on their own. */
+const priceSchema = new Schema({ model: { type: String, enum: AI_MODEL_IDS }, input: Number, output: Number, cacheRead: Number, cacheWrite: Number }, { _id: false });
+// D81: the shop chat. Caps bound the worst cost of one question; the budget bounds a month for the whole platform.
+const chatSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    model: { type: String, enum: AI_MODEL_IDS, default: 'claude-haiku-5-5' },
+    coinsPerQuestion: { type: Number, default: 1 },
+    freeQuestions: { type: Number, default: 20 },
+    capIn: { type: Number, default: 8000 },
+    capOut: { type: Number, default: 500 },
+    perShopDay: { type: Number, default: 30 },
+    budgetUsd: { type: Number, default: 50 },
+    margin: { type: Number, default: 2 },
+  },
+  { _id: false },
+);
 
 const settingsSchema = new Schema(
   {
@@ -33,6 +53,8 @@ const settingsSchema = new Schema(
     usdInr: { type: Number, required: true, default: 88 },
     /** Paise, GST included. */
     packs: { type: [packSchema], default: undefined },
+    prices: { type: [priceSchema], default: undefined },
+    chat: { type: chatSchema },
     updatedBy: { type: String },
   },
   { timestamps: true, versionKey: false },
@@ -49,13 +71,19 @@ const walletSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, unique: true },
     balance: { type: Number, required: true, default: 0, min: 0 },
+    /** Free chat questions this shop has used (D81). */
+    askFree: { type: Number, required: true, default: 0, min: 0 },
+    /** The shop's own switch for AI chat answers: off until the owner turns it on. */
+    askAi: { type: Boolean, required: true, default: false },
+    askAiBy: { type: String },
+    askAiAt: { type: Date },
   },
   { timestamps: true, versionKey: false },
 );
 walletSchema.plugin(tenantScoped);
 export const CoinWalletModel = model('CoinWallet', walletSchema);
 
-export const COIN_KINDS = ['purchase', 'grant', 'read', 'refund'] as const;
+export const COIN_KINDS = ['purchase', 'grant', 'read', 'ask', 'refund'] as const;
 export type CoinKind = (typeof COIN_KINDS)[number];
 
 // Append-only: every coin in or out, with the balance after it.

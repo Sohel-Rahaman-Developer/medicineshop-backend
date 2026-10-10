@@ -16,6 +16,7 @@ async function main() {
   // D78: AI reading goes to a local stand-in for Anthropic that copies the M.A. Pharma bill.
   const claude = await startFakeClaude();
   claude.answer = { bill: MA_AI };
+  claude.chat = { say: 'Dolo 650 has paracetamol — for fever and pain. For a dose, ask a doctor.' };
   process.env.AI_BASE_URL = claude.url;
   const h = await startHarness({ port: API_PORT, dbPath: join(tmpdir(), `medshop-e2e-db-${String(API_PORT)}`) });
 
@@ -55,7 +56,7 @@ async function main() {
     await SessionModel.updateMany({ userId: u._id, revokedAt: null }, { $set: { lastUsedAt: new Date(Date.now() - (b.minutes ?? 0) * 60_000) } });
   };
 
-  const { setApiKey, saveAiSettings } = await import('../src/modules/ai/ai-settings.js');
+  const { CHAT_DEFAULTS, saveChatSettings, setApiKey, saveAiSettings } = await import('../src/modules/ai/ai-settings.js');
   const { moveCoins } = await import('../src/modules/ai/coins.js');
   const { inTransaction } = await import('../src/core/transaction.js');
   const { DEFAULT_PACKS } = await import('../src/modules/ai/ai.model.js');
@@ -69,8 +70,14 @@ async function main() {
     await inTransaction((session) => moveCoins(shop._id, 'grant', b.coins ?? 0, 'E2E coins', 'MedShop · E2E', 'e2e', session));
   };
 
+  /** Chat suite (D81): AI questions on with the stand-in's key (every project, any order). */
+  const seedChat = async () => {
+    await setApiKey(claude.key, 'E2E');
+    await saveChatSettings({ ...CHAT_DEFAULTS, enabled: true }, 'E2E');
+  };
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
@@ -78,7 +85,7 @@ async function main() {
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
       const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number };
-      (req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

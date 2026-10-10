@@ -10,6 +10,28 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.10.0',
+    date: '2026-10-10',
+    title: 'Ask your shop',
+    shop: [
+      'Ask your shop (the question mark at the top): today’s sale, profit, top sellers, a medicine’s stock and rack, what is running low, expiry, udhaar, what you owe suppliers, cash in the drawer, the same salt in stock.',
+      'Ask in English, Hindi or Bengali — typed in their own letters or in Roman — and the answer comes back the same way.',
+      'These answers are free: worked out from your own data, with a link to the screen that shows the full picture.',
+      'Anything else can go to the AI — only when you say yes. A new shop gets 20 free AI questions, then 1 coin a question; a failed or off-topic question gives the coin back.',
+      'AI answers stay off until the owner turns them on (Settings → AI coins, or right in the chat) — and can be turned off again any time. Who turned it on or off, and when, is in the activity log.',
+      'Settings → AI coins lists every AI question: who asked, when, free or coins, and any coin given back.',
+      'Each person sees only what their role allows (a cashier sees their own bills, no profit). The conversation stays on this device.',
+      'Type a question in search (Ctrl K) to ask it.',
+    ],
+    admin: [
+      'Shop chat: turn AI questions on, pick the model, coins a question, free questions, caps per question, a daily limit per shop and a monthly budget.',
+      'Price check: the worst cost of one question against what a coin brings in, worked out on screen, with a coin price for your target margin.',
+      'Anthropic prices per model can be changed when Anthropic changes them; bill reading costs use them too. Claude Haiku 5.5 added (the chat’s default — about a tenth of Haiku 4.5’s price), and Haiku 4.5.',
+      'Chat use this month: free answers, AI questions, tokens, real cost, coins, profit — by language and by shop, with how many shops have turned AI on. What a shop asked is never stored.',
+    ],
+    api: ['GET /ask/offer, POST /ask (20 a minute per person), PUT /ask/ai (the owner’s switch). Admin: GET /admin/ai/chat, GET /admin/ai/chat/questions, PUT /admin/ai/chat, PUT /admin/ai/prices.'],
+  },
+  {
     version: '1.9.0',
     date: '2026-10-10',
     title: 'Feels like an app on the phone',

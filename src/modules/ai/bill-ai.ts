@@ -12,7 +12,7 @@ import { docxContent, readRows } from '../purchases/bill-read';
 import { previewRead } from '../purchases/bill-import';
 import { SupplierModel } from '../suppliers/supplier.model';
 import type { Actor } from '../user/actor';
-import { aiSettings, apiKey } from './ai-settings';
+import { aiSettings, apiKey, listPrice, priceOf, type Price } from './ai-settings';
 import { AI_MODELS, AiReadModel } from './ai.model';
 import { balanceOf, moveCoins } from './coins';
 
@@ -92,9 +92,8 @@ function blockOf(kind: Kind, file: Buffer): Block {
   return { type: 'text', text: `The bill, from a Word file (table rows, cells split by " | "):\n${text}\n\n${rows.map((r) => r.join(' | ')).join('\n')}` };
 }
 
-/** Anthropic's charge for one read, in paise. */
-export function costPaise(model: keyof typeof AI_MODELS, input: number, output: number, usdInr: number) {
-  const price = AI_MODELS[model];
+/** Anthropic's charge for one read, in paise — at the admin's price for the model when one is set. */
+export function costPaise(model: keyof typeof AI_MODELS, input: number, output: number, usdInr: number, price: Price = listPrice(model)) {
   return Math.round(((input * price.input + output * price.output) / 1_000_000) * usdInr * 100);
 }
 
@@ -113,7 +112,7 @@ async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
     model: s.model,
     max_tokens: 32_000,
     system: SYSTEM,
-    output_config: { effort: s.effort, format: { type: 'json_schema', schema: z.toJSONSchema(aiBillSchema) } },
+    output_config: { ...(AI_MODELS[s.model].effort ? { effort: s.effort } : {}), format: { type: 'json_schema', schema: z.toJSONSchema(aiBillSchema) } },
     messages: [{ role: 'user', content: [blockOf(kind, file), { type: 'text', text: 'Copy this bill into the JSON.' }] }],
   });
   const msg = await stream.finalMessage();
@@ -160,7 +159,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   // Claims the read while it is still running, so the stuck-read sweep and this never both give the coins back.
   const giveBack = async (error: string, usage = { input: 0, output: 0 }) => {
     await inTransaction(async (session) => {
-      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, inputTokens: usage.input, outputTokens: usage.output, costPaise: costPaise(s.model, usage.input, usage.output, s.usdInr), ms: Date.now() - started } }, { session });
+      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, inputTokens: usage.input, outputTokens: usage.output, costPaise: costPaise(s.model, usage.input, usage.output, s.usdInr, priceOf(s, s.model)), ms: Date.now() - started } }, { session });
       if (claimed.modifiedCount) await moveCoins(t.shopId, 'refund', coins, `Back: ${input.fileName} — ${error}`, actor.name, String(read._id), session);
     });
     return error;
@@ -187,7 +186,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
     if (!(err instanceof AppError)) throw err;
     throw new AppError(err.status, err.code, `${await giveBack(err.message, answer.usage)}. ${FAILED(coins)}`, err.details);
   }
-  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr), ms: Date.now() - started } });
+  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr, priceOf(s, s.model)), ms: Date.now() - started } });
   const balance = await balanceOf(t.shopId);
   return { ...preview, ai: { readId: String(read._id), pages, coins, balance } };
 }
