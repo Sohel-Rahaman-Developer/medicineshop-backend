@@ -37,12 +37,18 @@ import * as suppliers from '../suppliers/suppliers.service';
 import { paymentSchema, supplierSchema } from '../suppliers/suppliers.validation';
 import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
-import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, IMPORT_KEYS, RESTOCK, SUPPLIERS } from './demo.data';
+import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, IMPORT_KEYS, RESTOCK, SHORT_DATED, SUPPLIERS } from './demo.data';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
-/** Days of trading behind today: this month, last month and every week in between. */
-export const HISTORY_DAYS = 45;
+/** Days of trading behind today: this month and the whole of last month. */
+export const HISTORY_DAYS = 60;
+// A growing shop: Saturday busiest, Sunday a half day; mornings and evenings are the rush.
+const DOW = [0.6, 1, 0.95, 1, 1, 1.1, 1.2];
+const HOURS: [hour: number, weight: number][] = [[9, 6], [10, 9], [11, 10], [12, 8], [13, 5], [14, 3], [15, 3], [16, 4], [17, 7], [18, 10], [19, 11], [20, 9], [21, 4]];
+const HOUR_SUM = HOURS.reduce((s, [, w]) => s + w, 0);
+/** Opening stock covers two months of selling; batches near expiry keep their small counts. */
+export const STOCK_SCALE = 3;
 
 type Who = 'owner' | 'manager' | 'cashier' | 'stock';
 interface Person { t: TenantContext; actor: Actor }
@@ -50,7 +56,7 @@ type Crew = Record<Who, Person>;
 
 type Event =
   | { at: number; kind: 'bill'; basket: number; mode: 'CASH' | 'UPI' | 'CARD' | 'CREDIT'; customer: number | null; who: Who; discount: number }
-  | { at: number; kind: 'purchase'; supplier: number; lines: number[]; pay: 'full' | 'part' | 'credit'; seq: number }
+  | { at: number; kind: 'purchase'; supplier: number; lines: number[]; pay: 'full' | 'part' | 'credit'; seq: number; short?: boolean }
   | { at: number; kind: 'expense'; category: string; description: string; amount: number; mode: 'CASH' | 'UPI' | 'BANK' }
   | { at: number; kind: 'collect'; pick: number }
   | { at: number; kind: 'supplierPay'; supplier: number }
@@ -78,19 +84,24 @@ export function dayPlan(dayStart: Date, today: Date): Event[] {
   const dow = ist.getUTCDay();
   const dom = ist.getUTCDate();
   const out: Event[] = [];
-  const bills = dow === 0 ? 8 + Math.floor(r() * 5) : 14 + Math.floor(r() * 9);
+  // About 11 bills a day two months back, 24 today, so every chart leans up.
+  const ago = Math.min(HISTORY_DAYS, Math.max(0, Math.round((today.getTime() - dayStart.getTime()) / DAY)));
+  const bills = Math.round((24 - (13 * ago) / HISTORY_DAYS) * (DOW[dow] ?? 1) * (0.92 + r() * 0.16));
   for (let i = 0; i < bills; i++) {
-    const h = r() < 0.55 ? 9 + r() * 4.5 : 16.5 + r() * 5;
+    let pick = r() * HOUR_SUM;
+    const slot = HOURS.find(([, w]) => (pick -= w) < 0) ?? [12, 0];
+    const h = slot[0] + r() * 0.95;
     const p = r();
     const mode = p < 0.1 ? 'CREDIT' : p < 0.55 ? 'UPI' : p < 0.62 ? 'CARD' : 'CASH';
     const withCustomer = mode === 'CREDIT' || r() < 0.4;
     const w = r();
     out.push({ at: h * HOUR, kind: 'bill', basket: Math.floor(r() * BASKETS.length), mode, customer: withCustomer ? Math.floor(r() * CUSTOMERS.length) : null, who: w < 0.5 ? 'cashier' : w < 0.8 ? 'manager' : 'owner', discount: r() < 0.08 ? (r() < 0.5 ? 5 : 10) : 0 });
   }
-  if (n % 6 === 2) {
-    const lines = [...new Set(Array.from({ length: 4 }, () => Math.floor(r() * RESTOCK.length)))];
-    out.push({ at: 11.5 * HOUR, kind: 'purchase', supplier: Math.floor(n / 6) % 3, lines, pay: (['full', 'part', 'credit'] as const)[n % 3] ?? 'credit', seq: n });
+  if (n % 5 === 2) {
+    const lines = [...new Set(Array.from({ length: 6 }, () => Math.floor(r() * RESTOCK.length)))];
+    out.push({ at: 11.5 * HOUR, kind: 'purchase', supplier: Math.floor(n / 5) % 3, lines, pay: (['full', 'part', 'credit'] as const)[n % 3] ?? 'credit', seq: n });
   }
+  if (ago === 10) out.push({ at: 12.4 * HOUR, kind: 'purchase', supplier: 1, lines: SHORT_DATED.map((_, i) => i), pay: 'credit', seq: n + 50_000, short: true });
   if (dom === 1) {
     out.push({ at: 10.25 * HOUR, kind: 'expense', category: 'Rent', description: 'Shop rent', amount: 1_800_000, mode: 'BANK' });
     out.push({ at: 10.3 * HOUR, kind: 'expense', category: 'Salary', description: 'Staff salary — 3 people', amount: 4_200_000, mode: 'BANK' });
@@ -196,7 +207,7 @@ export async function setUp(shopId: Types.ObjectId, emails: Record<Who, string>,
   const rules = Object.fromEntries(Object.entries(await loyalty.getRules(t)).filter(([k]) => k !== 'configured'));
   await clock.step(start, () => loyalty.updateRules(t, actor, rulesSchema.parse({ ...rules, enabled: true })));
   const rows = CATALOG.map(([name, company, salt, strength, category, schedule, gst, hsn, saleUnit, baseUnit, pack, purchasePack, storage, months, qty, mrp, rate, rack, batch]) => {
-    const v: Record<string, string | number> = { name, company, salt, strength, category, schedule, gst, hsn, barcode: '', saleUnit, baseUnit, pack, purchaseUnit: 'BOX', purchasePack, storage, hasExpiry: months === null ? 'No' : 'Yes', batch, expiry: months === null ? '' : expiryIn(months, start).mmyy, quantity: qty, mrp, rate, minPrice: '', rack };
+    const v: Record<string, string | number> = { name, company, salt, strength, category, schedule, gst, hsn, barcode: '', saleUnit, baseUnit, pack, purchaseUnit: 'BOX', purchasePack, storage, hasExpiry: months === null ? 'No' : 'Yes', batch, expiry: months === null ? '' : expiryIn(months, start).mmyy, quantity: months === null || months > 3 ? qty * STOCK_SCALE : qty, mrp, rate, minPrice: '', rack };
     return Object.fromEntries(IMPORT_KEYS.map((k) => [k, v[k] ?? '']));
   });
   await clock.step(start, () => importRows(t, actor, importSchema.parse({ clientRequestId: randomUUID(), dryRun: false, rows })), true);
@@ -268,14 +279,14 @@ export async function play(shopId: Types.ObjectId, emails: Record<Who, string>, 
         const s = sups[e.supplier % sups.length];
         if (!s) return null;
         const lines = e.lines.flatMap((i) => {
-          const item = RESTOCK[i];
+          const item = (e.short ? SHORT_DATED : RESTOCK)[i];
           if (!item) return [];
           const [prefix, qty, months] = item;
           const row = CATALOG.find((x) => x[0].startsWith(prefix));
           const productId = pid(prefix);
           if (!row || !productId) return [];
           const [gst, saleUnit, mrp, rate] = [row[6], row[8], row[15], row[16]];
-          return [{ productId: String(productId), batchNumber: `${prefix.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase()}${String(e.seq).slice(-4)}`, expiry: expiryIn(months, at).ym, quantity: qty, freeQuantity: qty >= 100 ? 10 : 0, unit: saleUnit, rate: Math.round(rate * 100), mrp: Math.round(mrp * 100), gstRate: gst }];
+          return [{ productId: String(productId), batchNumber: `${prefix.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase()}${String(e.seq).slice(-4)}`, expiry: expiryIn(months, e.short ? today : at).ym, quantity: qty, freeQuantity: qty >= 100 ? 10 : 0, unit: saleUnit, rate: Math.round(rate * 100), mrp: Math.round(mrp * 100), gstRate: gst }];
         });
         if (!lines.length) return null;
         const { result: p } = await purchases.create(t, actor, purchaseSchema.parse({ clientRequestId: randomUUID(), supplierId: String(s._id), invoiceNumber: `${s.name.split(' ').map((w) => w[0]).join('')}/${String(e.seq).slice(-4)}`, invoiceDate: istIsoDay(at), lines }));

@@ -29,7 +29,7 @@ const EMAILS = { owner: DEMO_EMAIL, manager: DEMO_STAFF[0].email, cashier: DEMO_
 
 type JobKind = 'create' | 'reset' | 'nightly' | 'topup';
 
-/** The day the demo shop's story starts: 09:00 IST, 45 days ago. */
+/** The day the demo shop's story starts: 09:00 IST, 60 days ago. */
 const startOf = (now: Date) => new Date(istDayStart(now).getTime() - HISTORY_DAYS * DAY + 9 * HOUR);
 
 async function counts(shopId: Types.ObjectId, now: Date) {
@@ -127,7 +127,7 @@ async function progress(done: number, total: number) {
   await DemoModel.updateOne({ _id: 'demo' }, { $set: { 'job.done': done, 'job.total': total, busyUntil: new Date(Date.now() + LEASE_MS) } });
 }
 
-/** Makes the demo shop's data again (45 days up to now), or adds what has happened since the last fill. */
+/** Makes the demo shop's data again (60 days up to now), or adds what has happened since the last fill. */
 async function run(kind: JobKind, by: string) {
   const d = await claim(kind, by);
   if (!d?.shopId) return false;
@@ -199,7 +199,7 @@ export async function setDemoCode(a: AdminActor, code: string, reason: string, i
   return demoInfo();
 }
 
-/** Scheduler: a fresh 45 days every night at 03:00 IST; through the day, the bills of each hour as it passes. */
+/** Scheduler: a fresh 60 days every night at 03:00 IST; through the day, the bills of each hour as it passes. */
 export async function demoTick(now = new Date()) {
   const d = await DemoModel.findById('demo').select('shopId resetAt busyUntil').lean();
   if (!d?.shopId || (d.busyUntil && d.busyUntil > now)) return null;

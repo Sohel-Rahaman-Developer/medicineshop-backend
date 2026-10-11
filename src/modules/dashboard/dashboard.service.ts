@@ -145,9 +145,11 @@ export async function overview(t: TenantContext, userId: string, from: Date, to:
   const span = end.getTime() - from.getTime();
   const has = (m: Parameters<typeof can>[1], a: Parameters<typeof can>[2] = 'view') => can(t.permissions, m, a);
   const today0 = istDayStart(now);
+  // A range still running is compared with the same stretch of the one before: today till 6 pm with yesterday till 6 pm.
+  const elapsed = Math.min(span, Math.max(0, now.getTime() - from.getTime()));
   const [range, prev, today, stock, expiry, due, credit, gst, expenses, bills, alerts, reorder, purchasesToday] = await Promise.all([
     has('sales') || has('pos', 'create') ? kpis(t, userId, from, end) : null,
-    has('sales') || has('pos', 'create') ? kpis(t, userId, new Date(from.getTime() - span), from) : null,
+    has('sales') || has('pos', 'create') ? kpis(t, userId, new Date(from.getTime() - span), new Date(from.getTime() - span + elapsed)) : null,
     has('sales') || has('pos', 'create') ? kpis(t, userId, today0, new Date(today0.getTime() + DAY)) : null,
     has('stock') ? stockBlock(t) : null,
     has('stock') ? expiryBlock(t, now) : null,

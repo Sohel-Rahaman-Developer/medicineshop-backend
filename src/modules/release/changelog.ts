@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.14.1',
+    date: '2026-10-11',
+    title: 'Menus answer at once, and a fuller demo shop',
+    shop: [
+      'Tapping a menu item shows a spinner on it at once and the screen’s outline in place of the old one while the new screen loads — a first visit no longer looks like a dead tap.',
+      'A screen opened in the last 5 minutes opens again at once; its numbers still load fresh.',
+      'Dashboard “vs before” compares like with like: today so far against yesterday up to the same time (and this month so far against the same days of last month), not against a whole day or month.',
+    ],
+    admin: [
+      'The console menu does the same: a spinner on the item clicked, the page outline at once, and pages seen in the last 5 minutes open instantly.',
+      'The demo shop now holds 60 days of a growing shop — busier Saturdays, a morning and evening rush, bigger monthly bills for regular patients, short-dated stock for the expiry screens.',
+    ],
+    api: ['GET /dashboard: the comparison window of a range still running ends at the same point of the previous one.'],
+  },
+  {
     version: '1.14.0',
     date: '2026-10-11',
     title: 'A demo shop for showing MedBox24',

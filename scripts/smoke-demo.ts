@@ -1,4 +1,4 @@
-// The marketing demo shop: made by a super admin, 45 days of trading, a sign-in code no email carries, nothing to pay.
+// The marketing demo shop: made by a super admin, 60 days of trading, a sign-in code no email carries, nothing to pay.
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error?.message ?? ''}`;
@@ -69,21 +69,31 @@ async function main() {
   const first = await settled('first fill');
   const shopId = new Types.ObjectId(first.shop?.id ?? '');
 
-  section('2. 45 days of a busy shop, up to now');
+  section('2. 60 days of a busy shop that grows, up to now');
   const now = new Date();
-  const bills = await SaleModel.find({ shopId }).select('billDate status customerId payments').lean();
+  const bills = await SaleModel.find({ shopId }).select('billDate status customerId payments grandTotal').lean();
   const days = new Set(bills.map((b) => istDayStart(b.billDate).getTime()));
   check('hundreds of bills', bills.length > 300, String(bills.length));
-  check('bills on 40+ different days', days.size >= 40, String(days.size));
+  check('bills on 55+ different days', days.size >= 55, String(days.size));
   check('no bill in the future', bills.every((b) => b.billDate <= now));
-  check('the oldest bill is about 45 days back', Math.round((now.getTime() - Math.min(...bills.map((b) => b.billDate.getTime()))) / 86_400_000) >= 44);
+  check('the oldest bill is about 60 days back', Math.round((now.getTime() - Math.min(...bills.map((b) => b.billDate.getTime()))) / 86_400_000) >= 59);
+  const DAYMS = 86_400_000;
+  const inWindow = (fromAgo: number, toAgo: number) => bills.filter((b) => b.status !== 'cancelled' && b.billDate.getTime() >= istDayStart(now).getTime() - fromAgo * DAYMS && b.billDate.getTime() < istDayStart(now).getTime() - toAgo * DAYMS);
+  const early = inWindow(59, 45);
+  const late = inWindow(15, 1);
+  check('the shop grows: the last two weeks have 40 % more bills than the first two', late.length >= early.length * 1.4, `${String(early.length)} → ${String(late.length)}`);
+  const avg = Math.round(bills.reduce((s, b) => s + b.grandTotal, 0) / bills.length / 100);
+  check('an average bill of ₹400 or more', avg >= 400, `₹${String(avg)}`);
   check('udhaar, UPI, card and cash bills', ['CREDIT', 'UPI', 'CARD', 'CASH'].every((m) => bills.some((b) => b.payments.some((p) => p.mode === m))));
   check('a cancelled bill', bills.some((b) => b.status === 'cancelled'));
   check('stock movements sit on the bill times', (await MovementModel.countDocuments({ shopId, at: { $gt: now } })) === 0);
   check('purchases, some unpaid', (await PurchaseModel.countDocuments({ shopId })) >= 5 && (await PurchaseModel.countDocuments({ shopId, dueAmount: { $gt: 0 } })) > 0);
   check('rent, salary and tea in expenses', (await ExpenseModel.distinct('category', { shopId })).length >= 3);
-  check('every past day closed', (await DayCloseModel.countDocuments({ shopId })) >= 44);
+  check('every past day closed', (await DayCloseModel.countDocuments({ shopId })) >= 59);
   check('returns', (await SaleReturnModel.countDocuments({ shopId })) > 0);
+  const { BatchModel } = await import('../src/modules/stock/batch.model.js');
+  const soon = await BatchModel.countDocuments({ shopId, quantity: { $gt: 0 }, expiryDate: { $gt: now, $lt: new Date(now.getTime() + 45 * 86_400_000) } });
+  check('stock that expires soon, for the expiry screens', soon >= 2, String(soon));
   check('customers with udhaar to collect', (await CustomerModel.countDocuments({ shopId, creditBalance: { $gt: 0 } })) > 0);
   check('owner and 3 staff', (await MembershipModel.countDocuments({ shopId, status: 'active' })) === 4);
   const c = first.counts;

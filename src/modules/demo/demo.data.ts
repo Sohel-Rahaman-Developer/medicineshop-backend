@@ -30,7 +30,7 @@ export const CATALOG: Row[] = [
   ['Zincovit Tablet', 'Apex', 'Multivitamin + Zinc', '', 'Tablet', 'OTC', 5, '30049099', 'STRIP', 'TABLET', 15, 10, 'Normal', 13, 80, 110, 77, 'C-1-4', 'ZV1188'],
   ['Benadryl Syrup 100 ml', 'J&J', 'Diphenhydramine', '', 'Syrup', 'OTC', 5, '30049099', 'BOTTLE', 'BOTTLE', 1, 24, 'Normal', 8, 40, 143, 101, 'C-2-1', 'BD8812'],
   ['Digene Gel Mint 200 ml', 'Abbott', 'Antacid', '', 'Syrup', 'OTC', 5, '30049099', 'BOTTLE', 'BOTTLE', 1, 24, 'Normal', 12, 40, 165, 115, 'C-2-2', 'DG2004'],
-  ['Ascoril LS Syrup 100 ml', 'Glenmark', 'Ambroxol + Levosalbutamol', '', 'Syrup', 'H', 5, '30049099', 'BOTTLE', 'BOTTLE', 1, 24, 'Normal', 2, 40, 118, 82, 'C-2-3', 'AS1007'],
+  ['Ascoril LS Syrup 100 ml', 'Glenmark', 'Ambroxol + Levosalbutamol', '', 'Syrup', 'H', 5, '30049099', 'BOTTLE', 'BOTTLE', 1, 24, 'Normal', 15, 40, 118, 82, 'C-2-3', 'AS1007'],
   ['Cremaffin Plus Syrup 225 ml', 'Abbott', 'Liquid paraffin + Milk of magnesia', '', 'Syrup', 'OTC', 5, '30049099', 'BOTTLE', 'BOTTLE', 1, 24, 'Normal', 14, 30, 245, 170, 'C-2-4', 'CF2251'],
   ['ORS Electral Powder 21.8 g', 'FDC', 'Oral rehydration salts', '', 'Powder', 'OTC', 5, '30049099', 'SACHET', 'SACHET', 1, 50, 'Normal', 20, 250, 22, 15, 'C-3-1', 'EL2188'],
   ['Betadine Ointment 20 g', 'Win-Medicare', 'Povidone iodine', '5%', 'Ointment', 'OTC', 5, '30049099', 'TUBE', 'TUBE', 1, 12, 'Normal', 11, 30, 125, 88, 'D-1-2', 'BT3301'],
@@ -51,7 +51,7 @@ export const CATALOG: Row[] = [
   ['Hansaplast Washproof 20 strips', 'Beiersdorf', '', '', 'Surgical', 'NON_DRUG', 12, '3005', 'PACK', 'PACK', 1, 20, 'Normal', 28, 50, 50, 34, 'E-3-2', 'HP2033'],
   ['Surgical Gloves (pair)', 'Kanam', '', '', 'Surgical', 'NON_DRUG', 12, '4015', 'PAIR', 'PAIR', 1, 50, 'Normal', 30, 80, 15, 9, 'E-3-1', 'KG1201'],
   ['Cotton Roll 100 g', 'Jaycot', '', '', 'Surgical', 'NON_DRUG', 5, '3005', 'PIECE', 'PIECE', 1, 20, 'Normal', 30, 40, 75, 48, 'E-3-3', 'CT1004'],
-  ['Liv 52 Tablet', 'Himalaya', 'Herbal', '', 'Ayurvedic', 'OTC', 12, '30039011', 'BOTTLE', 'BOTTLE', 1, 12, 'Normal', 2, 25, 175, 122, 'F-1-1', 'LV5205'],
+  ['Liv 52 Tablet', 'Himalaya', 'Herbal', '', 'Ayurvedic', 'OTC', 12, '30039011', 'BOTTLE', 'BOTTLE', 1, 12, 'Normal', 13, 25, 175, 122, 'F-1-1', 'LV5205'],
   ['Chyawanprash 500 g', 'Dabur', 'Herbal', '', 'Ayurvedic', 'OTC', 12, '30039011', 'JAR', 'JAR', 1, 12, 'Normal', 9, 20, 245, 185, 'F-1-2', 'CH5008'],
   ['Cadbury Dairy Milk Silk 60 g', 'Mondelez', '', '', 'Chocolate & snacks', 'NON_DRUG', 5, '1806', 'BAR', 'BAR', 1, 24, 'Normal', 6, 60, 80, 68, 'COUNTER', 'CDM601'],
   ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', 'CAN', 'CAN', 1, 24, 'Normal', 5, 72, 40, 30, 'FRIDGE-2', 'CC3001'],
@@ -93,10 +93,23 @@ export const BASKETS: [string, number, string][][] = [
   [['Dr Morepen Thermometer', 1, 'PIECE'], ['Crocin Advance', 1, 'STRIP']], [['Coca-Cola', 2, 'CAN'], ['Cadbury', 1, 'BAR']], [['Benadryl', 1, 'BOTTLE'], ['Cetzine 10', 1, 'STRIP']],
   [['Betadine', 1, 'TUBE'], ['Surgical Gloves', 2, 'PAIR']], [['Mox 500', 1, 'STRIP'], ['Dolo 650', 1, 'STRIP']], [['Huminsulin', 1, 'VIAL']], [["Johnson's", 1, 'BOTTLE']],
   [['Alprax', 1, 'STRIP']],
+  // A month of a chronic patient's medicines in one bill.
+  [['Telma 40', 4, 'STRIP'], ['Ecosprin 75', 4, 'STRIP'], ['Atorva 10', 2, 'STRIP'], ['Shelcal 500', 2, 'STRIP']],
+  [['Glycomet GP 1', 6, 'STRIP'], ['Thyronorm', 1, 'BOTTLE'], ['Zincovit', 2, 'STRIP']],
+  [['Augmentin 625', 2, 'STRIP'], ['Pan 40', 2, 'STRIP'], ['Becosules', 1, 'STRIP']],
+  [['Ensure Vanilla', 1, 'JAR'], ['Limcee 500', 2, 'STRIP'], ['Shelcal 500', 2, 'STRIP']],
+  [['Accu-Chek Active', 1, 'PACK'], ['Glycomet GP 1', 4, 'STRIP']],
+  [['Montair LC', 2, 'STRIP'], ['Allegra 120', 1, 'STRIP'], ['Ascoril LS', 1, 'BOTTLE']],
 ];
 
 /** Restock lines a purchase may bring: product prefix, purchase quantity (sale units), months to expiry. */
 export const RESTOCK: [string, number, number][] = [
-  ['Dolo 650', 120, 26], ['Crocin Advance', 80, 20], ['Pan 40', 60, 24], ['Telma 40', 40, 30], ['Shelcal 500', 40, 16], ['Glycomet GP 1', 50, 22],
-  ['Cetzine 10', 60, 18], ['Ecosprin 75', 60, 20], ['ORS Electral', 100, 22], ['Limcee 500', 60, 14], ['Omez 20', 40, 25], ['Azithral 500', 30, 18],
+  ['Dolo 650', 120, 26], ['Crocin Advance', 80, 20], ['Pan 40', 60, 24], ['Telma 40', 80, 30], ['Shelcal 500', 60, 16], ['Glycomet GP 1', 100, 22],
+  ['Cetzine 10', 60, 18], ['Ecosprin 75', 80, 20], ['ORS Electral', 100, 22], ['Limcee 500', 60, 14], ['Omez 20', 40, 25], ['Azithral 500', 30, 18],
+  ['Atorva 10', 40, 24], ['Augmentin 625', 30, 18], ['Montair LC', 30, 20], ['Ensure Vanilla', 12, 14], ['Accu-Chek Active', 10, 12], ['Thyronorm', 20, 16], ['Ascoril LS', 24, 18],
+];
+
+/** Short-dated stock a supplier sent 10 days ago: slow sellers that expire this month and next, for the expiry screens. */
+export const SHORT_DATED: [string, number, number][] = [
+  ['Cremaffin Plus', 18, 0], ['Refresh Tears', 15, 0], ['Soframycin', 24, 1], ['Candid Dusting', 14, 1], ['Volini Spray', 12, 1],
 ];
