@@ -8,7 +8,7 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 const subscriptionSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, unique: true },
-    planCode: { type: String, enum: ['trial', 'monthly', 'yearly'], required: true },
+    planCode: { type: String, enum: ['trial', 'monthly', 'yearly', 'demo'], required: true },
     status: { type: String, enum: SUBSCRIPTION_STATUSES, required: true },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
@@ -35,6 +35,7 @@ export const setGraceDays = (n: number) => {
 
 /** PLAN §8: trial / active until the end date, then 7 days of grace, then read-only. Cancelled stays cancelled. */
 export function statusAt(sub: { status: SubscriptionStatus; planCode: string; endDate: Date }, now: Date): SubscriptionStatus {
+  if (sub.planCode === 'demo') return 'active';
   if (sub.status === 'cancelled') return 'cancelled';
   if (now < sub.endDate) return sub.planCode === 'trial' ? 'trial' : 'active';
   return now.getTime() < sub.endDate.getTime() + graceDays * DAY ? 'grace' : 'expired';

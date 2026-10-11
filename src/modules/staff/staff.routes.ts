@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import type { Action } from '../rbac/permissions';
@@ -41,6 +41,7 @@ staffRouter.get(
 staffRouter.post(
   '/',
   requirePermission('staff', 'create'),
+  notInDemo,
   validate({ body: inviteSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as InviteInput;
@@ -71,6 +72,7 @@ for (const [action, permission] of Object.entries(ACTIONS) as [keyof typeof ACTI
   staffRouter.post(
     `/:id/${action}`,
     requirePermission('staff', permission),
+    ...(action === 'reinvite' ? [notInDemo] : []),
     validate({ params: memberIdSchema }),
     asyncHandler(async (req: Request, res: Response) => {
       sent(res, null, await svc.act(tenantOf(req), await actorOf(req), idOf(req), action, req.ip));

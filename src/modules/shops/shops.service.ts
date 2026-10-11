@@ -36,7 +36,8 @@ export async function onboardingMeta() {
 
 const DAY = 24 * 60 * 60 * 1000;
 
-export async function createShop(userId: string, input: CreateShopInput, ctx: Ctx) {
+/** `id` keeps the demo shop's id when its data is made again. */
+export async function createShop(userId: string, input: CreateShopInput, ctx: Ctx, id?: Types.ObjectId) {
   const trial = await platform();
   if (input.termsVersion !== env.TERMS_VERSION) {
     throw AppError.conflict('The Terms have changed. Please read and agree to the new version.');
@@ -52,6 +53,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
       const [shop] = await ShopModel.create(
         [
           {
+            ...(id ? { _id: id } : {}),
             name: s.name,
             legalName: s.name,
             ownerUserId: uid,

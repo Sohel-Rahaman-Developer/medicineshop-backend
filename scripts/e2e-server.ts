@@ -76,8 +76,26 @@ async function main() {
     await saveChatSettings({ ...CHAT_DEFAULTS, enabled: true }, 'E2E');
   };
 
+  const { DemoModel } = await import('../src/modules/demo/demo.model.js');
+  const demo = await import('../src/modules/demo/demo.service.js');
+  const { Types } = await import('mongoose');
+  /** Demo suite: the demo shop filled once, with this sign-in code; later calls find it ready. */
+  let demoReady: Promise<void> | null = null;
+  const seedDemo = (b: { code: string }) =>
+    (demoReady ??= (async () => {
+      const root = { id: new Types.ObjectId().toHexString(), name: 'E2E Root', email: 'root@medshop.test', role: 'super' as const };
+      await demo.createDemo(root, 'For the e2e suite');
+      for (let i = 0; i < 600; i++) {
+        const d = await DemoModel.findById('demo').select('job').lean();
+        if (d?.job?.state === 'done') break;
+        if (d?.job?.state === 'failed') throw new Error(d.job.error ?? 'demo failed');
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      await demo.setDemoCode(root, b.code, 'For the e2e suite');
+    })());
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
@@ -85,7 +103,7 @@ async function main() {
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
       const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number };
-      (req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

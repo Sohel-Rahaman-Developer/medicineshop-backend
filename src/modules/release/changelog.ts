@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.14.0',
+    date: '2026-10-11',
+    title: 'A demo shop for showing MedBox24',
+    shop: [
+      'The plan screen of the MedBox24 demo shop says free for life, with nothing to pay, cancel or refer.',
+    ],
+    admin: [
+      'Demo account: a super admin makes the demo shop once — 45 days of bills, stock, purchases, udhaar, expenses and day closes — and sets the 6-digit code the marketing team signs in with at demo@medbox24.in. The code is stored scrambled; a new one signs every demo device out.',
+      'The demo shop starts afresh every night at 3 am, and through the day the bills of each hour appear as it passes, so today, this week and this month always have data. Reset demo data makes it again at once (super admin or support, with a reason).',
+      'The demo shop is marked DEMO in the shop list and left out of shop counts, trials, sign-ups and revenue.',
+    ],
+    api: [
+      'GET /admin/demo; POST /admin/demo (super admin); POST /admin/demo/reset (super admin or support); PUT /admin/demo/code (super admin, six digits, not 111111 or 123456). All need a reason and go to the admin audit log.',
+      'demo@medbox24.in gets no email: its code is the one set in the admin console. Ten wrong codes in an hour lock it for an hour and alert the super admins. The demo staff addresses never sign in.',
+      'In the demo shop, paying for a plan, autopay, cancelling, buying AI coins and inviting staff answer 403. No email is ever sent to a demo address.',
+    ],
+  },
+  {
     version: '1.13.0',
     date: '2026-10-11',
     title: 'Your own logo, guides and a faster site',

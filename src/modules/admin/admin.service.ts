@@ -33,8 +33,8 @@ export async function log(a: AdminActor, action: string, reason: string, text: s
 
 export async function overview(now = new Date()) {
   const [shops, subs, paid, failed] = await Promise.all([
-    ShopModel.countDocuments({}),
-    SubscriptionModel.find({}).setOptions(ALL).select('shopId status planCode endDate').lean(),
+    ShopModel.countDocuments({ demo: { $ne: true } }),
+    SubscriptionModel.find({ planCode: { $ne: 'demo' } }).setOptions(ALL).select('shopId status planCode endDate').lean(),
     SubscriptionPaymentModel.aggregate<{ total: number; n: number }>([{ $match: { status: 'paid', paidAt: { $gte: new Date(now.getTime() - 30 * DAY) } } }, { $group: { _id: null, total: { $sum: '$amount' }, n: { $sum: 1 } } }]),
     SubscriptionPaymentModel.countDocuments({ status: 'failed', createdAt: { $gte: new Date(now.getTime() - 7 * DAY) } }),
   ]);
@@ -47,7 +47,7 @@ export async function overview(now = new Date()) {
   const dayOf = (field: string) => ({ $dateToString: { format: '%Y-%m-%d', date: field, timezone: '+05:30' } });
   const [byDayPaid, byDaySignup, recent, endingNames] = await Promise.all([
     SubscriptionPaymentModel.aggregate<{ _id: string; total: number }>([{ $match: { status: 'paid', paidAt: { $gte: from } } }, { $group: { _id: dayOf('$paidAt'), total: { $sum: '$amount' } } }]),
-    ShopModel.aggregate<{ _id: string; n: number }>([{ $match: { createdAt: { $gte: from } } }, { $group: { _id: dayOf('$createdAt'), n: { $sum: 1 } } }]),
+    ShopModel.aggregate<{ _id: string; n: number }>([{ $match: { createdAt: { $gte: from }, demo: { $ne: true } } }, { $group: { _id: dayOf('$createdAt'), n: { $sum: 1 } } }]),
     SubscriptionPaymentModel.find({ status: 'paid' }).setOptions(ALL).sort({ paidAt: -1 }).limit(6).select('shopId planName amount paidAt invoiceNumber').lean(),
     ShopModel.find({ _id: { $in: ending.slice(0, 8).map((e) => e.shopId) } }).select('name').lean(),
   ]);
@@ -76,7 +76,7 @@ export async function shops(q: { q?: string; status?: string; cursor?: string; l
   // D80: a referral code finds its shop too.
   if (q.q) filter.$and = [{ $or: [{ name: { $regex: q.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }, { referralCode: normCode(q.q) }] }];
   if (q.status === 'suspended') filter.status = 'suspended';
-  const rows = await ShopModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).select('name address phone ownerUserId drugLicenseNumber drugLicenseExpiry status createdAt').lean<{ _id: Types.ObjectId; name: string; address?: { city?: string }; phone?: string; ownerUserId: Types.ObjectId; drugLicenseNumber: string; drugLicenseExpiry: Date; status: string; createdAt: Date }[]>();
+  const rows = await ShopModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).select('name address phone ownerUserId drugLicenseNumber drugLicenseExpiry status createdAt demo').lean<{ _id: Types.ObjectId; name: string; address?: { city?: string }; phone?: string; ownerUserId: Types.ObjectId; drugLicenseNumber: string; drugLicenseExpiry: Date; status: string; createdAt: Date; demo?: boolean }[]>();
   const { items, meta } = page(rows, q.limit, (r) => r.createdAt);
   const ids = items.map((s) => s._id);
   const [subs, owners, users] = await Promise.all([
@@ -89,7 +89,7 @@ export async function shops(q: { q?: string; status?: string; cursor?: string; l
     const o = owners.find((x) => x._id.equals(s.ownerUserId));
     const u = users.find((x) => x._id.equals(s._id));
     return {
-      id: String(s._id), name: s.name, city: s.address?.city ?? '', phone: s.phone ?? '', status: s.status, createdAt: s.createdAt,
+      id: String(s._id), name: s.name, city: s.address?.city ?? '', phone: s.phone ?? '', status: s.status, createdAt: s.createdAt, demo: s.demo === true,
       owner: { name: o?.name ?? '', email: o?.email ?? '' },
       drugLicense: { number: s.drugLicenseNumber, expiry: s.drugLicenseExpiry, expired: s.drugLicenseExpiry.getTime() < now.getTime() },
       plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, endDate: sub.endDate, maxUsers: sub.maxUsers } : null,
@@ -116,7 +116,7 @@ export async function shop(id: string, now = new Date()) {
     codeOf(shopId),
   ]);
   return {
-    id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null,
+    id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null, demo: doc.demo === true,
     address: doc.address, phone: doc.phone, gstin: doc.gstin ?? '', drugLicense: { number: doc.drugLicenseNumber, expiry: doc.drugLicenseExpiry },
     owner: { name: owner?.name ?? '', email: owner?.email ?? '' },
     plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, startDate: sub.startDate, endDate: sub.endDate, maxUsers: sub.maxUsers, trialExtensions: sub.trialExtensions, cancelReason: sub.cancelReason ?? null } : null,

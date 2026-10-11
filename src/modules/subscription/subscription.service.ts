@@ -69,7 +69,8 @@ export async function current(t: TenantContext, now = new Date()) {
   return {
     status,
     planCode: sub.planCode,
-    planName: sub.planCode === 'trial' ? 'Free trial' : (list.find((p) => p.code === sub.planCode)?.name ?? sub.planCode),
+    planName: sub.planCode === 'trial' ? 'Free trial' : sub.planCode === 'demo' ? 'Demo shop · free for life' : (list.find((p) => p.code === sub.planCode)?.name ?? sub.planCode),
+    demo: t.demo,
     startDate: sub.startDate,
     endDate: sub.endDate,
     graceEndDate: graceEndOf(sub.endDate),

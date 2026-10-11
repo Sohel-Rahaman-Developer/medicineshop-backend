@@ -20,6 +20,8 @@ export interface TenantContext {
   permissions: Permissions;
   scopes: Scopes;
   subscription: { status: SubscriptionStatus; endDate: Date; maxUsers: number };
+  /** The marketing demo shop: no payments, no invitations. */
+  demo: boolean;
 }
 
 declare global {
@@ -43,7 +45,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
       { $limit: 1 },
       { $lookup: { from: RoleModel.collection.name, localField: 'roleId', foreignField: '_id', as: 'role', pipeline: [{ $match: { shopId } }] } },
     ]),
-    ShopModel.findById(shopId).select('name status ownerUserId').lean(),
+    ShopModel.findById(shopId).select('name status ownerUserId demo').lean(),
     SubscriptionModel.findOne({ shopId }).lean(),
     platform(),
   ]);
@@ -65,6 +67,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
     permissions: effective(role.permissions, membership.grants as Permissions, membership.denies as Permissions),
     scopes: role.scopes,
     subscription: { status, endDate: sub.endDate, maxUsers: sub.maxUsers },
+    demo: shop.demo === true,
   };
   return { ctx, membership };
 }
@@ -105,6 +108,12 @@ export const requirePermission =
     if (!can(req.tenant.permissions, module, action)) return next(AppError.forbidden());
     next();
   };
+
+/** Paying, buying coins and inviting people are off in the demo shop. */
+export const notInDemo: RequestHandler = (req, _res, next) => {
+  if (req.tenant?.demo) return next(AppError.forbidden('This is the MedBox24 demo shop — payments and invitations are off here.'));
+  next();
+};
 
 export function tenantOf(req: Express.Request): TenantContext {
   if (!req.tenant) throw AppError.internal('Tenant middleware did not run');

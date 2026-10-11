@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env, isProd, isSmtpConfigured } from '../config/env';
 import { logger } from '../config/logger';
+import { isDemoEmail } from '../modules/demo/demo.model';
 
 let transporter: Transporter | null = null;
 
@@ -26,6 +27,8 @@ export interface MailInput {
 }
 
 export async function sendMail(mail: MailInput): Promise<void> {
+  // Demo addresses have no mailbox: a bounce would only hurt how inboxes trust our mail.
+  if (isDemoEmail(mail.to)) return;
   const tx = getTransporter();
 
   if (!tx) {

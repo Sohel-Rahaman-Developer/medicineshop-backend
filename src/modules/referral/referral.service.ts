@@ -56,7 +56,7 @@ export async function codeOf(shopId: Types.ObjectId): Promise<string> {
 
 async function referrerBy(code: string, userId: Types.ObjectId, session?: ClientSession) {
   const c = normCode(code);
-  const shop = c ? await ShopModel.findOne({ referralCode: c }).select('name ownerUserId').session(session ?? null).lean() : null;
+  const shop = c ? await ShopModel.findOne({ referralCode: c, demo: { $ne: true } }).select('name ownerUserId').session(session ?? null).lean() : null;
   if (!shop) throw codeError('No shop has this referral code — check it, or leave the box empty');
   if (shop.ownerUserId.equals(userId)) throw codeError('This is your own shop’s code — it works only for another owner');
   return shop;

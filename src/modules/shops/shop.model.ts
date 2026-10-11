@@ -94,6 +94,8 @@ const shopSchema = new Schema(
     settings: { type: settingsSchema, default: () => ({}) },
     /** D80: the code this shop gives to others; made the first time the owner opens Refer a shop. */
     referralCode: { type: String },
+    /** The marketing team's demo shop: free for life, left out of every platform number. */
+    demo: { type: Boolean },
   },
   { timestamps: true, versionKey: 'version', optimisticConcurrency: true },
 );

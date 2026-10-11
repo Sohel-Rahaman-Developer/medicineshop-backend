@@ -10,6 +10,7 @@ export const SIGNALS = {
   mail_fail: { label: 'Emails given up after 3 tries', limit: 1 },
   ai_fail: { label: 'AI calls that failed — bill reads and chat (key, Anthropic down)', limit: 3 },
   ask_budget: { label: 'Shop chat stopped: this month’s AI budget is used up', limit: 1 },
+  demo_locked: { label: 'Demo sign-in locked after 10 wrong codes in an hour', limit: 1 },
 } as const;
 export type Signal = keyof typeof SIGNALS;
 export const ALERT_WINDOW_MIN = 15;

@@ -2,7 +2,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { AppError } from '../../core/errors';
@@ -24,6 +24,11 @@ plansRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { fetc
 
 export const subscriptionRouter = Router();
 subscriptionRouter.use(shopAuth);
+// The demo shop is free for life: nothing to pay, cancel or put on autopay.
+subscriptionRouter.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  notInDemo(req, res, next);
+});
 const view = requirePermission('subscription', 'view');
 const edit = requirePermission('subscription', 'edit');
 

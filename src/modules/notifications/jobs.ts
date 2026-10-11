@@ -20,6 +20,7 @@ import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
 import { AdminUserModel } from '../admin/admin.model';
 import { settleStuckReads } from '../ai/bill-ai';
 import { settleStuckQuestions } from '../ask/ask.service';
+import { demoTick } from '../demo/demo.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -142,6 +143,13 @@ export async function tick(now = new Date()) {
     });
     if (asks) ran.push(`asks:${String(asks)}`);
     if (back) ran.push(`aireads:${String(back)}`);
+  }
+  // The demo shop's bills keep up with the clock, and it starts afresh each night; it runs beside the tick.
+  if (await claim(`demo:${now.toISOString().slice(0, 15)}`, now)) {
+    demoTick(now).catch(async (err: unknown) => {
+      logger.error({ err }, 'Demo shop job failed');
+      await signal('job_fail', now);
+    });
   }
   for (const s of shops) {
     const n = s.settings.notifications;

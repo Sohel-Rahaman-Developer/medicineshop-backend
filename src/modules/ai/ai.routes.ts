@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -28,17 +28,18 @@ aiRouter.get(
   }),
 );
 aiRouter.get('/wallet', view, asyncHandler(async (req: Request, res: Response) => { fetched(res, await wallet(tenantOf(req))); }));
-aiRouter.post('/coins/order', edit, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await orderCoins(tenantOf(req), await actorOf(req), (req.body as { packCode: string }).packCode), 'Order created'); }));
+aiRouter.post('/coins/order', edit, notInDemo, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await orderCoins(tenantOf(req), await actorOf(req), (req.body as { packCode: string }).packCode), 'Order created'); }));
 aiRouter.post(
   '/coins/verify',
   edit,
+  notInDemo,
   validate({ body: verifySchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const r = await verifyCoins(tenantOf(req), await actorOf(req), req.body as { orderId: string; paymentId: string; signature: string });
     sent(res, r, r.confirming ? 'Payment received — confirming with the bank' : `${String(r.coins)} coins added`);
   }),
 );
-aiRouter.post('/coins/test-pay', edit, validate({ body: z.object({ orderId: z.string().trim().min(6).max(60) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await testPayCoins(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId); sent(res, r, `${String(r.coins)} coins added`); }));
+aiRouter.post('/coins/test-pay', edit, notInDemo, validate({ body: z.object({ orderId: z.string().trim().min(6).max(60) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await testPayCoins(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId); sent(res, r, `${String(r.coins)} coins added`); }));
 aiRouter.get(
   '/coins/:id/invoice',
   view,
