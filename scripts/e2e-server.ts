@@ -94,16 +94,26 @@ async function main() {
       await demo.setDemoCode(root, b.code, 'For the e2e suite');
     })());
 
+  const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
+  const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
+  /** Plans suite (D87): the named shop moves to a paid plan, e.g. Basic Monthly. */
+  const seedPlan = async (b: { shopName?: string; planCode?: string }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop || !b.planCode) throw new Error('shop or plan missing');
+    await SubscriptionModel.updateOne({ shopId: shop._id }, { $set: { planCode: b.planCode, status: 'active', endDate: new Date(Date.now() + 30 * 86_400_000) } });
+    forgetPlanFeatures();
+  };
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number };
-      (req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string };
+      (req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

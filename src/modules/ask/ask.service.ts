@@ -19,7 +19,7 @@ import * as C from './cards';
 import * as F from './facts';
 import { bareName, matchIntent, type Intent } from './intents';
 import { LANGS, langOf, voiceOf, type Voice } from './lang';
-import { CHIPS, TEXT, say } from './texts';
+import { CHIPS, CHIP_GROUPS, TEXT, say } from './texts';
 
 // D81 "Ask your shop": free first (the software answers), AI only when the shop says yes, inside the admin's caps.
 
@@ -63,6 +63,24 @@ async function cardOf(t: TenantContext, userId: string, intent: Intent, v: Voice
         return C.cashCard(await F.cashToday(t, now), v);
       case 'help':
         return C.helpCard(v);
+      case 'expenses':
+        return C.expensesCard(await F.expensesIn(t, intent.period, now), v);
+      case 'purchases':
+        return C.purchasesCard(await F.purchasesIn(t, intent.period, now), v);
+      case 'price':
+        return C.priceCard(await F.priceOf(t, intent.name), v);
+      case 'dead':
+        return C.deadCard(await F.notSelling(t, intent.days, now), v);
+      case 'customers':
+        return C.customersCard(await F.topCustomers(t, userId, intent.period, now), v);
+      case 'modes':
+        return C.modesCard(await F.payModes(t, userId, intent.period, now), v);
+      case 'orders':
+        return C.ordersCard(await F.openOrders(t), v);
+      case 'gst':
+        return C.gstCard(await F.gstOf(t, intent.last, now), v);
+      case 'staff':
+        return C.staffCard(await F.staffSales(t, intent.period, now), v);
     }
   } catch (err) {
     if (err instanceof F.NoAccess) return C.noteCard('', say(TEXT.noPermission, v));
@@ -91,11 +109,12 @@ async function spentThisMonth(now: Date) {
 /** Tests start each case from a clean month. */
 export const forgetSpend = () => Object.assign(spent, { month: '', at: 0, paise: 0 });
 
-type Stop = 'aiOff' | 'shopOff' | 'ownerOnly' | 'budget' | 'dayLimit';
+type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'budget' | 'dayLimit';
 type Wallet = { askAi?: boolean | null } | null;
 
 async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Promise<Stop | null> {
   if (!s.chat.enabled || !s.hasKey) return 'aiOff';
+  if (!t.features.includes('ai')) return 'plan';
   if (!w?.askAi) return 'shopOff';
   if (!can(t.permissions, 'reports', 'view')) return 'ownerOnly';
   if ((await spentThisMonth(now)) >= s.chat.budgetUsd * s.usdInr * 100) return 'budget';
@@ -111,6 +130,7 @@ export async function offer(t: TenantContext, now = new Date()) {
   return {
     ai: { on: s.chat.enabled && s.hasKey, shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)), balance: w?.balance ?? 0 },
     chips: CHIPS,
+    groups: CHIP_GROUPS,
   };
 }
 

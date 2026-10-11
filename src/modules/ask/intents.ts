@@ -14,7 +14,12 @@ export type Intent =
   | { kind: 'suppliers'; name: string | null }
   | { kind: 'salt'; name: string }
   | { kind: 'cash' }
-  | { kind: 'help' };
+  | { kind: 'help' }
+  | { kind: 'expenses' | 'purchases' | 'customers' | 'modes' | 'staff'; period: Period }
+  | { kind: 'price'; name: string }
+  | { kind: 'dead'; days: number }
+  | { kind: 'orders' }
+  | { kind: 'gst'; last: boolean };
 
 const words = (...w: string[]) => w.map(normalize);
 
@@ -22,7 +27,7 @@ const G = {
   sale: words('sale', 'sales', 'sold', 'sell', 'revenue', 'turnover', 'bill', 'bills', 'bikri', 'bikree', 'bika', 'biki', 'bike', 'bech', 'बिक्री', 'बिका', 'बिकी', 'बिके', 'बेच', 'सेल', 'बिल', 'বিক্রি', 'বিক্রয়', 'বেচা', 'সেল', 'বিল'),
   profit: words('profit', 'margin', 'earning', 'kamai', 'munafa', 'munafe', 'labh', 'मुनाफ', 'लाभ', 'कमाई', 'লাভ', 'মুনাফা'),
   top: words('top', 'best', 'most', 'highest', 'sabse', 'zyada', 'jyada', 'सबसे', 'ज़्यादा', 'ज्यादा', 'সবচেয়ে', 'sobcheye', 'beshi', 'বেশি'),
-  stock: words('stock', 'inventory', 'left', 'available', 'bacha', 'bache', 'स्टॉक', 'स्टाक', 'बचा', 'बचे', 'उपलब्ध', 'স্টক', 'মজুত', 'আছে', 'ache', 'achhe'),
+  stock: words('stock', 'inventory', 'left', 'available', 'bacha', 'bache', 'rack', 'where', 'kahan', 'kaha', 'kothay', 'kothae', 'रैक', 'कहाँ', 'कहां', 'র‍্যাক', 'কোথায়', 'स्टॉक', 'स्टाक', 'बचा', 'बचे', 'उपलब्ध', 'স্টক', 'মজুত', 'আছে', 'ache', 'achhe'),
   lowStrong: words('reorder', 'order', 'khatam', 'finishing', 'short', 'shortage', 'mangana', 'manga', 'furiye', 'ख़त्म', 'खत्म', 'मंगा', 'ऑर्डर', 'অর্ডার', 'ফুরিয়ে'),
   lowWeak: words('low', 'less', 'kam', 'kom', 'कम', 'কম'),
   expiry: words('expir', 'exp', 'meyad', 'एक्सपायर', 'मियाद', 'মেয়াদ', 'এক্সপায়ার'),
@@ -31,9 +36,23 @@ const G = {
   supplier: words('supplier', 'distributor', 'wholesaler', 'vendor', 'payable', 'dena', 'सप्लायर', 'डिस्ट्रीब्यूटर', 'देना', 'সাপ্লায়ার', 'ডিস্ট্রিবিউটর', 'দেনা'),
   salt: words('salt', 'substitute', 'alternative', 'alternate', 'generic', 'instead', 'replace', 'same', 'vikalp', 'jaisa', 'bikolpo', 'moto', 'साल्ट', 'विकल्प', 'जैसा', 'জেনেরিক', 'সল্ট', 'বিকল্প', 'মতো'),
   cash: words('cash', 'drawer', 'galla', 'galle', 'nagad', 'nogod', 'गल्ला', 'गल्ले', 'नकद', 'नक़द', 'कैश', 'ক্যাশ', 'নগদ'),
+  expense: words('expense', 'expenses', 'kharcha', 'kharch', 'kharche', 'khoroch', 'spent', 'spend', 'खर्च', 'খরচ'),
+  purchase: words('purchase', 'purchases', 'purchased', 'bought', 'kharid', 'kena', 'kinechi', 'खरीद', 'ख़रीद', 'কেনা', 'কিনেছি'),
+  price: words('price', 'prices', 'mrp', 'rate', 'daam', 'dam', 'kimat', 'keemat', 'कीमत', 'क़ीमत', 'दाम', 'দাম', 'মূল্য'),
+  customer: words('customer', 'customers', 'grahak', 'grahok', 'buyer', 'buyers', 'khoddar', 'ग्राहक', 'গ্রাহক', 'খদ্দের'),
+  modes: words('upi', 'card', 'cards', 'gpay', 'phonepe', 'paytm', 'online', 'digital', 'mode', 'modes', 'कार्ड', 'ऑनलाइन', 'কার্ড', 'অনলাইন'),
+  staff: words('staff', 'employee', 'employees', 'cashier', 'cashiers', 'salesman', 'karmachari', 'kisne', 'kormi', 'स्टाफ', 'कर्मचारी', 'किसने', 'স্টাফ', 'কর্মী'),
+  order: words('order', 'orders', 'ऑर्डर', 'অর্ডার'),
+  pending: words('pending', 'open', 'advance', 'booking', 'booked', 'agrim', 'पेंडिंग', 'बुकिंग', 'एडवांस', 'পেন্ডিং', 'বুকিং', 'অগ্রিম'),
+  gst: words('gst', 'tax', 'taxes', 'जीएसटी', 'टैक्स', 'জিএসটি', 'ট্যাক্স'),
+  dead: words('dead', 'slow', 'nonmoving', 'idle', 'अचल', 'অচল'),
+  neg: words('not', 'nahi', 'nahin', 'nai', 'hoyni', 'नहीं', 'नही', 'হয়নি'),
+  returns: words('return', 'returns', 'returned', 'wapas', 'wapsi', 'ferot', 'वापस', 'वापसी', 'ফেরত'),
   help: words('help', 'madad', 'sahajjo', 'मदद', 'সাহায্য'),
   // Why, compare, trends, advice and medicine use need thinking — the AI's job, not a card's.
-  block: words('why', 'kyon', 'kyun', 'keno', 'compare', 'comparison', 'trend', 'vs', 'versus', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'কেন', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়'),
+  block: words('why', 'kyon', 'kyun', 'compare', 'comparison', 'trend', 'vs', 'versus', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়'),
+  // Bengali "why" only as a whole word: কেনা (to buy) starts with it.
+  blockWhole: words('কেন', 'কেনো', 'keno'),
   today: words('today', 'aaj', 'aj', 'ajke', 'ajker', 'आज', 'আজ'),
   yesterday: words('yesterday', 'kal', 'gotokal', 'कल', 'গতকাল'),
   week: words('week', 'hafte', 'hafta', 'saptaho', 'shoptaho', 'saptah', 'हफ़्ते', 'हफ्ते', 'हफ़्ता', 'हफ्ता', 'सप्ताह', 'সপ্তাহ'),
@@ -72,7 +91,7 @@ export function matchIntent(text: string): Intent | null {
   };
   // Every group is looked at once, so every word it knows is off the name.
   // Stop words only as whole words, so a name like Rahim keeps its "rahi".
-  const on = Object.fromEntries(Object.entries(G).map(([k, g]) => [k, has(g, k === 'stop')])) as Record<keyof typeof G, boolean>;
+  const on = Object.fromEntries(Object.entries(G).map(([k, g]) => [k, has(g, k === 'stop' || k === 'blockWhole')])) as Record<keyof typeof G, boolean>;
 
   let days: number | null = null;
   for (let i = 0; i < tokens.length - 1 && days === null; i++) {
@@ -97,17 +116,26 @@ export function matchIntent(text: string): Intent | null {
     return fallback === 'days' ? { key: 'days', n: 7 } : { key: fallback };
   };
 
-  if (on.block) return null;
+  if (on.block || on.blockWhole) return null;
   if (on.help) return { kind: 'help' };
   if (on.expiry) return days !== null ? { kind: 'expiring', days } : on.gone ? { kind: 'expired' } : { kind: 'expiring', days: 30 };
   if (on.supplier) return { kind: 'suppliers', name };
   if (on.udhaar) return { kind: 'udhaar', name };
+  if (on.staff && (on.sale || on.top)) return { kind: 'staff', period: period('month') };
+  if (on.customer && on.top) return { kind: 'customers', period: period('month') };
+  if (on.order && (on.pending || on.customer)) return { kind: 'orders' };
+  if (on.gst) return { kind: 'gst', last: on.last && on.month };
+  if (on.expense) return { kind: 'expenses', period: period('month') };
+  if (on.purchase) return { kind: 'purchases', period: period('month') };
+  if (on.modes) return { kind: 'modes', period: period('today') };
+  if (on.dead || (on.neg && on.sale)) return { kind: 'dead', days: days ?? 60 };
   if (on.salt) return latinName ? { kind: 'salt', name: latinName } : null;
+  if (on.price && latinName) return { kind: 'price', name: latinName };
   if (on.cash) return { kind: 'cash' };
   if (on.lowStrong || (on.lowWeak && on.stock)) return { kind: 'low' };
   if (on.top && on.sale) return { kind: 'top', period: period('month') };
   if (on.profit) return { kind: 'profit', period: period('month') };
-  if (on.sale) return { kind: 'sales', period: period('today') };
+  if (on.sale || on.returns) return { kind: 'sales', period: period('today') };
   // A product name in another script needs the AI to read it; with no name, the shop's stock as a whole.
   if (on.stock) return name && !latinName ? null : { kind: 'stock', name: latinName };
   return null;

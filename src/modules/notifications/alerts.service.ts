@@ -136,7 +136,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
 
   if (boss(t)) {
     const shop = await ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry settings.loyalty').lean();
-    if (shop && !rulesOf(shop.settings.loyalty).configured) {
+    if (shop && t.features.includes('loyalty') && !rulesOf(shop.settings.loyalty).configured) {
       out.push(alert('LOYALTY_SETUP', { key: 'LOYALTY_SETUP', priority: 'medium', title: 'Loyalty points are not set up', body: 'Decide what a point is worth — until then customers earn no points.', route: '/loyalty', action: 'Set up points', at: at8 }));
     }
     const dl = shop ? Math.ceil((shop.drugLicenseExpiry.getTime() - now.getTime()) / DAY) : 999;

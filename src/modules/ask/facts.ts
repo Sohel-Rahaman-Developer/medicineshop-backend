@@ -1,10 +1,15 @@
 import { Types } from 'mongoose';
 import type { TenantContext } from '../../core/middleware/tenant';
-import { istDayStart, istIsoDay } from '../../utils/date';
+import { istDayStart, istIsoDay, istMonth } from '../../utils/date';
 import { salePack, type Units } from '../../utils/units';
 import { CustomerModel } from '../customers/customer.model';
 import { cashDay } from '../dayclose/dayclose.service';
 import { expiryBlock, kpis, seesCost, stockBlock, supplierDue, udhaar } from '../dashboard/dashboard.service';
+import { ExpenseModel } from '../expenses/expense.model';
+import { OrderModel } from '../orders/order.model';
+import { summary as orderSummary } from '../orders/orders.service';
+import { summary as purchaseSummary } from '../purchases/purchases.service';
+import { gstMonth } from '../reports/gst.service';
 import { ProductModel } from '../products/product.model';
 import { batchesOf, similar } from '../products/products.service';
 import { PurchaseModel } from '../purchases/purchase.model';
@@ -76,7 +81,7 @@ export async function topItems(t: TenantContext, userId: string, period: Period,
 async function findProducts(t: TenantContext, name: string) {
   const words = latin(name).split(' ').filter(Boolean).slice(0, 6);
   if (!words.length) return [];
-  const by = (ws: string[]) => ProductModel.find({ shopId: t.shopId, isActive: true, $and: ws.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } })) }).sort({ nameLower: 1 }).limit(5).select('name stock units saltKey').lean();
+  const by = (ws: string[]) => ProductModel.find({ shopId: t.shopId, isActive: true, $and: ws.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } })) }).sort({ nameLower: 1 }).limit(5).select('name stock units saltKey gstRate').lean();
   const all = await by(words);
   return all.length || words.length === 1 ? all : by(words.slice(0, 1));
 }
@@ -188,4 +193,92 @@ export async function cashToday(t: TenantContext, now: Date) {
   need(t, ['pos', 'create']);
   const c = await cashDay(t, istIsoDay(now));
   return { opening: c.opening, cashIn: c.cashIn, cashOut: c.cashOut, expected: c.expected, bills: c.bills };
+}
+
+const live = { status: { $ne: 'cancelled' } };
+
+export async function expensesIn(t: TenantContext, period: Period, now: Date) {
+  need(t, ['expenses']);
+  const { from, to } = rangeOf(period, now);
+  const rows = await ExpenseModel.aggregate<{ _id: string; total: number; n: number }>([{ $match: { shopId: t.shopId, status: 'active', date: { $gte: from, $lt: to } } }, { $group: { _id: '$category', total: { $sum: '$amount' }, n: { $sum: 1 } } }, { $sort: { total: -1, _id: 1 } }]);
+  return { period, total: rows.reduce((a, r) => a + r.total, 0), entries: rows.reduce((a, r) => a + r.n, 0), items: rows.slice(0, 8).map((r) => ({ category: r._id, total: r.total, n: r.n })) };
+}
+
+export async function purchasesIn(t: TenantContext, period: Period, now: Date) {
+  need(t, ['purchases']);
+  const { from, to } = rangeOf(period, now);
+  return { period, ...(await purchaseSummary(t, from, new Date(to.getTime() - 1))) };
+}
+
+export async function priceOf(t: TenantContext, name: string) {
+  need(t, ['products'], ['pos', 'create']);
+  const top = (await findProducts(t, name))[0];
+  if (!top) return { name, found: null };
+  const batches = (await batchesOf(t, String(top._id))).filter((b) => b.bucket !== 'expired').slice(0, 3);
+  const u = top.units as Units;
+  return { name, found: { id: String(top._id), name: top.name, sale: u.sale, gstRate: top.gstRate, batches: batches.map((b) => ({ batchNumber: b.batchNumber, mrp: b.mrp, expiryDate: b.expiryDate })) } };
+}
+
+/** In stock, and not sold for this many days (or never). */
+export async function notSelling(t: TenantContext, days: number, now: Date) {
+  need(t, ['products'], ['stock']);
+  const filter = { shopId: t.shopId, isActive: true, 'stock.onHand': { $gt: 0 }, $or: [{ lastSoldAt: { $lt: new Date(now.getTime() - days * DAY) } }, { lastSoldAt: null }] };
+  const [rows, [sum]] = await Promise.all([
+    ProductModel.find(filter).sort({ 'stock.mrpValue': -1, _id: 1 }).limit(10).select('name stock units lastSoldAt').lean(),
+    ProductModel.aggregate<{ n: number; mrp: number; value: number }>([{ $match: filter }, { $group: { _id: null, n: { $sum: 1 }, mrp: { $sum: '$stock.mrpValue' }, value: { $sum: '$stock.value' } } }]),
+  ]);
+  return { days, count: sum?.n ?? 0, mrpValue: sum?.mrp ?? 0, value: seesCost(t) ? (sum?.value ?? 0) : null, items: rows.map((p) => ({ id: String(p._id), name: p.name, qty: qtyOf(p.stock.onHand, p.units as Units), lastSold: p.lastSoldAt ?? null })) };
+}
+
+export async function topCustomers(t: TenantContext, userId: string, period: Period, now: Date) {
+  need(t, ['customers']);
+  need(t, ...SELLS);
+  const { from, to } = rangeOf(period, now);
+  const rows = await SaleModel.aggregate<{ _id: Types.ObjectId; name: string; bills: number; amount: number }>([
+    { $match: { shopId: t.shopId, ...ownOf(t, userId), billDate: { $gte: from, $lt: to }, ...live, customerId: { $ne: null } } },
+    { $group: { _id: '$customerId', name: { $last: '$customerName' }, bills: { $sum: 1 }, amount: { $sum: '$grandTotal' } } },
+    { $sort: { amount: -1, _id: 1 } },
+    { $limit: 10 },
+  ]);
+  return { period, ownOnly: t.scopes.sales === 'own', items: rows.map((r) => ({ id: String(r._id), name: r.name, bills: r.bills, amount: r.amount })) };
+}
+
+/** How the money came in: cash, UPI, card, udhaar (points and advances too). */
+export async function payModes(t: TenantContext, userId: string, period: Period, now: Date) {
+  need(t, ...SELLS);
+  const { from, to } = rangeOf(period, now);
+  const rows = await SaleModel.aggregate<{ _id: string; amount: number; bills: number }>([
+    { $match: { shopId: t.shopId, ...ownOf(t, userId), billDate: { $gte: from, $lt: to }, ...live } },
+    { $unwind: '$payments' },
+    { $group: { _id: '$payments.mode', amount: { $sum: '$payments.amount' }, bills: { $sum: 1 } } },
+    { $sort: { amount: -1, _id: 1 } },
+  ]);
+  return { period, ownOnly: t.scopes.sales === 'own', total: rows.reduce((a, r) => a + r.amount, 0), items: rows.map((r) => ({ mode: r._id, amount: r.amount, bills: r.bills })) };
+}
+
+export async function openOrders(t: TenantContext) {
+  need(t, ['pos', 'create']);
+  if (!t.features.includes('orders')) throw new NoAccess();
+  const [s, rows] = await Promise.all([orderSummary(t), OrderModel.find({ shopId: t.shopId, status: 'open' }).sort({ createdAt: 1, _id: 1 }).limit(10).select('orderNumber customerName createdAt advance').lean()]);
+  return { ...s, items: rows.map((o) => ({ id: String(o._id), number: o.orderNumber, customer: o.customerName, at: o.createdAt, advance: o.advance })) };
+}
+
+export async function gstOf(t: TenantContext, last: boolean, now: Date) {
+  need(t, ['reports']);
+  const month = istMonth(last ? new Date(rangeOf({ key: 'last_month' }, now).from.getTime() + DAY) : now);
+  const g = await gstMonth(t, month, now);
+  return { month, salesTaxable: g.salesTaxable, outTax: g.outTax, inTax: g.inTax, net: g.net };
+}
+
+/** Who sold how much — the owner's view, so reports:view. */
+export async function staffSales(t: TenantContext, period: Period, now: Date) {
+  need(t, ['reports']);
+  const { from, to } = rangeOf(period, now);
+  const rows = await SaleModel.aggregate<{ _id: Types.ObjectId; name: string; bills: number; amount: number }>([
+    { $match: { shopId: t.shopId, billDate: { $gte: from, $lt: to }, ...live } },
+    { $group: { _id: '$createdBy', name: { $last: '$createdByName' }, bills: { $sum: 1 }, amount: { $sum: '$grandTotal' } } },
+    { $sort: { amount: -1, _id: 1 } },
+    { $limit: 10 },
+  ]);
+  return { period, items: rows.map((r) => ({ name: r.name, bills: r.bills, amount: r.amount })) };
 }

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -95,6 +95,7 @@ purchasesRouter.post(
 purchasesRouter.post(
   '/import/ai',
   create,
+  needFeature('ai'),
   validate({ body: aiReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await readWithAi(tenantOf(req), await actorOf(req), req.body as AiReadInput));

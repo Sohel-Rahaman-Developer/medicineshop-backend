@@ -13,6 +13,8 @@ const shopBody = (name: string) => ({
 });
 const DAY = 86_400_000;
 
+const ALL_FEATURES = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai'];
+
 async function main() {
   const h = await startHarness();
   const { AdminUserModel, AdminAuditModel, AdminSessionModel } = await import('../src/modules/admin/admin.model.js');
@@ -107,8 +109,8 @@ async function main() {
   check('overview: recent payments name the shop and the invoice', ov.recent[0]?.shopName === 'Shri Ram Medical Store' && ov.recent[0].invoiceNumber === pay?.invoiceNumber && Array.isArray(ov.ending));
 
   section('7. Plans and platform settings (super)');
-  const pl = await root.put('/admin/plans', { plans: [{ code: 'monthly', name: 'Monthly', price: 99_900, durationDays: 30, maxUsers: 5, isActive: true }, { code: 'yearly', name: 'Yearly', price: 999_000, durationDays: 365, maxUsers: 10, isActive: true }], reason: 'New price list for 2027' });
-  check('new price shows on the public plan list', pl.status === 200 && data<{ price: number }[]>(await h.client().get('/plans'))[0]?.price === 99_900, code(pl));
+  const pl = await root.put('/admin/plans', { plans: [{ code: 'monthly', name: 'Pro Monthly', price: 99_900, durationDays: 30, maxUsers: 5, isActive: true, tier: 'pro', features: ALL_FEATURES }, { code: 'yearly', name: 'Pro Yearly', price: 999_000, durationDays: 365, maxUsers: 10, isActive: true, tier: 'pro', features: ALL_FEATURES }], reason: 'New price list for 2027' });
+  check('new price shows on the public plan list', pl.status === 200 && data<{ code: string; price: number }[]>(await h.client().get('/plans')).find((p) => p.code === 'monthly')?.price === 99_900, code(pl));
   const st = await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', maintenance: { on: false, message: '' } }, reason: 'Longer trial for the launch' });
   check('settings saved', st.status === 200, code(st));
   await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', maintenance: { on: true, message: 'Upgrade tonight 11 pm' } }, reason: 'Planned upgrade window' });

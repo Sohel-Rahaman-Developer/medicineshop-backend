@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
+import { FEATURES } from './features';
 
 // Platform-side records (PLAN §21.10). Payments carry shopId, but the webhook finds them by order id — so they are
 // not tenant-scoped; every shop-facing query still filters by shopId.
@@ -13,16 +14,21 @@ const planSchema = new Schema(
     maxUsers: { type: Number, required: true },
     isActive: { type: Boolean, required: true, default: true },
     sortOrder: { type: Number, required: true, default: 0 },
+    tier: { type: String, enum: ['basic', 'pro'], required: true, default: 'pro' },
+    /** D87: the modules this plan opens; missing on plans saved before D87 = all of them. */
+    features: { type: [String], default: undefined },
   },
   { timestamps: true, versionKey: false },
 );
 export const PlanModel = model('Plan', planSchema);
 export type Plan = InferSchemaType<typeof planSchema>;
 
-/** Placeholder list prices (PLAN §8) — the admin app changes them later (B9). */
+/** Placeholder list prices (PLAN §8) — the admin app changes them later (B9). Basic = the daily work (D87). */
 export const DEFAULT_PLANS = [
-  { code: 'monthly', name: 'Monthly', price: 79_900, durationDays: 30, maxUsers: 5, sortOrder: 1 },
-  { code: 'yearly', name: 'Yearly', price: 799_000, durationDays: 365, maxUsers: 10, sortOrder: 2 },
+  { code: 'basic-monthly', name: 'Basic Monthly', tier: 'basic', features: [], price: 49_900, durationDays: 30, maxUsers: 2, sortOrder: 1 },
+  { code: 'basic-yearly', name: 'Basic Yearly', tier: 'basic', features: [], price: 499_000, durationDays: 365, maxUsers: 2, sortOrder: 2 },
+  { code: 'monthly', name: 'Pro Monthly', tier: 'pro', features: [...FEATURES], price: 79_900, durationDays: 30, maxUsers: 5, sortOrder: 3 },
+  { code: 'yearly', name: 'Pro Yearly', tier: 'pro', features: [...FEATURES], price: 799_000, durationDays: 365, maxUsers: 10, sortOrder: 4 },
 ];
 
 /** B8c: money back through Razorpay (or recorded, for a manual payment) — each one with its own GST credit note. */

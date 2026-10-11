@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { actorOf } from '../user/actor';
@@ -32,6 +32,7 @@ rolesRouter.get(
 rolesRouter.post(
   '/',
   requirePermission('roles', 'create'),
+  needFeature('roles'),
   validate({ body: createRoleSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const out = await svc.create(tenantOf(req), await actorOf(req), req.body as CreateRoleInput, req.ip);
@@ -42,6 +43,7 @@ rolesRouter.post(
 rolesRouter.put(
   '/:id',
   requirePermission('roles', 'edit'),
+  needFeature('roles'),
   validate({ params: roleIdSchema, body: updateRoleSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await svc.update(tenantOf(req), await actorOf(req), idOf(req), req.body as UpdateRoleInput, req.ip);
@@ -52,6 +54,7 @@ rolesRouter.put(
 rolesRouter.delete(
   '/:id',
   requirePermission('roles', 'delete'),
+  needFeature('roles'),
   validate({ params: roleIdSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await svc.remove(tenantOf(req), await actorOf(req), idOf(req), req.ip);

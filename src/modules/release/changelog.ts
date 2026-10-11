@@ -10,6 +10,28 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.16.0',
+    date: '2026-10-11',
+    title: 'Basic and Pro, a menu that folds, and Ask AI up front',
+    shop: [
+      'Two kinds of plan: Basic for the daily work (billing, stock, expiry, buying, udhaar, expenses, GST) and Pro for the rest (analytics, reports, profit & loss, loyalty, doctors, orders, own roles, Ask your shop, AI). The trial opens everything; shops on Monthly or Yearly are Pro.',
+      'A screen your plan does not open shows a PRO tag in the menu and, when opened, what Pro brings and the way to upgrade. Plan & billing shows Basic and Pro side by side, and which one you are on.',
+      'The menu folds: the group you are in stays open, any other opens with a tap, each with its own colour.',
+      'Ask AI is a bright button in the top bar and at the top of the menu, and the chat has a new look: questions in groups (sales, money, stock, people), answer cards, a typing sign.',
+      'Twelve more free questions: money in by UPI / card / cash, purchases, expenses, GST for the month, a medicine’s MRP, stock not sold in 60 days, top customers, sales by staff, waiting customer orders, returns, and where a medicine is kept.',
+      'Clear chat deletes the conversation for good (after a yes); chat older than 30 days deletes itself. The questions were never kept on our servers.',
+    ],
+    admin: [
+      'Plans & pricing: each plan is Basic or Pro and has its own modules to tick; plans off sale stay in the list. Old Monthly / Yearly became Pro Monthly / Pro Yearly with every module; Basic Monthly and Basic Yearly wait off sale until you price them.',
+      'A shop on trial has “Extend free trial” with +7 / +15 / +30 days.',
+    ],
+    api: [
+      'Plans carry tier (basic | pro) and features; GET /admin/plans lists every plan; PUT /admin/plans takes tier and features (up to 8 plans).',
+      'The shop context carries features and subscription.planCode. A module outside the plan answers 403 PLAN_UPGRADE {feature}: /reports/analytics, /reports/pnl*, /reports/daybook, /reports/catalog and /reports/r/* (GST sales and purchase stay open), /loyalty, /orders, /ask, writes to /roles, /purchases/import/ai. A plan without loyalty earns and redeems no points.',
+      '/ask/offer adds groups (ready questions by topic); new free cards: expenses, purchases, price, dead stock, top customers, money in by mode, open orders, GST, staff sales; stop "plan" when AI is not in the plan.',
+    ],
+  },
+  {
     version: '1.15.0',
     date: '2026-10-11',
     title: 'Udhaar in one place, and who owes whom',

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -12,7 +12,7 @@ const idOf = (req: Request) => (req.params as { id: string }).id;
 
 // PLAN §35.1: customer orders belong to the counter (pos:create); keeping an advance needs sales:approve (service).
 export const ordersRouter = Router();
-ordersRouter.use(shopAuth);
+ordersRouter.use(shopAuth, needFeature('orders'));
 const counter = requirePermission('pos', 'create');
 
 ordersRouter.post(

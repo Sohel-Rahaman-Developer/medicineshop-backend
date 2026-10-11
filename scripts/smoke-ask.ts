@@ -24,7 +24,7 @@ interface Answer { route: string; voice: string; cards?: Card[]; text?: string; 
 const row = (c: Card | undefined, label: string) => c?.rows.find((r) => r.label === label)?.value;
 
 async function main() {
-  process.env.RATE_ASK_PER_USER_PER_MIN = '80';
+  process.env.RATE_ASK_PER_USER_PER_MIN = '200';
   const fake = await startFakeClaude();
   process.env.AI_BASE_URL = fake.url;
   const h = await startHarness();
@@ -137,7 +137,38 @@ async function main() {
   const cash = card((await askAs(owner, 'Cash in the drawer today')).a);
   check('cash today → ₹90 in (two cash bills)', row(cash, 'Cash in') === '₹90', JSON.stringify(cash));
   const help = card((await askAs(owner, 'help')).a);
-  check('help lists the 8 ready questions', help?.items.length === 8);
+  check(`help lists the ${String(CHIPS.en.length)} ready questions`, help?.items.length === CHIPS.en.length && CHIPS.en.length === 20);
+
+  section('1b. The questions a shop really asks: money in, buying, spending, prices, slow stock, people');
+  const modes = card((await askAs(owner, 'UPI and card today')).a);
+  check('“UPI and card today” → cash ₹90, UPI ₹30, ₹120 in', row(modes, 'Cash') === '₹90' && row(modes, 'UPI') === '₹30' && row(modes, 'Money in') === '₹120' && modes?.href === '/sales', JSON.stringify(modes));
+  const bought = card((await askAs(owner, 'Purchases this month')).a);
+  check('“Purchases this month” → ₹224 in 1 bill, all still to pay', row(bought, 'Bought for') === '₹224' && row(bought, 'Bills') === '1' && row(bought, 'Still to pay') === '₹224' && bought?.href === '/purchases', JSON.stringify(bought));
+  await owner.post('/expenses', { clientRequestId: randomUUID(), date: isoDay(), category: 'Rent', description: 'October rent', amount: 800_000, paymentMode: 'UPI', fromDrawer: false, vendor: '', referenceNumber: '' });
+  await owner.post('/expenses', { clientRequestId: randomUUID(), date: isoDay(), category: 'Tea & snacks', description: '', amount: 4_000, paymentMode: 'CASH', fromDrawer: true, vendor: '', referenceNumber: '' });
+  const spent = card((await askAs(owner, 'is mahine ka kharcha kitna hai')).a);
+  check('“is mahine ka kharcha” → ₹8,040 in 2 entries, rent first (Roman Hindi)', spent?.title === 'Kharcha — Is mahine' && row(spent, 'Total') === '₹8,040' && row(spent, 'Entries') === '2' && spent.items[0]?.name === 'Rent', JSON.stringify(spent));
+  const price = card((await askAs(owner, 'MRP of Dolo')).a);
+  check('“MRP of Dolo” → ₹30 per strip, GST 12%, by batch', price?.title === 'Price — Dolo 650 Tablet' && row(price, 'MRP per strip') === '₹30' && row(price, 'GST') === '12%' && price.items.some((i) => i.name === 'Batch DL1'), JSON.stringify(price));
+  check('“Dolo ka daam” is the same card in Roman Hindi', card((await askAs(owner, 'Dolo ka daam')).a)?.title === 'Daam — Dolo 650 Tablet');
+  const dead = card((await askAs(owner, 'Not selling for 60 days')).a);
+  check('“Not selling for 60 days” → the three never sold, not Dolo', dead?.title === 'Not sold in 60 days' && row(dead, 'Products') === '3' && !dead.items.some((i) => i.name.startsWith('Dolo')) && dead.items.every((i) => i.sub === 'Never sold'), JSON.stringify(dead));
+  const deadBn = card((await askAs(owner, '90 দিন ধরে বিক্রি হয়নি')).a);
+  check('Bengali, 90 days → “90 দিন ধরে বিক্রি হয়নি”', deadBn?.title === '90 দিন ধরে বিক্রি হয়নি', JSON.stringify(deadBn));
+  const staff = card((await askAs(owner, 'Which staff sold the most this month')).a);
+  check('“Which staff sold the most” → owner ₹90 (2 bills), then the cashier ₹30', staff?.items.length === 2 && staff.items[0]?.value === '₹90' && staff.items[0].sub === 'Bills: 2' && staff.items[1]?.value === '₹30', JSON.stringify(staff));
+  const staffCashier = await askAs(cashier, 'Which staff sold the most this month');
+  check('…a cashier may not see who sold what', card(staffCashier.a)?.note === 'Your role cannot see this.', JSON.stringify(staffCashier.a));
+  const gst = card((await askAs(owner, 'GST this month')).a);
+  check('“GST this month” → GST on sales, GST on purchases, and a credit (bought more than sold)', gst?.title.startsWith('GST — ') === true && row(gst, 'GST paid on purchases') === '₹24' && row(gst, 'GST credit left') !== undefined && gst.href === '/gst', JSON.stringify(gst));
+  const orders = card((await askAs(owner, 'Pending customer orders')).a);
+  check('“Pending customer orders” → none waiting', row(orders, 'Waiting') === '0' && orders?.href === '/orders', JSON.stringify(orders));
+  const best = card((await askAs(owner, 'Top customers this month')).a);
+  check('“Top customers this month” → none yet (walk-in bills only)', best?.title === 'Top customers — This month' && best.note === 'Nothing here right now.', JSON.stringify(best));
+  const ret = card((await askAs(owner, 'aaj kitna return hua')).a);
+  check('“aaj kitna return hua” → today’s sales card', ret?.title === 'Sale — Aaj', JSON.stringify(ret));
+  const where = card((await askAs(owner, 'Dolo kahan rakha hai')).a);
+  check('“Dolo kahan rakha hai” → the stock card with its rack', where?.title === 'Stock — Dolo 650 Tablet' && where.items.some((i) => i.sub?.includes('Rack A1') === true), JSON.stringify(where));
 
   section('2. Each answer follows the asker’s permissions and shop');
   const own = card((await askAs(cashier, 'Today’s sale')).a);
@@ -287,7 +318,7 @@ async function main() {
 
   section('11. Twenty-odd questions a minute per person, not more');
   let limited = false;
-  for (let i = 0; i < 100 && !limited; i++) limited = (await manager.post('/ask', { text: 'help' })).status === 429;
+  for (let i = 0; i < 220 && !limited; i++) limited = (await manager.post('/ask', { text: 'help' })).status === 429;
   check('the per-person limit answers 429', limited);
 
   await fake.close();

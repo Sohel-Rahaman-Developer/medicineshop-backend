@@ -24,11 +24,11 @@ const STOPPED: AutopayStatus[] = ['cancelled', 'completed'];
 const MIN = 60 * 1000;
 const isPending = (id: string) => id.startsWith('pending_');
 
-async function rzpPlanFor(code: string, name: string, amount: number) {
+async function rzpPlanFor(code: string, name: string, amount: number, yearly: boolean) {
   const key = `${env.PAYMENTS_MODE}:${code}:${String(amount)}`;
   const have = await RzpPlanModel.findById(key).lean();
   if (have) return have.rzpPlanId;
-  const id = await createPlan(code === 'yearly' ? 'yearly' : 'monthly', amount, `MedBox24 ${name}`);
+  const id = await createPlan(yearly ? 'yearly' : 'monthly', amount, `MedBox24 ${name}`);
   await RzpPlanModel.updateOne({ _id: key }, { $setOnInsert: { rzpPlanId: id } }, { upsert: true });
   return (await RzpPlanModel.findById(key).lean())?.rzpPlanId ?? id;
 }
@@ -61,7 +61,8 @@ export async function startAutopay(t: TenantContext, actor: Actor, planCode: str
     await AutopayModel.updateOne({ _id: old._id, status: old.status }, { $set: { status: 'cancelled', stoppedAt: now, stopReason: 'Replaced by a new autopay' }, $unset: { live: 1 } });
   }
   const startAt = sub.planCode !== 'trial' && statusAt(sub, now) === 'active' ? sub.endDate : null;
-  const rzpPlanId = await rzpPlanFor(plan.code, plan.name, plan.price);
+  const yearly = plan.durationDays >= 365;
+  const rzpPlanId = await rzpPlanFor(plan.code, plan.name, plan.price, yearly);
   // Reserved before Razorpay is called: a second request at the same moment meets the unique index, not a second mandate.
   const a = await AutopayModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, amount: plan.price, durationDays: plan.durationDays, maxUsers: plan.maxUsers, rzpSubscriptionId: `pending_${randomBytes(9).toString('hex')}`, rzpPlanId, status: 'created', live: true, ...(startAt ? { startAt } : {}), createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }).catch((err: unknown) => {
     if ((err as { code?: number }).code === 11000) throw AppError.conflict('Autopay is already being set up — finish it in the open window', { reason: 'AUTOPAY_ON' });
@@ -69,7 +70,7 @@ export async function startAutopay(t: TenantContext, actor: Actor, planCode: str
   });
   let id: string;
   try {
-    id = await createSubscription(rzpPlanId, plan.code === 'yearly' ? 10 : 120, startAt, { shopId: String(t.shopId), planCode: plan.code });
+    id = await createSubscription(rzpPlanId, yearly ? 10 : 120, startAt, { shopId: String(t.shopId), planCode: plan.code });
   } catch (err) {
     a.set({ status: 'cancelled', live: undefined, stoppedAt: now, stopReason: 'Razorpay did not create it' });
     await a.save();

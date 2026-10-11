@@ -18,9 +18,12 @@ import { audit } from '../audit/audit.model';
 import { autopayEvent, autopayOf, disputeEvent, refundEvent, stopAutopay, type DisputeEntity, type PayEntity, type RefundEntity, type SubEntity } from './autopay';
 import { MembershipModel } from '../memberships/membership.model';
 import type { Actor } from '../user/actor';
-import { DEFAULT_PLANS, PlanModel, PlatformCounterModel, SubscriptionPaymentModel, WebhookEventModel } from './billing.model';
+import { PlanModel, PlatformCounterModel, SubscriptionPaymentModel, WebhookEventModel } from './billing.model';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { priceFor } from './terms';
+import { allFeatures, type Feature, type Tier } from './features';
+import { ensurePlans } from './plan-access';
+export { forgetTiers } from './plan-access';
 import { afterPaid, discountFor, withOffer, type Offer } from '../referral/referral.service';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -28,11 +31,19 @@ const DAY = 24 * 60 * 60 * 1000;
 const coins = () => import('../ai/coins.js');
 const daysBetween = (a: Date, b: Date) => Math.ceil((b.getTime() - a.getTime()) / DAY);
 
+const shapePlan = (p: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean; tier: string; features?: string[] | null }) => ({ code: p.code, name: p.name, price: p.price, durationDays: p.durationDays, maxUsers: p.maxUsers, perMonth: Math.round((p.price * 30) / p.durationDays), tier: p.tier as Tier, features: (p.features ?? allFeatures()) as Feature[], isActive: p.isActive });
+
 /** The buyable plans; a fresh database gets the placeholder list (PLAN §8). */
 export async function plans() {
-  if (!(await PlanModel.exists({}))) await PlanModel.insertMany(DEFAULT_PLANS, { ordered: false }).catch(() => undefined);
+  await ensurePlans();
   const rows = await PlanModel.find({ isActive: true }).sort({ sortOrder: 1 }).lean();
-  return rows.map((p) => ({ code: p.code, name: p.name, price: p.price, durationDays: p.durationDays, maxUsers: p.maxUsers, perMonth: Math.round((p.price * 30) / p.durationDays) }));
+  return rows.map(shapePlan);
+}
+
+/** Every plan, on sale or not, for the admin's editor. */
+export async function allPlans() {
+  await plans();
+  return (await PlanModel.find({}).sort({ isActive: -1, sortOrder: 1 }).lean()).map(shapePlan);
 }
 
 interface PaymentRow { _id: Types.ObjectId; planName: string; amount: number; gst: number; status: string; razorpayOrderId: string; razorpayPaymentId?: string | null; periodStart?: Date | null; periodEnd?: Date | null; invoiceNumber?: string | null; source: string; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null; refunded?: number; refunds?: { _id: Types.ObjectId; amount: number; status: string; creditNote?: string | null; daysRemoved: number; at: Date }[]; dispute?: { status?: string | null } | null; discount?: { kind: string; pct: number; off: number; listAmount: number } | null }

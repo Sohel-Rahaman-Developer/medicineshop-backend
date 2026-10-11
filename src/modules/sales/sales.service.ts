@@ -107,7 +107,7 @@ export async function posSettings(t: TenantContext) {
   const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean();
   const billing = shop?.settings.billing;
   const inv = shop?.settings.inventory;
-  const r = loyalty.rulesOf(shop?.settings.loyalty);
+  const r = loyalty.rulesFor(t, shop?.settings.loyalty);
   return {
     roundOff: billing?.roundOffEnabled ?? true,
     maxDiscountPercent: billing?.maxDiscountPercent ?? 20,
@@ -197,7 +197,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const customer = input.customerId ? await customers.forBill(t, input.customerId, credit, session) : null;
     const cats = new Map((await CategoryModel.find({ shopId: t.shopId }).select('name').session(session).lean()).map((c) => [String(c._id), c.name]));
     const catOf = (x: { p: ProductLean }) => cats.get(String(x.p.categoryId)) ?? '';
-    const rules = loyalty.rulesOf(shop.settings.loyalty);
+    const rules = loyalty.rulesFor(t, shop.settings.loyalty);
     const points = await loyalty.forBill(t, rules, customer, { redeemPoints: input.redeemPoints, grandTotal: priced.grandTotal, lines: built.parts.map((x, i) => ({ category: catOf(x), totalAmount: priced.lines[i]?.amount ?? 0 })), canRedeem: can(t.permissions, 'loyalty', 'create'), now }, session);
     // Points pay first, then an order's advance; more advance than the rest goes back in cash.
     const toPay = priced.grandTotal - points.redeemValue;

@@ -2,7 +2,7 @@ import { dayLabel, monthLabel } from '../../utils/date';
 import { inr } from '../../utils/money';
 import type * as F from './facts';
 import { langOf, type Voice } from './lang';
-import { CHIPS, LABEL, PERIOD, TEXT, TITLE, say } from './texts';
+import { CHIPS, LABEL, MODE, PERIOD, TEXT, TITLE, say } from './texts';
 
 // D81: a free answer is a card — numbers the server worked out, labels in the asker's language, and a link to the
 // screen with the whole picture (show the working).
@@ -165,6 +165,116 @@ export function cashCard(d: Awaited<ReturnType<typeof F.cashToday>>, v: Voice): 
       { label: say(LABEL.bills, v), value: String(d.bills) },
     ],
     href: '/day-close',
+  });
+}
+
+export function expensesCard(d: Awaited<ReturnType<typeof F.expensesIn>>, v: Voice): Card {
+  return card(say(TITLE.expenses, v, { period: periodText(d.period, v) }), {
+    rows: [
+      { label: say(LABEL.total, v), value: rs(d.total), tone: d.total ? 'warn' : 'ok' },
+      { label: say(LABEL.entries, v), value: String(d.entries) },
+    ],
+    items: d.items.map((i) => ({ name: i.category, value: rs(i.total), sub: `× ${String(i.n)}` })),
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/expenses',
+  });
+}
+
+export function purchasesCard(d: Awaited<ReturnType<typeof F.purchasesIn>>, v: Voice): Card {
+  return card(say(TITLE.purchases, v, { period: periodText(d.period, v) }), {
+    rows: [
+      { label: say(LABEL.purchaseTotal, v), value: rs(d.total) },
+      { label: say(LABEL.bills, v), value: String(d.invoices) },
+      { label: say(LABEL.paid, v), value: rs(d.paid), tone: 'ok' },
+      { label: say(LABEL.stillOwe, v), value: rs(d.due), tone: d.due ? 'warn' : 'ok' },
+      ...(d.returns ? [{ label: say(LABEL.returns, v), value: rs(d.returns) }] : []),
+    ],
+    href: '/purchases',
+  });
+}
+
+export function priceCard(d: Awaited<ReturnType<typeof F.priceOf>>, v: Voice): Card {
+  const p = d.found;
+  if (!p) return card(say(TITLE.price, v, { name: d.name }), { note: say(TEXT.notFound, v, { name: d.name }), href: '/products' });
+  return card(say(TITLE.price, v, { name: p.name }), {
+    rows: [
+      ...(p.batches[0] ? [{ label: say(LABEL.per, v, { unit: p.sale.toLowerCase() }), value: rs(p.batches[0].mrp) }] : []),
+      { label: say(LABEL.gstRate, v), value: `${String(p.gstRate)}%` },
+    ],
+    items: p.batches.map((b) => ({ name: `${say(LABEL.batch, v)} ${b.batchNumber}`, value: rs(b.mrp), sub: monthLabel(b.expiryDate) })),
+    note: p.batches.length ? undefined : say(TEXT.none, v),
+    href: `/products/${p.id}`,
+  });
+}
+
+export function deadCard(d: Awaited<ReturnType<typeof F.notSelling>>, v: Voice): Card {
+  return card(say(TITLE.dead, v, { n: d.days }), {
+    rows: [
+      { label: say(LABEL.products, v), value: String(d.count), tone: d.count ? 'warn' : 'ok' },
+      { label: say(LABEL.mrpValue, v), value: rs(d.mrpValue) },
+      ...(d.value === null ? [] : [{ label: say(LABEL.costValue, v), value: rs(d.value) }]),
+    ],
+    items: d.items.map((p) => ({ name: p.name, value: qty(p.qty), sub: p.lastSold ? `${say(LABEL.lastSold, v)}: ${dayLabel(p.lastSold)}` : say(LABEL.never, v), href: `/products/${p.id}` })),
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/analytics',
+  });
+}
+
+export function customersCard(d: Awaited<ReturnType<typeof F.topCustomers>>, v: Voice): Card {
+  return card(say(TITLE.customers, v, { period: periodText(d.period, v) }), {
+    items: d.items.map((c) => ({ name: c.name, value: rs(c.amount), sub: `${say(LABEL.bills, v)}: ${String(c.bills)}`, href: `/customers/${c.id}` })),
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/customers',
+  });
+}
+
+const modeName = (mode: string, v: Voice) => {
+  const m = MODE[mode];
+  return m ? say(m, v) : mode;
+};
+
+export function modesCard(d: Awaited<ReturnType<typeof F.payModes>>, v: Voice): Card {
+  return card(say(TITLE.modes, v, { period: periodText(d.period, v) }), {
+    rows: [
+      ...d.items.map((i) => ({ label: modeName(i.mode, v), value: rs(i.amount), tone: i.mode === 'CREDIT' ? ('warn' as const) : undefined })),
+      { label: say(LABEL.moneyIn, v), value: rs(d.total), tone: 'ok' },
+    ],
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/sales',
+  });
+}
+
+export function ordersCard(d: Awaited<ReturnType<typeof F.openOrders>>, v: Voice): Card {
+  return card(say(TITLE.orders, v), {
+    rows: [
+      { label: say(LABEL.waiting, v), value: String(d.open), tone: d.open ? 'warn' : 'ok' },
+      { label: say(LABEL.ready, v), value: String(d.ready), tone: d.ready ? 'ok' : undefined },
+      ...(d.stale ? [{ label: say(LABEL.stale, v), value: String(d.stale), tone: 'danger' as const }] : []),
+      { label: say(LABEL.advance, v), value: rs(d.advanceHeld) },
+    ],
+    items: d.items.map((o) => ({ name: o.customer, value: o.advance ? rs(o.advance) : '', sub: `${o.number} · ${dayLabel(o.at)}` })),
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/orders',
+  });
+}
+
+export function gstCard(d: Awaited<ReturnType<typeof F.gstOf>>, v: Voice): Card {
+  return card(say(TITLE.gst, v, { month: monthLabel(new Date(`${d.month}-15T00:00:00Z`)) }), {
+    rows: [
+      { label: say(LABEL.revenue, v), value: rs(d.salesTaxable) },
+      { label: say(LABEL.outTax, v), value: rs(d.outTax) },
+      { label: say(LABEL.inTax, v), value: rs(d.inTax) },
+      d.net >= 0 ? { label: say(LABEL.net, v), value: rs(d.net), tone: 'warn' } : { label: say(LABEL.credit, v), value: rs(-d.net), tone: 'ok' },
+    ],
+    href: '/gst',
+  });
+}
+
+export function staffCard(d: Awaited<ReturnType<typeof F.staffSales>>, v: Voice): Card {
+  return card(say(TITLE.staff, v, { period: periodText(d.period, v) }), {
+    items: d.items.map((s) => ({ name: s.name, value: rs(s.amount), sub: `${say(LABEL.bills, v)}: ${String(s.bills)}` })),
+    note: d.items.length ? undefined : say(TEXT.none, v),
+    href: '/sales',
   });
 }
 

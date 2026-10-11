@@ -8,7 +8,8 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 const subscriptionSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, unique: true },
-    planCode: { type: String, enum: ['trial', 'monthly', 'yearly', 'demo'], required: true },
+    /** trial, demo, or a plan's code (D87: any plan the admin made). */
+    planCode: { type: String, required: true },
     status: { type: String, enum: SUBSCRIPTION_STATUSES, required: true },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },

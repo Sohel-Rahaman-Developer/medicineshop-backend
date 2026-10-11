@@ -23,9 +23,15 @@ export function rulesOf(raw: unknown): LoyaltyRules {
   return { ...DEFAULT_RULES, ...r, excludedCategories: [...(r.excludedCategories ?? [])], tiers };
 }
 
+/** D87: a plan without loyalty earns and redeems nothing; the points already given stay on the customers. */
+export const rulesFor = (t: TenantContext, raw: unknown): LoyaltyRules => {
+  const r = rulesOf(raw);
+  return t.features.includes('loyalty') ? r : { ...r, enabled: false };
+};
+
 export async function rules(t: TenantContext, session?: ClientSession) {
   const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.loyalty').session(session ?? null).lean();
-  return rulesOf(shop?.settings.loyalty);
+  return rulesFor(t, shop?.settings.loyalty);
 }
 
 interface Who {

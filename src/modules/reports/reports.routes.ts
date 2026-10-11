@@ -1,7 +1,7 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched } from '../../core/response';
 import { istDay } from '../../core/zod';
@@ -54,8 +54,20 @@ const cellValue = (col: Col, v: Cell | undefined): string | number => {
 export const reportsRouter = Router();
 reportsRouter.use(shopAuth, requirePermission('reports', 'view'));
 
+// D87: GST stays in every plan (the CA needs it); P&L, the report centre and analytics are Pro.
+const pnlPlan = needFeature('pnl');
+const gstKeys = new Set(['gst-sales', 'gst-purchase']);
+const reportPlan: RequestHandler = (req, res, next) => {
+  if (gstKeys.has((req.params as { key?: string }).key ?? '')) {
+    next();
+    return;
+  }
+  needFeature('reports')(req, res, next);
+};
+
 reportsRouter.get(
   '/pnl',
+  pnlPlan,
   validate({ query: rangeSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as unknown as { from: Date; to: Date };
@@ -63,10 +75,11 @@ reportsRouter.get(
   }),
 );
 
-reportsRouter.get('/pnl/months', asyncHandler(async (req: Request, res: Response) => { fetched(res, await pnl.months(tenantOf(req))); }));
+reportsRouter.get('/pnl/months', pnlPlan, asyncHandler(async (req: Request, res: Response) => { fetched(res, await pnl.months(tenantOf(req))); }));
 
 reportsRouter.get(
   '/daybook',
+  pnlPlan,
   validate({ query: monthSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await pnl.daybook(tenantOf(req), (req.query as { month: string }).month));
@@ -74,11 +87,12 @@ reportsRouter.get(
 );
 
 // S61 report centre: the list, a report (first 300 rows on screen) and its Excel / PDF (reports:export, all rows).
-reportsRouter.get('/catalog', (_req: Request, res: Response) => { fetched(res, reportList()); });
+reportsRouter.get('/catalog', needFeature('reports'), (_req: Request, res: Response) => { fetched(res, reportList()); });
 
 reportsRouter.get(
   '/r/:key',
   validate({ params: keyParams, query: reportQuery }),
+  reportPlan,
   asyncHandler(async (req: Request, res: Response) => {
     const r = reportByKey((req.params as { key: string }).key);
     if (!r) throw AppError.notFound('Report not found');
@@ -94,6 +108,7 @@ reportsRouter.get(
   '/r/:key/export',
   requirePermission('reports', 'export'),
   validate({ params: keyParams, query: reportQuery }),
+  reportPlan,
   asyncHandler(async (req: Request, res: Response) => {
     const r = reportByKey((req.params as { key: string }).key);
     if (!r) throw AppError.notFound('Report not found');
@@ -128,6 +143,7 @@ const analyticsQuery = z
 // S60 analytics: one tab at a time, every chart on the topbar range.
 reportsRouter.get(
   '/analytics',
+  needFeature('analytics'),
   validate({ query: analyticsQuery }),
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as unknown as { tab: 'sales' | 'stock' | 'customers' | 'suppliers'; from: Date; to: Date };

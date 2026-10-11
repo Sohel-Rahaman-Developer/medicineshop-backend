@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'SUBSCRIPTION_REQUIRED'
   | 'SERVICE_UNAVAILABLE'
   | 'LOCKED'
+  | 'PLAN_UPGRADE'
   | 'INTERNAL';
 
 export class AppError extends Error {
@@ -53,6 +54,10 @@ export class AppError extends Error {
   }
   static rateLimited(message = 'Too many requests. Please try again in a little while.') {
     return new AppError(429, 'RATE_LIMITED', message);
+  }
+  /** D87: the shop's plan does not open this module; the app shows its upgrade card. */
+  static upgrade(feature: string, name: string) {
+    return new AppError(403, 'PLAN_UPGRADE', `${name} is in the Pro plan — upgrade to use it`, { feature });
   }
   static subscriptionRequired(message = 'This feature needs an active subscription') {
     return new AppError(402, 'SUBSCRIPTION_REQUIRED', message);

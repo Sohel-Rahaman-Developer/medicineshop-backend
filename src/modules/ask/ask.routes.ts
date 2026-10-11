@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { perUser } from '../../core/middleware/rate-limit';
 import { validate } from '../../core/middleware/validate';
 import { fetched, sent } from '../../core/response';
@@ -11,7 +11,7 @@ import { ask, askSchema, offer, switchAi, type AskInput } from './ask.service';
 
 // D81: everyone in the shop can ask; each answer follows the asker's own permissions.
 export const askRouter = Router();
-askRouter.use(shopAuth);
+askRouter.use(shopAuth, needFeature('ask'));
 const member = requirePermission('dashboard', 'view');
 
 askRouter.get('/offer', member, asyncHandler(async (req: Request, res: Response) => { fetched(res, await offer(tenantOf(req))); }));

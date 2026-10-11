@@ -9,6 +9,8 @@ import { ShopModel } from '../../modules/shops/shop.model';
 import { SubscriptionModel, graceEndOf, isReadOnly, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
 import { env } from '../../config/env';
 import { platform } from '../../modules/admin/platform';
+import { FEATURE_NAMES, type Feature } from '../../modules/subscription/features';
+import { featuresOf } from '../../modules/subscription/plan-access';
 
 export interface TenantContext {
   shopId: Types.ObjectId;
@@ -19,7 +21,9 @@ export interface TenantContext {
   isOwner: boolean;
   permissions: Permissions;
   scopes: Scopes;
-  subscription: { status: SubscriptionStatus; endDate: Date; maxUsers: number };
+  subscription: { status: SubscriptionStatus; endDate: Date; maxUsers: number; planCode: string };
+  /** D87: the modules the shop's plan opens. */
+  features: Feature[];
   /** The marketing demo shop: no payments, no invitations. */
   demo: boolean;
 }
@@ -56,6 +60,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
   if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedBox24 support.');
   // The date moves the plan along (trial → grace → expired); the nightly job does the same for shops nobody opens.
   const status = statusAt(sub, new Date());
+  const features = await featuresOf(sub.planCode);
   if (status !== sub.status) await SubscriptionModel.updateOne({ shopId, _id: sub._id, status: sub.status }, { $set: { status, graceEndDate: graceEndOf(sub.endDate) } });
   const ctx: TenantContext = {
     shopId,
@@ -66,7 +71,8 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
     isOwner: role.systemKey === 'owner' && shop.ownerUserId.equals(userId),
     permissions: effective(role.permissions, membership.grants as Permissions, membership.denies as Permissions),
     scopes: role.scopes,
-    subscription: { status, endDate: sub.endDate, maxUsers: sub.maxUsers },
+    subscription: { status, endDate: sub.endDate, maxUsers: sub.maxUsers, planCode: sub.planCode },
+    features,
     demo: shop.demo === true,
   };
   return { ctx, membership };
@@ -106,6 +112,15 @@ export const requirePermission =
   (req, _res, next) => {
     if (!req.tenant) return next(AppError.internal());
     if (!can(req.tenant.permissions, module, action)) return next(AppError.forbidden());
+    next();
+  };
+
+/** D87: a module the shop's plan does not open answers PLAN_UPGRADE. */
+export const needFeature =
+  (feature: Feature): RequestHandler =>
+  (req, _res, next) => {
+    if (!req.tenant) return next(AppError.internal());
+    if (!req.tenant.features.includes(feature)) return next(AppError.upgrade(feature, FEATURE_NAMES[feature]));
     next();
   };
 

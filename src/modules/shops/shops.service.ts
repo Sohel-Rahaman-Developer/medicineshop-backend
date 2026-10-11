@@ -123,6 +123,7 @@ export function context(t: TenantContext, roleName: string, designation: string)
     permissions: t.permissions,
     scopes: t.scopes,
     subscription: t.subscription,
+    features: t.features,
   };
 }
 

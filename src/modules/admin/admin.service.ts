@@ -7,7 +7,9 @@ import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
 import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
 import { autopayOf, refund, stopAutopay } from '../subscription/autopay';
-import { plans as planList, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
+import { allPlans, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
+import type { Feature, Tier } from '../subscription/features';
+import { forgetPlanFeatures } from '../subscription/plan-access';
 import { ShopTermsModel, setPrices } from '../subscription/terms';
 import * as retention from '../retention/retention';
 import { EmailJobModel } from '../../services/mail-queue';
@@ -158,7 +160,7 @@ export async function extend(a: AdminActor, id: string, days: number, reason: st
 export async function setShopPrices(a: AdminActor, id: string, input: { code: string; price: number | null }[], reason: string, ip?: string) {
   const doc = await ShopModel.findById(id).select('name').lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const lists = await planList();
+  const lists = await allPlans();
   if (input.some((i) => !lists.some((l) => l.code === i.code))) throw AppError.validation('Unknown plan');
   const r = await setPrices(doc._id, input, lists, a.name);
   if (!r.changes.length) throw AppError.conflict('Nothing changed');
@@ -243,11 +245,12 @@ export async function manualPayment(a: AdminActor, input: { shopId: string; plan
   return p;
 }
 
-export async function setPlans(a: AdminActor, list: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean }[], reason: string, ip?: string) {
-  const before = await planList();
+export async function setPlans(a: AdminActor, list: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean; tier: Tier; features: Feature[] }[], reason: string, ip?: string) {
+  const before = await allPlans();
   for (const [i, p] of list.entries()) await PlanModel.updateOne({ code: p.code }, { $set: { ...p, sortOrder: i + 1 } }, { upsert: true });
-  await log(a, 'plans_update', reason, `changed plans: ${list.map((p) => `${p.name} ${inr(p.price)}${p.isActive ? '' : ' (off)'}`).join(', ')}`, undefined, { before, after: list }, ip);
-  return planList();
+  forgetPlanFeatures();
+  await log(a, 'plans_update', reason, `changed plans: ${list.map((p) => `${p.name} (${p.tier}, ${String(p.features.length)} modules) ${inr(p.price)}${p.isActive ? '' : ' (off)'}`).join(', ')}`, undefined, { before, after: list }, ip);
+  return allPlans();
 }
 
 export async function settings() {

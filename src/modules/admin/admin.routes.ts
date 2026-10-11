@@ -25,13 +25,15 @@ import { ASK_ROUTES } from '../ask/ask.model';
 import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
 import * as brand from '../branding/branding.service';
 import * as demo from '../demo/demo.service';
+import { FEATURES, TIERS } from '../subscription/features';
+import { allPlans } from '../subscription/subscription.service';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
 const reason = z.string().trim().min(5, 'Say why (5 letters at least)').max(300);
 const listQuery = z.object({ q: z.string().trim().max(80).optional(), status: z.enum(['trial', 'active', 'grace', 'expired', 'cancelled', 'suspended']).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
 const payQuery = z.object({ status: z.enum(['paid', 'failed']).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
-const planSchema = z.object({ code: z.string().regex(/^[a-z][a-z0-9-]{1,19}$/), name: z.string().trim().min(2).max(40), price: z.number().int().min(100).max(10_000_000), durationDays: z.number().int().min(1).max(1100), maxUsers: z.number().int().min(1).max(200), isActive: z.boolean() }).strict();
+const planSchema = z.object({ code: z.string().regex(/^[a-z][a-z0-9-]{1,19}$/), name: z.string().trim().min(2).max(40), price: z.number().int().min(100).max(10_000_000), durationDays: z.number().int().min(1).max(1100), maxUsers: z.number().int().min(1).max(200), isActive: z.boolean(), tier: z.enum(TIERS), features: z.array(z.enum(FEATURES)).max(FEATURES.length).refine((f) => new Set(f).size === f.length, 'Each module once') }).strict();
 const settingsSchema = z
   .object({
     trialDays: z.number().int().min(1).max(90),
@@ -84,7 +86,8 @@ adminRouter.post('/payments/:id/refund', moneyRole, validate({ params: idParams,
 adminRouter.post('/shops/:id/autopay/stop', moneyRole, validate({ params: idParams, body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { await svc.stopShopAutopay(adminOf(req), (req.params as { id: string }).id, (req.body as { reason: string }).reason, req.ip); sent(res, await svc.shop((req.params as { id: string }).id), 'Autopay stopped'); }));
 adminRouter.post('/payments/manual', moneyRole, validate({ body: z.object({ shopId: objectId, planCode: z.string().min(2).max(20), reference: z.string().trim().min(3).max(80), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.manualPayment(adminOf(req), req.body as { shopId: string; planCode: string; reference: string; reason: string }, req.ip), 'Payment recorded'); }));
 
-adminRouter.put('/plans', superOnly, validate({ body: z.object({ plans: z.array(planSchema).min(1).max(6), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { plans: z.infer<typeof planSchema>[]; reason: string }; sent(res, await svc.setPlans(adminOf(req), b.plans, b.reason, req.ip), 'Plans saved'); }));
+adminRouter.get('/plans', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await allPlans()); }));
+adminRouter.put('/plans', superOnly, validate({ body: z.object({ plans: z.array(planSchema).min(1).max(8).refine((l) => new Set(l.map((p) => p.code)).size === l.length, 'Each plan code once'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { plans: z.infer<typeof planSchema>[]; reason: string }; sent(res, await svc.setPlans(adminOf(req), b.plans, b.reason, req.ip), 'Plans saved'); }));
 adminRouter.get('/settings', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.settings()); }));
 adminRouter.put('/settings', superOnly, validate({ body: z.object({ settings: settingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: z.infer<typeof settingsSchema>; reason: string }; sent(res, await svc.saveSettings(adminOf(req), b.settings, b.reason, req.ip), 'Platform settings saved'); }));
 

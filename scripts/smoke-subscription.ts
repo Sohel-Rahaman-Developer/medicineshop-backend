@@ -54,7 +54,8 @@ async function main() {
   const s0 = await sub();
   check('trial, 14 days left, test payments on', s0.status === 'trial' && s0.daysLeft === 14 && s0.payments === 'test', JSON.stringify(s0));
   const plans = data<{ code: string; price: number; maxUsers: number }[]>(await h.client().get('/plans'));
-  check('plans without signing in: Monthly ₹799 (5 users), Yearly ₹7,990', plans.length === 2 && plans[0]?.code === 'monthly' && plans[0].price === 79_900 && plans[0].maxUsers === 5 && plans[1]?.price === 799_000);
+  const pro = plans.find((p) => p.code === 'monthly');
+  check('plans without signing in: Basic ×2, then Pro Monthly ₹799 (5 users), Pro Yearly ₹7,990', plans.length === 4 && pro?.price === 79_900 && pro.maxUsers === 5 && plans.find((p) => p.code === 'yearly')?.price === 799_000);
   check('manager sees the plan, can’t buy → 403; cashier → 403', (await manager.get('/subscription')).status === 200 && (await manager.post('/subscription/order', { planCode: 'monthly' })).status === 403 && (await cashier.get('/subscription')).status === 403);
 
   section('2. Order → Checkout signature → verify');
