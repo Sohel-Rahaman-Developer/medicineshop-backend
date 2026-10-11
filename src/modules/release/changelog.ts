@@ -10,6 +10,22 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.15.0',
+    date: '2026-10-11',
+    title: 'Udhaar in one place, and who owes whom',
+    shop: [
+      'Udhaar → Add udhaar: one form for a customer already here or a new one — type a name or phone, pick them or add them on the spot, then the old udhaar from your khata (with the day it was owed) and the limit.',
+      'Old khata udhaar is no sale: no bill, stock or GST — a line “Old balance” in the statement, counted in udhaar older than 30 days, and collected before any bill. A mistake comes off with a reason; both lines stay.',
+      'Only the Owner or a Manager writes old khata udhaar; anyone with customer edit can set a limit.',
+      'Suppliers, purchases and the dashboard say which way the money goes: “You owe suppliers”, “To pay this week”, “Overdue to pay”, “Pay by”.',
+    ],
+    admin: ['The demo shop brings in old khata udhaar for three regulars.'],
+    api: [
+      'POST /customers/udhaar {customerId | customer {name, phone}, amount, since, creditLimit, note} — Owner / Manager for an amount; 409 PHONE_TAKEN names the customer to pick. POST /customers/:id/old-udhaar/correct {amount, reason}.',
+      'Customers carry oldDue and oldDueSince; a collection records fromOld and lists “Old khata” first in applied; the statement has “Old balance” and “Correction” lines.',
+    ],
+  },
+  {
     version: '1.14.1',
     date: '2026-10-11',
     title: 'Menus answer at once, and a fuller demo shop',

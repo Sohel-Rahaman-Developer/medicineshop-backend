@@ -113,3 +113,8 @@ export const RESTOCK: [string, number, number][] = [
 export const SHORT_DATED: [string, number, number][] = [
   ['Cremaffin Plus', 18, 0], ['Refresh Tears', 15, 0], ['Soframycin', 24, 1], ['Candid Dusting', 14, 1], ['Volini Spray', 12, 1],
 ];
+
+/** Old khata udhaar the shop brought in on its first day: customer, paise, days owed before that. */
+export const OLD_KHATA: [string, number, number][] = [
+  ['Rajesh Agarwal', 185_000, 20], ['Tapas Chatterjee', 64_000, 12], ['Farida Begum', 42_000, 35],
+];

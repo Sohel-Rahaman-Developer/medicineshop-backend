@@ -7,7 +7,7 @@ import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import * as svc from './customers.service';
-import { collectSchema, customerListSchema, customerSchema, doctorSchema, updateCustomerSchema, type CollectInput, type CustomerInput, type CustomerListQuery, type DoctorInput, type UpdateCustomerInput } from './customers.validation';
+import { addUdhaarSchema, collectSchema, correctOldSchema, customerListSchema, customerSchema, doctorSchema, updateCustomerSchema, type AddUdhaarInput, type CollectInput, type CorrectOldInput, type CustomerInput, type CustomerListQuery, type DoctorInput, type UpdateCustomerInput } from './customers.validation';
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
 
@@ -36,6 +36,27 @@ customersRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const c = await svc.create(tenantOf(req), await actorOf(req), req.body as CustomerInput, req.ip);
     created(res, c, `${c.name} added`);
+  }),
+);
+
+// Udhaar page: an existing or new customer, old khata udhaar and the limit, in one save.
+customersRouter.post(
+  '/udhaar',
+  edit,
+  validate({ body: addUdhaarSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const c = await svc.addUdhaar(tenantOf(req), await actorOf(req), req.body as AddUdhaarInput, req.ip);
+    sent(res, c, `${c.name}: udhaar saved`);
+  }),
+);
+
+customersRouter.post(
+  '/:id/old-udhaar/correct',
+  edit,
+  validate({ params: idParams, body: correctOldSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const c = await svc.correctOld(tenantOf(req), await actorOf(req), idOf(req), req.body as CorrectOldInput, req.ip);
+    sent(res, c, 'Old udhaar corrected');
   }),
 );
 

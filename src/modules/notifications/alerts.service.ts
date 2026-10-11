@@ -116,7 +116,8 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
 
   if (can(t.permissions, 'customers', 'view') && (boss(t) || t.roleKey === 'accountant')) {
     const ids = await SaleModel.distinct('customerId', { shopId: t.shopId, status: { $ne: 'cancelled' }, dueAmount: { $gt: 0 }, billDate: { $lt: new Date(now.getTime() - 30 * DAY) } });
-    const late = await CustomerModel.find({ shopId: t.shopId, _id: { $in: ids }, creditBalance: { $gt: 0 } }).sort({ creditBalance: -1 }).select('name creditBalance').lean();
+    // Old khata udhaar counts from the day it was written down as owed.
+    const late = await CustomerModel.find({ shopId: t.shopId, creditBalance: { $gt: 0 }, $or: [{ _id: { $in: ids } }, { oldDue: { $gt: 0 }, oldDueSince: { $lt: new Date(now.getTime() - 30 * DAY) } }] }).sort({ creditBalance: -1 }).select('name creditBalance').lean();
     if (late.length) {
       out.push(
         alert('UDHAAR_OVERDUE', {

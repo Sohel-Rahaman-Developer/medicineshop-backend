@@ -95,6 +95,8 @@ async function main() {
   const soon = await BatchModel.countDocuments({ shopId, quantity: { $gt: 0 }, expiryDate: { $gt: now, $lt: new Date(now.getTime() + 45 * 86_400_000) } });
   check('stock that expires soon, for the expiry screens', soon >= 2, String(soon));
   check('customers with udhaar to collect', (await CustomerModel.countDocuments({ shopId, creditBalance: { $gt: 0 } })) > 0);
+  const { OldUdhaarModel } = await import('../src/modules/customers/customer.model.js');
+  check('old khata udhaar brought in for 3 customers', (await OldUdhaarModel.countDocuments({ shopId, amount: { $gt: 0 } })) === 3);
   check('owner and 3 staff', (await MembershipModel.countDocuments({ shopId, status: 'active' })) === 4);
   const c = first.counts;
   check('the page counts this month and all time', Boolean(c && c.all.bills === bills.filter((b) => b.status !== 'cancelled').length && c.month.bills <= c.all.bills && c.week.bills <= c.month.bills && c.today.bills <= c.week.bills), JSON.stringify(c));

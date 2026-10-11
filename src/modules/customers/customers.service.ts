@@ -12,8 +12,9 @@ import * as loyalty from '../loyalty/loyalty.service';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import type { Actor } from '../user/actor';
-import { CustomerModel, CustomerPaymentModel, DoctorModel } from './customer.model';
-import type { CollectInput, CustomerInput, CustomerListQuery, DoctorInput, UpdateCustomerInput } from './customers.validation';
+import { can } from '../rbac/permissions';
+import { CustomerModel, CustomerPaymentModel, DoctorModel, OldUdhaarModel } from './customer.model';
+import { customerSchema, type AddUdhaarInput, type CollectInput, type CorrectOldInput, type CustomerInput, type CustomerListQuery, type DoctorInput, type UpdateCustomerInput } from './customers.validation';
 
 const oid = (id: string) => new Types.ObjectId(id);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -47,6 +48,8 @@ export function shape(c: CustomerLean) {
     lastVisit: c.lastVisit ?? null,
     creditBalance: c.creditBalance,
     creditLimit: c.creditLimit,
+    oldDue: c.oldDue,
+    oldDueSince: c.oldDueSince ?? null,
     loyaltyPoints: c.loyaltyPoints,
     tier: c.tier,
     chronicConditions: c.chronicConditions,
@@ -124,9 +127,66 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   return shape(out);
 }
 
+/**
+ * Udhaar page, one form: an existing customer or a new one, the old khata udhaar from before MedBox24, the limit.
+ * The old udhaar is no sale — no stock, GST or bill — only a line in the statement, collected before any bill.
+ */
+/** Old khata udhaar is money nobody can check against a bill: the Owner or a Manager writes it. */
+const boss = (t: TenantContext) => t.isOwner || t.roleKey === 'owner' || t.roleKey === 'manager';
+
+export async function addUdhaar(t: TenantContext, actor: Actor, input: AddUdhaarInput, ip?: string) {
+  if (input.amount && !boss(t)) throw AppError.forbidden('Old udhaar from the khata is written by the Owner or a Manager');
+  if (input.customer && !can(t.permissions, 'customers', 'create')) throw AppError.forbidden('Adding a customer needs customer create permission');
+  const { result } = await once(t.shopId, 'old-udhaar', input.clientRequestId, async (session) => {
+    let c: CustomerLean;
+    const what: string[] = [];
+    if (input.customer) {
+      const n = customerSchema.parse({ name: input.customer.name, phone: input.customer.phone });
+      const same = await CustomerModel.findOne({ shopId: t.shopId, phone: n.phone }).select('name').session(session).lean();
+      if (same) throw AppError.conflict(`${n.phone} is already ${same.name} — pick them from the list`, { reason: 'PHONE_TAKEN', id: String(same._id), name: same.name });
+      const [made] = await CustomerModel.create([{ ...n, dob: null, shopId: t.shopId, nameLower: n.name.toLowerCase(), createdBy: oid(actor.id), createdByName: actor.name }], { session });
+      if (!made) throw AppError.internal();
+      await loyalty.signup(t, made, actor, session);
+      c = await load(t, String(made._id), session);
+      what.push('added the customer');
+    } else {
+      c = await load(t, input.customerId ?? '', session);
+    }
+    const since = input.since ?? new Date();
+    if (input.amount) {
+      await OldUdhaarModel.create([{ shopId: t.shopId, customerId: c._id, customerName: c.name, amount: input.amount, since, note: input.note, createdBy: oid(actor.id), createdByName: actor.name }], { session });
+      await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id }, { $inc: { creditBalance: input.amount, oldDue: input.amount } }, { session });
+      await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id, $or: [{ oldDueSince: null }, { oldDueSince: { $gt: since } }] }, { $set: { oldDueSince: since } }, { session });
+      what.push(`old udhaar ${inr(input.amount)} (khata${input.note ? ` · ${input.note}` : ''})`);
+    }
+    if (input.creditLimit !== undefined && input.creditLimit !== c.creditLimit) {
+      await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id }, { $set: { creditLimit: input.creditLimit }, $inc: { version: 1 } }, { session });
+      what.push(`udhaar limit ${inr(c.creditLimit)} → ${inr(input.creditLimit)}`);
+    }
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: input.customer ? 'create' : 'update', module: 'customers', entityId: String(c._id), entityName: c.name, text: `${actor.name} · ${c.name}: ${what.join(' · ')}`, ip }, session);
+    return String(c._id);
+  });
+  return shape(await load(t, result));
+}
+
+/** A mistake in the old udhaar: a correcting line, never an edit, so the statement keeps both. */
+export async function correctOld(t: TenantContext, actor: Actor, id: string, input: CorrectOldInput, ip?: string) {
+  if (!boss(t)) throw AppError.forbidden('Old udhaar is corrected by the Owner or a Manager');
+  const c = await load(t, id);
+  if (input.amount > c.oldDue) throw AppError.validation(`${c.name}'s old udhaar left is ${inr(c.oldDue)}`, [{ field: 'body.amount', message: `At most ${inr(c.oldDue)}` }]);
+  await inTransaction(async (session) => {
+    const moved = await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id, oldDue: { $gte: input.amount }, creditBalance: { $gte: input.amount } }, { $inc: { oldDue: -input.amount, creditBalance: -input.amount } }, { session });
+    if (!moved.modifiedCount) throw AppError.conflict(`${c.name}'s udhaar changed meanwhile — reload`);
+    if (c.oldDue === input.amount) await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id }, { $set: { oldDueSince: null } }, { session });
+    await OldUdhaarModel.create([{ shopId: t.shopId, customerId: c._id, customerName: c.name, amount: -input.amount, since: new Date(), note: input.reason, createdBy: oid(actor.id), createdByName: actor.name }], { session });
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'customers', entityId: id, entityName: c.name, text: `${actor.name} took ${inr(input.amount)} off ${c.name}'s old udhaar — ${input.reason}`, ip }, session);
+  });
+  return shape(await load(t, id));
+}
+
 export interface CreditRow {
   at: Date;
-  kind: 'Bill' | 'Paid' | 'Return' | 'Cancelled';
+  kind: 'Bill' | 'Paid' | 'Return' | 'Cancelled' | 'Old balance' | 'Correction';
   ref: string;
   saleId: string | null;
   debit: number;
@@ -137,10 +197,11 @@ export interface CreditRow {
 /** Udhaar statement: credit bills (debit), collections, returns set off and cancelled bills (credit); ends at creditBalance. */
 export async function ledger(t: TenantContext, id: string) {
   const c = await load(t, id);
-  const [bills, payments, returns] = await Promise.all([
+  const [bills, payments, returns, old] = await Promise.all([
     SaleModel.find({ shopId: t.shopId, customerId: c._id, 'payments.mode': 'CREDIT' }).select('billNumber billDate payments status cancelledAt cancelledDue').lean(),
     CustomerPaymentModel.find({ shopId: t.shopId, customerId: c._id }).select('receiptNumber paymentDate amount paymentMode').lean(),
     SaleReturnModel.find({ shopId: t.shopId, customerId: c._id, adjusted: { $gt: 0 } }).select('returnNumber returnDate adjusted saleId').lean(),
+    OldUdhaarModel.find({ shopId: t.shopId, customerId: c._id }).select('amount since note').lean(),
   ]);
   const rows: Omit<CreditRow, 'balance'>[] = [];
   for (const s of bills) {
@@ -150,6 +211,7 @@ export async function ledger(t: TenantContext, id: string) {
   }
   for (const p of payments) rows.push({ at: p.paymentDate, kind: 'Paid', ref: `${p.receiptNumber} · ${p.paymentMode}`, saleId: null, debit: 0, credit: p.amount });
   for (const r of returns) rows.push({ at: r.returnDate, kind: 'Return', ref: r.returnNumber, saleId: String(r.saleId), debit: 0, credit: r.adjusted });
+  for (const o of old) rows.push(o.amount > 0 ? { at: o.since, kind: 'Old balance', ref: o.note || 'Khata', saleId: null, debit: o.amount, credit: 0 } : { at: o.since, kind: 'Correction', ref: o.note, saleId: null, debit: 0, credit: -o.amount });
   rows.sort((a, b) => a.at.getTime() - b.at.getTime());
   let balance = 0;
   const out: CreditRow[] = rows.map((r) => {
@@ -159,14 +221,15 @@ export async function ledger(t: TenantContext, id: string) {
   return { rows: out, balance: c.creditBalance, limit: c.creditLimit };
 }
 
-/** Collect udhaar (PLAN §22): oldest open credit bill first; never more than is owed. */
+/** Collect udhaar (PLAN §22): the old khata first, then the oldest open credit bill; never more than is owed. */
 export async function collect(t: TenantContext, actor: Actor, id: string, input: CollectInput, ip?: string) {
   return once(t.shopId, 'customer-payment', input.clientRequestId, async (session) => {
     const now = new Date();
     const c = await load(t, id, session);
     if (input.amount > c.creditBalance) throw AppError.validation(`${c.name} owes ${inr(c.creditBalance)} — that is the most you can collect`, [{ field: 'body.amount', message: `At most ${inr(c.creditBalance)}` }]);
     const open = await SaleModel.find({ shopId: t.shopId, customerId: c._id, dueAmount: { $gt: 0 }, status: { $ne: 'cancelled' } }).sort({ billDate: 1, _id: 1 }).select('billNumber dueAmount').session(session).lean();
-    let left = input.amount;
+    const fromOld = Math.min(input.amount, c.oldDue);
+    let left = input.amount - fromOld;
     const applied: { saleId: Types.ObjectId; billNumber: string; amount: number }[] = [];
     for (const s of open) {
       if (left <= 0) break;
@@ -181,8 +244,9 @@ export async function collect(t: TenantContext, actor: Actor, id: string, input:
       applied.push({ saleId: s._id, billNumber: s.billNumber, amount: take });
       left -= take;
     }
-    const moved = await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id, creditBalance: { $gte: input.amount } }, { $inc: { creditBalance: -input.amount } }, { session });
+    const moved = await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id, creditBalance: { $gte: input.amount }, oldDue: { $gte: fromOld } }, { $inc: { creditBalance: -input.amount, oldDue: -fromOld } }, { session });
     if (!moved.modifiedCount) throw AppError.conflict(`${c.name}'s udhaar changed meanwhile — reload`);
+    if (fromOld && fromOld === c.oldDue) await CustomerModel.updateOne({ shopId: t.shopId, _id: c._id }, { $set: { oldDueSince: null } }, { session });
     const receiptNumber = await nextNumber(t.shopId, 'receipt', now, session);
     const [p] = await CustomerPaymentModel.create(
       [
@@ -195,6 +259,7 @@ export async function collect(t: TenantContext, actor: Actor, id: string, input:
           customerName: c.name,
           amount: input.amount,
           applied,
+          fromOld,
           paymentMode: input.mode,
           reference: input.reference,
           paymentDate: now,
@@ -207,8 +272,8 @@ export async function collect(t: TenantContext, actor: Actor, id: string, input:
       { session },
     );
     if (!p) throw AppError.internal();
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: receiptNumber, text: `${actor.name} collected ${inr(input.amount)} udhaar from ${c.name} (${input.mode}) · ${applied.map((a) => a.billNumber).join(', ')}`, ip }, session);
-    return { id: String(p._id), receiptNumber, amount: input.amount, balanceAfter: c.creditBalance - input.amount, applied: applied.map((a) => ({ billNumber: a.billNumber, amount: a.amount })) };
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: receiptNumber, text: `${actor.name} collected ${inr(input.amount)} udhaar from ${c.name} (${input.mode}) · ${[fromOld ? `old khata ${inr(fromOld)}` : '', ...applied.map((a) => a.billNumber)].filter(Boolean).join(', ')}`, ip }, session);
+    return { id: String(p._id), receiptNumber, amount: input.amount, balanceAfter: c.creditBalance - input.amount, applied: [...(fromOld ? [{ billNumber: 'Old khata', amount: fromOld }] : []), ...applied.map((a) => ({ billNumber: a.billNumber, amount: a.amount }))] };
   });
 }
 

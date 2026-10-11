@@ -26,6 +26,9 @@ const customerSchema = new Schema(
     creditBalance: { type: Number, required: true, default: 0 },
     /** 0 = no udhaar for this customer (sandbox rule). */
     creditLimit: { type: Number, required: true, default: 0 },
+    /** Udhaar from before MedBox24 (the old khata) still unpaid — part of creditBalance, collected first. */
+    oldDue: { type: Number, required: true, default: 0 },
+    oldDueSince: { type: Date, default: null },
     loyaltyPoints: { type: Number, required: true, default: 0 },
     lifetimePointsEarned: { type: Number, required: true, default: 0 },
     lifetimePointsRedeemed: { type: Number, required: true, default: 0 },
@@ -63,6 +66,8 @@ const paymentSchema = new Schema(
     customerName: { type: String, required: true },
     amount: { type: Number, required: true },
     applied: { type: [appliedSchema], default: [] },
+    /** Paid towards the old khata udhaar, before any bill. */
+    fromOld: { type: Number, default: 0 },
     paymentMode: { type: String, enum: COLLECT_MODES, required: true },
     reference: { type: String, default: '' },
     paymentDate: { type: Date, required: true },
@@ -102,3 +107,23 @@ doctorSchema.index({ shopId: 1, nameLower: 1 }, { unique: true });
 doctorSchema.plugin(tenantScoped);
 
 export const DoctorModel = model('Doctor', doctorSchema);
+
+// Old khata udhaar written in (or corrected): the statement's "Old balance" lines.
+const oldUdhaarSchema = new Schema(
+  {
+    shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
+    customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+    customerName: { type: String, required: true },
+    /** Paise; negative = a correction. */
+    amount: { type: Number, required: true },
+    since: { type: Date, required: true },
+    note: { type: String, default: '' },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdByName: { type: String, required: true },
+  },
+  { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
+);
+oldUdhaarSchema.index({ shopId: 1, customerId: 1, since: 1 });
+oldUdhaarSchema.plugin(tenantScoped);
+
+export const OldUdhaarModel = model('CustomerOldUdhaar', oldUdhaarSchema);

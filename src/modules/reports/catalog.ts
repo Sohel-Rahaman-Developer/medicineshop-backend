@@ -294,12 +294,13 @@ const REPORTS: Report[] = [
     cols: [c('customer', 'Customer'), c('phone', 'Phone'), c('due', 'Udhaar', 'money'), c('oldest', 'Oldest bill', 'date'), c('days', 'Days', 'num')],
     rows: async (t) => {
       const [cs, old] = await Promise.all([
-        CustomerModel.find({ shopId: t.shopId, creditBalance: { $gt: 0 } }).sort({ creditBalance: -1 }).limit(MAX).select('name phone creditBalance').lean(),
+        CustomerModel.find({ shopId: t.shopId, creditBalance: { $gt: 0 } }).sort({ creditBalance: -1 }).limit(MAX).select('name phone creditBalance oldDue oldDueSince').lean(),
         SaleModel.aggregate<{ _id: Types.ObjectId; oldest: Date }>([{ $match: { shopId: t.shopId, dueAmount: { $gt: 0 }, ...live } }, { $group: { _id: '$customerId', oldest: { $min: '$billDate' } } }]),
       ]);
       const o = new Map(old.map((x) => [String(x._id), x.oldest]));
       return totalRow(cs.map((x) => {
-        const d = o.get(String(x._id));
+        const bill = o.get(String(x._id));
+        const d = x.oldDue > 0 && x.oldDueSince && (!bill || x.oldDueSince < bill) ? x.oldDueSince : bill;
         return { customer: x.name, phone: x.phone, due: x.creditBalance, oldest: d ? d.toISOString() : null, days: d ? Math.floor((Date.now() - d.getTime()) / DAY) : null };
       }), { customer: 'Total', phone: '', oldest: null, days: null }, ['due']);
     },

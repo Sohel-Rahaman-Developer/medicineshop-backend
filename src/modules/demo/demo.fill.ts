@@ -8,7 +8,7 @@ import { istDayStart, istIsoDay } from '../../utils/date';
 import { AuditLogModel } from '../audit/audit.model';
 import { CustomerModel, CustomerPaymentModel, DoctorModel } from '../customers/customer.model';
 import * as customers from '../customers/customers.service';
-import { collectSchema, customerSchema, doctorSchema } from '../customers/customers.validation';
+import { addUdhaarSchema, collectSchema, customerSchema, doctorSchema } from '../customers/customers.validation';
 import { DayCloseModel } from '../dayclose/dayclose.model';
 import * as dayclose from '../dayclose/dayclose.service';
 import { ExpenseModel } from '../expenses/expense.model';
@@ -37,7 +37,7 @@ import * as suppliers from '../suppliers/suppliers.service';
 import { paymentSchema, supplierSchema } from '../suppliers/suppliers.validation';
 import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
-import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, IMPORT_KEYS, RESTOCK, SHORT_DATED, SUPPLIERS } from './demo.data';
+import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, IMPORT_KEYS, OLD_KHATA, RESTOCK, SHORT_DATED, SUPPLIERS } from './demo.data';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -214,6 +214,12 @@ export async function setUp(shopId: Types.ObjectId, emails: Record<Who, string>,
   for (const s of SUPPLIERS) await clock.step(start, () => suppliers.create(t, actor, supplierSchema.parse({ ...s, address: 'Bagri Market, Kolkata' })));
   for (const d of DOCTORS) await clock.step(start, () => customers.addDoctor(t, actor, doctorSchema.parse(d)));
   for (const [name, phone, creditLimit] of CUSTOMERS) await clock.step(start, () => customers.create(t, actor, customerSchema.parse({ name, phone, creditLimit })));
+  // The khata the shop kept before MedBox24: what three regulars already owed.
+  const made = await CustomerModel.find({ shopId }).select('name').lean();
+  for (const [name, amount, daysBefore] of OLD_KHATA) {
+    const c = made.find((x) => x.name === name);
+    if (c) await clock.step(start, () => customers.addUdhaar(t, actor, addUdhaarSchema.parse({ clientRequestId: randomUUID(), customerId: String(c._id), amount, since: istIsoDay(new Date(start.getTime() - daysBefore * DAY)), note: 'Old khata' })));
+  }
   await clock.flush();
 }
 

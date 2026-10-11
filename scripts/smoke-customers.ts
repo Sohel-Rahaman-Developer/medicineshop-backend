@@ -143,6 +143,46 @@ async function main() {
   check('shop 2: no customers listed · shop 1 doctor on an H1 bill → 422', data<unknown[]>(await other.get('/customers')).length === 0 && (await other.post('/sales', bill(mine, { payments: [{ mode: 'CASH', amount: 6000 }], rx: { doctorId: doc.id, patientName: 'X' } }))).status === 422);
   check('shop 2: shop 1 customer on a bill → 422', (await other.post('/sales', bill(mine, { customerId: ratna.id, payments: [{ mode: 'CASH', amount: 6000 }], rx: { doctorName: 'Dr. X', patientName: 'X' } }))).status === 422);
 
+  section('6. Add udhaar: a customer here or a new one, old khata udhaar, the limit — in one save');
+  interface Old extends Cust { oldDue: number; oldDueSince: string | null }
+  const day = (n: number) => new Date(Date.now() + 5.5 * 3_600_000 - n * 86_400_000).toISOString().slice(0, 10);
+  const add = (body: Record<string, unknown>, who = owner) => who.post('/customers/udhaar', { clientRequestId: randomUUID(), ...body });
+  check('nothing to save (no udhaar, no limit) → 422', (await add({ customer: { name: 'Gopal Mondal', phone: '96740 18850' } })).status === 422);
+  check('both a customer and a new one → 422', (await add({ customerId: ratna.id, customer: { name: 'X Y', phone: '96740 18851' }, amount: 10_000 })).status === 422);
+  check('owed since a day not come yet → 422', (await add({ customer: { name: 'Gopal Mondal', phone: '96740 18850' }, amount: 10_000, since: day(-2) })).status === 422);
+  check('cashier types old khata udhaar → 403', (await add({ customer: { name: 'Gopal Mondal', phone: '96740 18850' }, amount: 10_000 }, cashier)).status === 403);
+  const bills0 = await SaleModel.countDocuments({ shopId: shop1 });
+  const g = await add({ customer: { name: 'Gopal Mondal', phone: '96740 18850' }, amount: 125_000, since: day(40), creditLimit: 300_000, note: 'Khata page 34' });
+  const gopal = data<Old>(g);
+  check('new customer + ₹1,250 old udhaar + ₹3,000 limit in one save', g.status === 200 && gopal.name === 'Gopal Mondal' && gopal.creditBalance === 125_000 && gopal.oldDue === 125_000 && gopal.creditLimit === 300_000, code(g));
+  check('no bill, no stock: the sale count did not move', (await SaleModel.countDocuments({ shopId: shop1 })) === bills0);
+  const same = await add({ customer: { name: 'Gopal M', phone: '96740 18850' }, amount: 5_000 });
+  check('the same phone typed as new → 409 that names the customer to pick', same.status === 409 && /Gopal Mondal/.test(code(same)), code(same));
+  const r0 = data<Old>(await owner.get(`/customers/${ratna.id}`));
+  const e = await add({ customerId: ratna.id, amount: 40_000, since: day(10) });
+  const ratnaOld = data<Old>(e);
+  check('existing customer: ₹400 old udhaar adds to what she owes; her limit stays', e.status === 200 && ratnaOld.creditBalance === r0.creditBalance + 40_000 && ratnaOld.creditLimit === r0.creditLimit && ratnaOld.oldDue === 40_000, code(e));
+  const lim = data<Old>(await add({ customerId: ratna.id, creditLimit: r0.creditLimit + 100_000 }, cashier));
+  check('a limit alone, by a cashier with customer edit → saved', lim.creditLimit === r0.creditLimit + 100_000 && lim.creditBalance === ratnaOld.creditBalance);
+  const st = data<{ rows: { kind: string; ref: string; debit: number; credit: number; balance: number }[] }>(await owner.get(`/customers/${gopal.id}/ledger`));
+  check('statement: "Old balance · Khata page 34" ₹1,250 on the day it was owed', st.rows.length === 1 && st.rows[0]?.kind === 'Old balance' && st.rows[0].ref === 'Khata page 34' && st.rows[0].debit === 125_000 && st.rows[0].balance === 125_000, JSON.stringify(st.rows));
+  const alerts = data<{ items: { type: string; items: { text: string }[] }[] }>(await owner.get('/notifications')).items;
+  check('old udhaar from 40 days ago is in "udhaar older than 30 days"', alerts.some((a) => a.type === 'UDHAAR_OVERDUE' && a.items.some((i) => i.text === 'Gopal Mondal')), JSON.stringify(alerts.map((a) => a.type)));
+  const gb = await owner.post('/sales', bill([{ productId: dolo, quantity: 1, unit: 'STRIP' }], { customerId: gopal.id, payments: [{ mode: 'CREDIT', amount: 3000 }] }));
+  check('a bill on udhaar on top of the old khata', gb.status === 201, code(gb));
+  const gPay = await owner.post(`/customers/${gopal.id}/payments`, { clientRequestId: randomUUID(), amount: 126_000, mode: 'UPI' });
+  const paid = data<{ balanceAfter: number; applied: { billNumber: string; amount: number }[] }>(gPay);
+  check('collect ₹1,260: the old khata ₹1,250 first, then ₹10 on the bill', gPay.status === 201 && paid.applied[0]?.billNumber === 'Old khata' && paid.applied[0].amount === 125_000 && paid.applied[1]?.amount === 1000 && paid.balanceAfter === 2000, code(gPay));
+  const g2 = data<Old>(await owner.get(`/customers/${gopal.id}`));
+  check('old khata cleared: oldDue 0, no "owed since"; the bill still owes ₹20', g2.oldDue === 0 && g2.oldDueSince === null && g2.creditBalance === 2000);
+  check('cashier corrects old udhaar → 403', (await cashier.post(`/customers/${ratna.id}/old-udhaar/correct`, { amount: 1000, reason: 'Typed wrong' })).status === 403);
+  check('correcting more than the old udhaar → 422', (await owner.post(`/customers/${ratna.id}/old-udhaar/correct`, { amount: 50_000, reason: 'Typed wrong' })).status === 422);
+  const fix = data<Old>(await owner.post(`/customers/${ratna.id}/old-udhaar/correct`, { amount: 30_000, reason: 'Typed 400 instead of 100' }));
+  const st2 = data<{ rows: { kind: string; credit: number }[] }>(await owner.get(`/customers/${ratna.id}/ledger`));
+  check('correction: ₹300 off, both lines stay in the statement', fix.oldDue === 10_000 && fix.creditBalance === ratnaOld.creditBalance - 30_000 && st2.rows.some((r) => r.kind === 'Old balance') && st2.rows.some((r) => r.kind === 'Correction' && r.credit === 30_000));
+  check('audit: the old udhaar, the limit and the correction', (await AuditLogModel.countDocuments({ shopId: shop1, entityId: gopal.id, text: /old udhaar ₹1,250.00 \(khata · Khata page 34\)/ })) === 1 && (await AuditLogModel.countDocuments({ shopId: shop1, entityId: ratna.id, text: /took ₹300.00 off/ })) === 1);
+  check('shop 2 cannot write udhaar on a shop 1 customer → 404', (await add({ customerId: ratna.id, amount: 100 }, other)).status === 404);
+
   await h.close();
   finish();
 }

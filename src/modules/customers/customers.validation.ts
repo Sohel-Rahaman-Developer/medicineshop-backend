@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { clientRequestId, istDay, LIMIT, paise } from '../../core/zod';
+import { clientRequestId, istDay, LIMIT, objectId, paise } from '../../core/zod';
 import { GSTIN_RE } from '../../utils/india';
 import { mobile, phone } from '../shops/shops.validation';
 import { COLLECT_MODES } from './customer.model';
@@ -60,6 +60,26 @@ export const doctorSchema = z
   .strict();
 
 export type CustomerInput = z.infer<typeof customerSchema>;
+
+/** Udhaar page, one form: a customer found or typed new, old khata udhaar and the limit. */
+export const addUdhaarSchema = z
+  .object({
+    clientRequestId,
+    customerId: objectId.optional(),
+    customer: z.object({ name: fields.name, phone: fields.phone }).strict().optional(),
+    amount: paise('Old udhaar').max(100_000_000, 'Old udhaar is too large').default(0),
+    since: istDay.optional(),
+    creditLimit: paise('Udhaar limit').max(100_000_000, 'Udhaar limit is too large').optional(),
+    note: text('Note', 120).default(''),
+  })
+  .strict()
+  .refine((v) => Boolean(v.customerId) !== Boolean(v.customer), { message: 'Pick a customer or type a new one', path: ['customerId'] })
+  .refine((v) => v.amount > 0 || v.creditLimit !== undefined, { message: 'Type the old udhaar or an udhaar limit', path: ['amount'] })
+  .refine((v) => !v.since || v.since.getTime() <= Date.now(), { message: 'That day has not come yet', path: ['since'] });
+export type AddUdhaarInput = z.infer<typeof addUdhaarSchema>;
+
+export const correctOldSchema = z.object({ amount: paise('Amount').min(1, 'Amount must be more than 0'), reason: text('Reason', 200).min(3, 'Say why (3 letters at least)') }).strict();
+export type CorrectOldInput = z.infer<typeof correctOldSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 export type CustomerListQuery = z.infer<typeof customerListSchema>;
 export type CollectInput = z.infer<typeof collectSchema>;
