@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.17.0',
+    date: '2026-10-12',
+    title: 'Help in English, Hindi and Bengali',
+    shop: [
+      'Every screen’s help — how to use it, the client tour and the list of every screen — now comes in English, Hindi and Bengali. Pick the language at the top of the help; this device remembers it.',
+      'The ⓘ notes on the supplier-bill screen follow the same language.',
+      'Help now covers Basic and Pro, the new Ask AI chat, clearing a chat, and the folding menu.',
+      'The menu: each group opens and folds on its own, smoothly, and several can stay open; your open groups are remembered.',
+      'Phone: the MedBox24 logo sits at the top left of the main screens; tap it for the dashboard.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.16.0',
     date: '2026-10-11',
     title: 'Basic and Pro, a menu that folds, and Ask AI up front',
