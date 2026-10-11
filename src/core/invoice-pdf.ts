@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import qrcode from 'qrcode-generator';
 import { BOLD, FONT } from './export';
+import { brandFile } from '../modules/branding/branding.service';
 
 /** One designed layout for every invoice-like paper: the shop's bill and credit note, MedBox24's own invoice. */
 export interface InvoiceSpec {
@@ -61,7 +62,12 @@ export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
   bar();
   let y = M + 2;
   const tile = s.logo ? 30 * k : 0;
-  if (s.logo) mark(doc, M, y, tile);
+  if (s.logo) {
+    // A logo uploaded in the admin console replaces the drawn MedBox24 mark.
+    const custom = await brandFile('mark.png');
+    if (custom) doc.image(custom, M, y, { width: tile, height: tile });
+    else mark(doc, M, y, tile);
+  }
   const ix = M + (tile ? tile + 8 : 0);
   const lw = W * 0.58 - (ix - M);
   let nameSize = 13.5 * k;

@@ -23,6 +23,7 @@ import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInpu
 import * as chat from '../ask/ask-admin';
 import { ASK_ROUTES } from '../ask/ask.model';
 import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
+import * as brand from '../branding/branding.service';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -135,6 +136,10 @@ adminRouter.get(
 );
 
 adminRouter.get('/support/:id/files.zip', shopsRole, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { const r = await support.filesZip(adminOf(req), (req.params as { id: string }).id, req.ip); await sendFilesZip(res, r.shopId, r); }));
+
+adminRouter.get('/brand', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await brand.brandInfo()); }));
+adminRouter.put('/brand', superOnly, validate({ body: z.object({ image: z.string().max(900_000), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { image: string; reason: string }; sent(res, await brand.saveLogo(adminOf(req), b.image, b.reason, req.ip), 'Logo saved — it shows everywhere within 5 minutes'); }));
+adminRouter.delete('/brand', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await brand.resetLogo(adminOf(req), (req.body as { reason: string }).reason, req.ip), 'Back to the MedBox24 logo'); }));
 
 adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.auditLog(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 

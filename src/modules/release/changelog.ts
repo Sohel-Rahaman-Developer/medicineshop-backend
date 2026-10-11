@@ -10,6 +10,27 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.13.0',
+    date: '2026-10-11',
+    title: 'Your own logo, guides and a faster site',
+    shop: [
+      'A logo uploaded by MedBox24 shows everywhere — the app, the browser tab, the phone icon, emails and invoices — without an update.',
+      'Pasting the sign-in code from the email works, even with spaces or a line break around it; the email shows the code as one word that copies in one tap.',
+      'medbox24.in fills big monitors edge to edge; on a phone, the hero and the tour show the phone app itself, and the feature list is shorter to scroll.',
+      'Four guides for shop owners — medicine expiry, the Schedule H1 register, GST on medicines, keeping udhaar under control — in English, Hindi and Bengali.',
+      'The public pages load faster on phones, and analytics waits until you scroll or tap.',
+    ],
+    admin: [
+      'Logo & branding: a super admin uploads a square logo with a reason, sees it as the tab icon, phone icon and share card before and after saving, and can go back to the MedBox24 logo. Both are in the admin audit log.',
+      'Every form says the reason is needed to save (5 letters or more).',
+      'The email code pastes into the sign-in boxes, spaces and all.',
+    ],
+    api: [
+      'GET /brand and /brand/:file (public, 5-minute cache): the uploaded logo and the 11 files made from it. PUT and DELETE /admin/brand (super admin, reason, ≤ 600 KB PNG / JPEG / WebP, square, 256 px or more). MedBox24 invoices draw the uploaded logo.',
+      'Email logos come from the apps’ /logo routes.',
+    ],
+  },
+  {
     version: '1.12.0',
     date: '2026-10-11',
     title: 'A new medbox24.in, with a product tour',

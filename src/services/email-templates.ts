@@ -5,8 +5,8 @@ const BRAND = env.MAIL_FROM_NAME;
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const C = { ink: '#0f172a', body: '#334155', muted: '#64748b', faint: '#94a3b8', line: '#e2e8f0', page: '#eef2f6', card: '#ffffff', soft: '#f8fafc' };
 const THEMES = {
-  shop: { accent: '#0fb5a8', accent2: '#0ea5e9', deep: '#0b3b43', tint: '#e6f7f5', logo: `${env.SHOP_APP_URL}/icon-192.png`, name: BRAND },
-  admin: { accent: '#7c3aed', accent2: '#db2777', deep: '#3b0764', tint: '#f3e8ff', logo: `${env.ADMIN_APP_URL}/apple-icon.png`, name: `${BRAND} Admin` },
+  shop: { accent: '#0fb5a8', accent2: '#0ea5e9', deep: '#0b3b43', tint: '#e6f7f5', logo: `${env.SHOP_APP_URL}/logo/icon-192`, name: BRAND },
+  admin: { accent: '#7c3aed', accent2: '#db2777', deep: '#3b0764', tint: '#f3e8ff', logo: `${env.ADMIN_APP_URL}/logo/apple`, name: `${BRAND} Admin` },
 };
 type Theme = (typeof THEMES)[keyof typeof THEMES];
 
@@ -26,7 +26,7 @@ interface Shell {
 function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, footer }: Shell) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${esc(title)}</title>
-<style>@media (max-width:480px){.pad{padding-left:22px!important;padding-right:22px!important}.d{width:38px!important;height:50px!important;font-size:24px!important;line-height:50px!important}.dc{padding:0 2px!important}.big{font-size:22px!important}}</style></head>
+<style>@media (max-width:480px){.pad{padding-left:22px!important;padding-right:22px!important}.big{font-size:22px!important}}</style></head>
 <body style="margin:0;padding:0;background:${C.page};-webkit-text-size-adjust:100%">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${C.page}">${esc(preheader)}&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page}"><tr><td align="center" style="padding:28px 14px">
@@ -56,14 +56,10 @@ function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, fo
 </body></html>`;
 }
 
-/** Each digit in its own tile — easy to read, and long-press copies the whole code on phones. */
+/** The code as one word in one tile: a double-tap or long-press selects all six digits, and they copy without spaces. */
 function codeBox(otp: string, theme: Theme, minutes: number) {
-  const cells = otp
-    .split('')
-    .map((d) => `<td class="dc" style="padding:0 4px"><div class="d" style="width:46px;height:58px;border-radius:12px;background:${theme.tint};border:1px solid ${theme.accent}33;font:800 30px/58px ${FONT};color:${theme.deep};text-align:center">${esc(d)}</div></td>`)
-    .join('');
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px auto 0"><tr>${cells}</tr></table>
-  <p style="margin:14px 0 0;text-align:center;font:400 13px/1.5 ${FONT};color:${C.muted}">Code: <b style="font-family:Menlo,Consolas,monospace;color:${C.ink};letter-spacing:.12em">${esc(otp)}</b> · works for <b style="color:${C.ink}">${String(minutes)} minutes</b></p>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px auto 0"><tr><td style="padding:14px 26px;border-radius:14px;background:${theme.tint};border:1px solid ${theme.accent}33;text-align:center"><span style="font:800 36px/1.1 Menlo,Consolas,'Courier New',monospace;letter-spacing:.28em;color:${theme.deep};-webkit-user-select:all;user-select:all">${esc(otp)}</span></td></tr></table>
+  <p style="margin:12px 0 0;text-align:center;font:400 13px/1.5 ${FONT};color:${C.muted}">Double-tap the code to copy it · works for <b style="color:${C.ink}">${String(minutes)} minutes</b></p>`;
 }
 
 function button(href: string, label: string, theme: Theme) {

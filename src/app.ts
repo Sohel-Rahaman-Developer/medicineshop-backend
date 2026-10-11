@@ -37,6 +37,7 @@ import { plansRouter, razorpayWebhook, subscriptionRouter } from './modules/subs
 import { aiRouter } from './modules/ai/ai.routes';
 import { askRouter } from './modules/ask/ask.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
+import { brandRouter } from './modules/branding/branding.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { referralRouter } from './modules/referral/referral.routes';
 
@@ -45,6 +46,8 @@ const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
 const BILL_PATH = /^\/purchases\/import\/read$/;
 // D78: a scan or a phone photo for AI reading — up to about 4 MB (Nginx has its own block for this path).
 const AI_BILL_PATH = /^\/purchases\/import\/ai$/;
+// A platform logo upload from the admin console (≤ 600 KB image).
+const BRAND_PATH = /^\/admin\/brand$/;
 
 export function createApp() {
   const app = express();
@@ -87,7 +90,7 @@ export function createApp() {
   const photoJson = express.json({ limit: '850kb' });
   const aiJson = express.json({ limit: '6mb' });
   app.use(env.API_PREFIX, (req, res, next) => {
-    if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path)) photoJson(req, res, next);
+    if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path) || BRAND_PATH.test(req.path)) photoJson(req, res, next);
     else if (AI_BILL_PATH.test(req.path)) aiJson(req, res, next);
     else next();
   });
@@ -147,6 +150,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/ask`, askRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
+  app.use(`${env.API_PREFIX}/brand`, brandRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
 
