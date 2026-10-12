@@ -106,3 +106,13 @@ doctorsRouter.post(
     created(res, d, `${d.name} added`);
   }),
 );
+
+doctorsRouter.put(
+  '/:id',
+  requirePermission('customers', 'edit'),
+  validate({ params: idParams, body: doctorSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const d = await svc.updateDoctor(tenantOf(req), await actorOf(req), (req.params as { id: string }).id, req.body as DoctorInput, req.ip);
+    sent(res, d, `${d.name} saved`);
+  }),
+);

@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.18.2",
+  "version": "1.19.0",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -44,8 +44,9 @@
     "admin:reset-totp": "tsx scripts/admin-reset-totp.ts",
     "load:pos": "tsx scripts/load-pos.ts",
     "bench:screens": "tsx scripts/bench-screens.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:ai && npm run smoke:ask && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:plans && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay && npm run smoke:referral && npm run smoke:brand && npm run smoke:demo",
-    "smoke:plans": "tsx scripts/smoke-plans.ts"
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:purchase && npm run smoke:ai && npm run smoke:ask && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:plans && npm run smoke:clinic && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay && npm run smoke:referral && npm run smoke:brand && npm run smoke:demo",
+    "smoke:plans": "tsx scripts/smoke-plans.ts",
+    "smoke:clinic": "tsx scripts/smoke-clinic.ts"
   },
   "keywords": [],
   "author": "",

@@ -9,7 +9,7 @@ import { ShopModel } from '../shops/shop.model';
 import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
 import { autopayOf, refund, stopAutopay } from '../subscription/autopay';
 import { allPlans, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
-import type { Feature, Tier } from '../subscription/features';
+import { FEATURES, type Feature, type Tier } from '../subscription/features';
 import { forgetPlanFeatures } from '../subscription/plan-access';
 import { ShopTermsModel, setPrices } from '../subscription/terms';
 import * as retention from '../retention/retention';
@@ -248,7 +248,7 @@ export async function manualPayment(a: AdminActor, input: { shopId: string; plan
 
 export async function setPlans(a: AdminActor, list: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean; tier: Tier; features: Feature[] }[], reason: string, ip?: string) {
   const before = await allPlans();
-  for (const [i, p] of list.entries()) await PlanModel.updateOne({ code: p.code }, { $set: { ...p, sortOrder: i + 1 } }, { upsert: true });
+  for (const [i, p] of list.entries()) await PlanModel.updateOne({ code: p.code }, { $set: { ...p, sortOrder: i + 1, knows: [...FEATURES] } }, { upsert: true });
   forgetPlanFeatures();
   await log(a, 'plans_update', reason, `changed plans: ${list.map((p) => `${p.name} (${p.tier}, ${String(p.features.length)} modules) ${inr(p.price)}${p.isActive ? '' : ' (off)'}`).join(', ')}`, undefined, { before, after: list }, ip);
   return allPlans();

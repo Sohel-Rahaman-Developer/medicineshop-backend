@@ -308,7 +308,18 @@ export async function doctors(t: TenantContext, q?: string) {
   const filter: Record<string, unknown> = { shopId: t.shopId, isActive: true };
   if (q) filter.nameLower = { $regex: escape(q.toLowerCase()) };
   const rows = await DoctorModel.find(filter).sort({ nameLower: 1 }).limit(200).lean();
-  return rows.map((d) => ({ id: String(d._id), name: d.name, specialization: d.specialization, registrationNumber: d.registrationNumber, phone: d.phone, clinic: d.clinic }));
+  return rows.map(doctorShape);
+}
+
+const doctorShape = (d: { _id: Types.ObjectId; name: string; specialization: string; registrationNumber: string; phone: string; clinic: string; chamber?: unknown }) => ({ id: String(d._id), name: d.name, specialization: d.specialization, registrationNumber: d.registrationNumber, phone: d.phone, clinic: d.clinic, chamber: d.chamber ?? null });
+
+export async function updateDoctor(t: TenantContext, actor: Actor, id: string, input: DoctorInput, ip?: string) {
+  const nameLower = input.name.toLowerCase();
+  if (await DoctorModel.exists({ shopId: t.shopId, nameLower, _id: { $ne: oid(id) } })) throw AppError.validation('Another doctor has this name', [{ field: 'body.name', message: 'Already in the list' }]);
+  const d = await DoctorModel.findOneAndUpdate({ shopId: t.shopId, _id: oid(id), isActive: true }, { $set: { ...input, nameLower } }, { returnDocument: 'after' }).lean();
+  if (!d) throw AppError.notFound('Doctor not found');
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'customers', entityId: String(d._id), entityName: d.name, text: `${actor.name} edited doctor ${d.name}`, ip });
+  return doctorShape(d);
 }
 
 export async function addDoctor(t: TenantContext, actor: Actor, input: DoctorInput, ip?: string) {
@@ -316,7 +327,7 @@ export async function addDoctor(t: TenantContext, actor: Actor, input: DoctorInp
   if (await DoctorModel.exists({ shopId: t.shopId, nameLower })) throw AppError.validation('This doctor is already in the list', [{ field: 'body.name', message: 'Already in the list' }]);
   const d = await DoctorModel.create({ ...input, shopId: t.shopId, nameLower, createdBy: oid(actor.id) });
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(d._id), entityName: d.name, text: `${actor.name} added doctor ${d.name}`, ip });
-  return { id: String(d._id), name: d.name, specialization: d.specialization, registrationNumber: d.registrationNumber, phone: d.phone, clinic: d.clinic };
+  return doctorShape(d);
 }
 
 /** The doctor on an H1 bill: from the shop's list. */

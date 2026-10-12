@@ -87,6 +87,22 @@ paymentSchema.plugin(tenantScoped);
 
 export const CustomerPaymentModel = model('CustomerPayment', paymentSchema);
 
+// D90: one weekly sitting — day 0 = Sunday, "19:00"–"21:00", at most `max` patients.
+const sittingSchema = new Schema({ day: { type: Number, required: true, min: 0, max: 6 }, start: { type: String, required: true }, end: { type: String, required: true }, max: { type: Number, required: true } }, { _id: false });
+const chamberSchema = new Schema(
+  {
+    /** Fee per visit in paise; the money is the doctor's, the shop keeps its commission. */
+    fee: { type: Number, required: true, default: 0 },
+    /** A visit within this many days of the last one with this doctor is a free follow-up (0 = never). */
+    freeDays: { type: Number, required: true, default: 0 },
+    commission: { mode: { type: String, enum: ['pct', 'flat'], required: true, default: 'pct' }, value: { type: Number, required: true, default: 0 } },
+    /** Minutes per patient, for the time a token can expect. */
+    minutes: { type: Number, required: true, default: 10 },
+    sittings: { type: [sittingSchema], default: [] },
+  },
+  { _id: false },
+);
+
 // The prescriber on an H1 / X bill (PLAN §14); a shop keeps its own list.
 const doctorSchema = new Schema(
   {
@@ -97,6 +113,8 @@ const doctorSchema = new Schema(
     registrationNumber: { type: String, trim: true, default: '' },
     phone: { type: String, default: '' },
     clinic: { type: String, trim: true, default: '' },
+    /** D90: when and for how much the doctor sits at the shop (Pro). */
+    chamber: { type: chamberSchema, default: undefined },
     isActive: { type: Boolean, required: true, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

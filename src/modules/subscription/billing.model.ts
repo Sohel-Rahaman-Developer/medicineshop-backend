@@ -17,6 +17,8 @@ const planSchema = new Schema(
     tier: { type: String, enum: ['basic', 'pro'], required: true, default: 'pro' },
     /** D87: the modules this plan opens; missing on plans saved before D87 = all of them. */
     features: { type: [String], default: undefined },
+    /** Every module that existed when the plan was last saved: a newer one joins Pro plans by itself, never Basic. */
+    knows: { type: [String], default: undefined },
   },
   { timestamps: true, versionKey: false },
 );

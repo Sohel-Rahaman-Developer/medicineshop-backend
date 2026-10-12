@@ -1,5 +1,5 @@
 import { DEFAULT_PLANS, PlanModel } from './billing.model';
-import { allFeatures, type Feature } from './features';
+import { D87_FEATURES, FEATURES, allFeatures, type Feature } from './features';
 
 // Plans change rarely: one read a minute, dropped at once when the admin saves plans.
 let cache: { at: number; map: Map<string, Feature[]> } | null = null;
@@ -16,6 +16,13 @@ export async function ensurePlans() {
   const old = await PlanModel.find({ tier: { $exists: false } }).lean();
   for (const p of old) await PlanModel.updateOne({ _id: p._id, tier: { $exists: false } }, { $set: { tier: 'pro', features: allFeatures(), ...(p.name === 'Monthly' || p.name === 'Yearly' ? { name: `Pro ${p.name}` } : {}) } });
   if (old.length) for (const b of DEFAULT_PLANS.filter((x) => x.tier === 'basic')) await PlanModel.updateOne({ code: b.code }, { $setOnInsert: { ...b, isActive: false, sortOrder: b.sortOrder - 10 } }, { upsert: true });
+  // A module added later (D90 clinic) opens on every Pro plan once; Basic stays as the admin set it.
+  for (const p of await PlanModel.find({}).select('tier knows').lean()) {
+    const knows = p.knows?.length ? p.knows : D87_FEATURES;
+    const fresh = FEATURES.filter((f) => !knows.includes(f));
+    if (!fresh.length) continue;
+    await PlanModel.updateOne({ _id: p._id }, { $set: { knows: [...FEATURES] }, ...(p.tier === 'pro' ? { $addToSet: { features: { $each: fresh } } } : {}) });
+  }
   cache = null;
   ready = true;
 }

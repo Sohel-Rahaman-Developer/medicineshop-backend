@@ -19,6 +19,9 @@ const dayCloseSchema = new Schema(
     suppliers: { type: Number, required: true },
     /** Drawer cash spent on expenses (B7a); closes before it have none. */
     expenses: { type: Number },
+    /** D90: doctors' fees taken in cash, and fees given back or paid to doctors from the drawer. */
+    doctorFees: { type: Number },
+    doctorOut: { type: Number },
     cashIn: { type: Number, required: true },
     cashOut: { type: Number, required: true },
     expected: { type: Number, required: true },

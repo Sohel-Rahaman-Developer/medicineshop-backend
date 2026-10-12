@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.19.0',
+    date: '2026-10-12',
+    title: 'Doctor appointments (Pro)',
+    shop: [
+      'People → Appointments: book a doctor sitting at your shop in a few taps — doctor, day, phone, patient. The token number and the time to come are worked out; send them on WhatsApp.',
+      'One phone, a whole family: everyone booked on it before shows; pick the patient or add someone.',
+      'A patient back with reports within the doctor’s free days pays nothing — the follow-up fills in by itself.',
+      'Fee now or at the visit (cash, UPI, card); arrived → seen in one tap; move a token to another day; cancel and give the fee back.',
+      '“Doctor not coming”: closes that sitting, cancels unpaid tokens and lists whom to call.',
+      'Doctors’ money: fees of visits that happened, less the shop’s share (a % or ₹ per patient), less what was paid — and “Pay doctor”. The fee is the doctor’s money, not a sale.',
+      'People → Doctors → “Days & fee” sets each doctor’s days, times, patients per sitting, fee, free follow-up days and the shop’s share.',
+      'The day close counts doctors’ fees taken in cash and fees given back or paid to doctors from the drawer.',
+      'Phone: a notice no longer pushes the page sideways.',
+    ],
+    admin: ['Plans & pricing: the new “Doctor appointments” module; Pro plans got it by themselves.'],
+    api: ['/clinic: day, slots, lookup, visits (book, pay, status, cancel, move, fee), off / on, doctors/:id/chamber, dues, payouts. PUT /doctors/:id. Day close cash adds doctorFees and doctorOut.'],
+  },
+  {
     version: '1.18.2',
     date: '2026-10-12',
     title: 'Monthly or yearly at a tap',

@@ -5,12 +5,15 @@ import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
 import { contextFor, type TenantContext } from '../../core/middleware/tenant';
 import { istDayStart, istIsoDay } from '../../utils/date';
+import { fyOf } from '../../utils/fy';
 import { AuditLogModel } from '../audit/audit.model';
 import { CustomerModel, CustomerPaymentModel, DoctorModel } from '../customers/customer.model';
 import * as customers from '../customers/customers.service';
 import { addUdhaarSchema, collectSchema, customerSchema, doctorSchema } from '../customers/customers.validation';
 import { DayCloseModel } from '../dayclose/dayclose.model';
 import * as dayclose from '../dayclose/dayclose.service';
+import { AppointmentModel } from '../clinic/clinic.model';
+import * as clinic from '../clinic/clinic.service';
 import { ExpenseModel } from '../expenses/expense.model';
 import * as expenses from '../expenses/expenses.service';
 import { expenseSchema } from '../expenses/expenses.validation';
@@ -354,7 +357,49 @@ export async function play(shopId: Types.ObjectId, emails: Record<Who, string>, 
     await clock.flush();
   }
   await settle(shopId);
+  await clinicDays(shopId, owner, custs, docs, to);
   return { total, skipped };
+}
+
+// D90: three doctors' days and fees, a week of seen patients (paid by UPI, so closed days keep their cash), and tokens for the next sitting.
+const CHAMBERS: Record<string, { fee: number; freeDays: number; commission: { mode: 'pct' | 'flat'; value: number }; minutes: number; days: number[]; start: string; end: string; max: number }> = {
+  'Dr. S. Banerjee': { fee: 50_000, freeDays: 7, commission: { mode: 'pct', value: 20 }, minutes: 10, days: [0, 1, 2, 3, 4, 5, 6], start: '19:00', end: '21:00', max: 15 },
+  'Dr. A. Mukherjee': { fee: 40_000, freeDays: 10, commission: { mode: 'flat', value: 5_000 }, minutes: 12, days: [1, 3, 5], start: '10:00', end: '12:00', max: 12 },
+  'Dr. R. Khan': { fee: 80_000, freeDays: 15, commission: { mode: 'pct', value: 25 }, minutes: 20, days: [2, 4, 6], start: '18:00', end: '20:00', max: 8 },
+};
+
+async function clinicDays(shopId: Types.ObjectId, owner: Crew['owner'], custs: { _id: Types.ObjectId; name: string; phone: string }[], docs: { _id: Types.ObjectId; name: string }[], now: Date) {
+  if (await AppointmentModel.exists({ shopId })) return;
+  const { t, actor } = owner;
+  for (const d of docs) {
+    const c = CHAMBERS[d.name];
+    if (c) await clinic.saveChamber(t, actor, String(d._id), { fee: c.fee, freeDays: c.freeDays, commission: c.commission, minutes: c.minutes, sittings: c.days.map((day) => ({ day, start: c.start, end: c.end, max: c.max })) });
+  }
+  const dr = docs.find((d) => d.name === 'Dr. S. Banerjee');
+  const c = CHAMBERS['Dr. S. Banerjee'];
+  if (!dr || !c || custs.length < 6) return;
+  const today = istIsoDay(now);
+  const past: Record<string, unknown>[] = [];
+  for (let back = 6; back >= 1; back--) {
+    const day = istIsoDay(new Date(now.getTime() - back * DAY));
+    for (let i = 0; i < 3; i++) {
+      const who = custs[(back * 3 + i) % custs.length];
+      if (!who) continue;
+      const at = new Date(Date.parse(`${day}T19:00:00+05:30`) + i * 10 * 60_000);
+      past.push({ shopId, fy: fyOf(at), clientRequestId: randomUUID(), doctorId: dr._id, doctorName: dr.name, day, start: c.start, end: c.end, token: i + 1, patient: { name: who.name, nameLower: who.name.toLowerCase(), age: 30 + ((back + i) % 40), gender: i % 2 ? 'female' : 'male' }, phone: who.phone, customerId: who._id, kind: 'new', fee: c.fee, commission: clinic.commissionOf(c.fee, c.commission), paid: c.fee, payments: [{ amount: c.fee, mode: 'UPI', at, by: actor.name }], status: 'seen', seenAt: at, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name, createdAt: at, updatedAt: at });
+    }
+  }
+  await AppointmentModel.insertMany(past);
+  // The next sitting: today if it isn't over, else tomorrow.
+  const day = Date.parse(`${today}T${c.end}:00+05:30`) > now.getTime() ? today : istIsoDay(new Date(now.getTime() + DAY));
+  const seenBefore = custs[(3 * 3) % custs.length];
+  const book = (who: { _id: Types.ObjectId; phone: string }, patient: { name: string; age: number; gender: 'female' | 'male' }, kind: 'new' | 'followup', payMode?: 'CASH' | 'UPI') =>
+    clinic.book(t, actor, { clientRequestId: randomUUID(), doctorId: String(dr._id), day, start: c.start, phone: who.phone, customerId: String(who._id), bookerName: '', patient, kind, fee: kind === 'followup' ? 0 : c.fee, ...(payMode ? { payMode } : {}), note: '' });
+  const [a, b, d] = [custs[0], custs[1], custs[2]];
+  if (a) await book(a, { name: a.name, age: 52, gender: 'male' }, 'new', 'UPI');
+  if (seenBefore) await book(seenBefore, { name: seenBefore.name, age: 41, gender: 'male' }, 'followup');
+  if (b) await book(b, { name: 'Riya', age: 9, gender: 'female' }, 'new');
+  if (d) await book(d, { name: d.name, age: 63, gender: 'female' }, 'new', 'UPI');
 }
 
 /** First and last visit, and when each supplier last sent stock, from the retimed bills. */

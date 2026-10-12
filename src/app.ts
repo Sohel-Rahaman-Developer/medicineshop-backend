@@ -27,6 +27,7 @@ import { auditRouter } from './modules/audit/audit.routes';
 import { loyaltyRouter } from './modules/loyalty/loyalty.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { ordersRouter } from './modules/orders/orders.routes';
+import { clinicRouter } from './modules/clinic/clinic.routes';
 import { posRouter, saleReturnsRouter, salesRouter } from './modules/sales/sales.routes';
 import { searchRouter } from './modules/search/search.routes';
 import { taxRouter } from './modules/tax/tax.routes';
@@ -153,6 +154,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/brand`, brandRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
+  app.use(`${env.API_PREFIX}/clinic`, clinicRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -126,6 +126,13 @@ async function main() {
   check('no coin purchase → 403', (await demo.post('/ai/coins/order', { packCode: 'small' })).status === 403);
   check('no invitations → 403', (await demo.post('/staff', { email: 'someone@example.com', name: 'Someone', roleId: new Types.ObjectId().toHexString() })).status === 403);
   check('billing works as in any shop', (await demo.get('/sales?limit=5')).status === 200);
+  const dues = data<{ name: string; visits: number; balance: number }[]>(await demo.get('/clinic/dues'));
+  const banerjee = dues.find((d) => d.name === 'Dr. S. Banerjee');
+  check('D90: three doctors sit at the demo shop; Dr. Banerjee saw 18 patients this week, ₹7,200 to give (18 × ₹500 − 20%)', dues.length === 3 && banerjee?.visits === 18 && banerjee.balance === 720_000, JSON.stringify(dues));
+  const nextDay = ['', ''].map((_, i) => new Date(Date.now() + 5.5 * 3_600_000 + i * 86_400_000).toISOString().slice(0, 10));
+  const boards = await Promise.all(nextDay.map(async (d) => data<{ doctors: { name: string; sittings: { visits: { kind: string }[] }[] }[] }>(await demo.get(`/clinic/day?day=${d}`))));
+  const tokens = boards.flatMap((b) => b.doctors.filter((d) => d.name === 'Dr. S. Banerjee').flatMap((d) => d.sittings.flatMap((s) => s.visits)));
+  check('…and the next sitting has 4 tokens, one a free follow-up', tokens.length === 4 && tokens.filter((v) => v.kind === 'followup').length === 1, JSON.stringify(tokens.map((v) => v.kind)));
   const staff = h.client();
   await staff.post('/auth/otp/request', { email: 'demo.cashier@medbox24.in' });
   check('a demo staff address can’t sign in', (await staff.post('/auth/otp/verify', { email: 'demo.cashier@medbox24.in', otp: '482916' })).status === 401);

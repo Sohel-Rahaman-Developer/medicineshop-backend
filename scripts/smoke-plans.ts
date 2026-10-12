@@ -15,7 +15,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 const DAY = 86_400_000;
-const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai'];
+const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic'];
 
 interface Plan { code: string; name: string; tier: string; features: string[]; isActive: boolean; maxUsers: number }
 
@@ -33,7 +33,7 @@ async function main() {
   section('1. A new platform: Basic and Pro, monthly and yearly');
   const plans = data<Plan[]>(await h.client().get('/plans'));
   check('4 plans on sale: Basic Monthly, Basic Yearly, Pro Monthly, Pro Yearly', plans.map((p) => p.name).join() === 'Basic Monthly,Basic Yearly,Pro Monthly,Pro Yearly', JSON.stringify(plans.map((p) => p.name)));
-  check('Basic opens no extra module, 2 users; Pro opens all 9', plans.filter((p) => p.tier === 'basic').every((p) => p.features.length === 0 && p.maxUsers === 2) && plans.filter((p) => p.tier === 'pro').every((p) => p.features.join() === ALL.join()));
+  check('Basic opens no extra module, 2 users; Pro opens all 10', plans.filter((p) => p.tier === 'basic').every((p) => p.features.length === 0 && p.maxUsers === 2) && plans.filter((p) => p.tier === 'pro').every((p) => p.features.join() === ALL.join()));
 
   const owner = await h.signIn('rohit@plans1.test');
   owner.shopId = data<{ id: string }>(await owner.post('/shops', shopBody('Shri Ram Medical Store'))).id;
@@ -58,6 +58,7 @@ async function main() {
     ask: await owner.get('/ask/offer'),
     role: await owner.post('/roles', { name: 'Night shift', color: '#0ea5e9', permissions: { pos: ['view', 'create'] }, scopes: {} }),
     aiBill: await owner.post('/purchases/import/ai', {}),
+    clinic: await owner.get('/clinic/day'),
   };
   for (const [k, r] of Object.entries(refused)) check(`Basic: ${k} → 403 PLAN_UPGRADE`, upgrade(r), code(r));
   check('…the message names the module and Pro', /Analytics is in the Pro plan/.test(refused.analytics.json.error?.message ?? ''), code(refused.analytics));
@@ -105,7 +106,7 @@ async function main() {
   section('4. Pro and the demo open everything');
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'monthly' } });
   forgetPlanFeatures();
-  check('Pro Monthly: all 9 modules, reports answer', (await ctx()).features.join() === ALL.join() && (await owner.get('/reports/catalog')).status === 200);
+  check('Pro Monthly: all 10 modules, reports answer', (await ctx()).features.join() === ALL.join() && (await owner.get('/reports/catalog')).status === 200);
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'gone-plan' } });
   forgetPlanFeatures();
   check('a plan code the admin deleted keeps everything (a paying shop never loses work)', (await ctx()).features.length === ALL.length);
@@ -123,6 +124,19 @@ async function main() {
   forgetTiers();
   await h.client().get('/plans');
   check('running it again changes nothing', (await PlanModel.countDocuments({})) === 4);
+
+  section('6. A module added later (D90 clinic) joins Pro by itself, never Basic');
+  const d87 = ALL.filter((f) => f !== 'clinic');
+  await PlanModel.updateMany({ tier: 'pro' }, { $set: { features: d87 }, $unset: { knows: 1 } });
+  await PlanModel.updateMany({ tier: 'basic' }, { $set: { features: ['loyalty'] }, $unset: { knows: 1 } });
+  forgetTiers();
+  forgetPlanFeatures();
+  const grown = data<Plan[]>(await root.get('/admin/plans'));
+  check('Pro plans now open the doctor chamber too; Basic keeps exactly what the admin ticked', grown.filter((p) => p.tier === 'pro').every((p) => p.features.includes('clinic') && p.features.length === ALL.length) && grown.filter((p) => p.tier === 'basic').every((p) => p.features.join() === 'loyalty'), JSON.stringify(grown.map((p) => `${p.code}:${p.features.join('+')}`)));
+  await PlanModel.updateMany({ tier: 'pro' }, { $pull: { features: 'clinic' } });
+  forgetTiers();
+  await h.client().get('/plans');
+  check('once known, the admin can take it off a Pro plan and it stays off', (await PlanModel.find({ tier: 'pro' }).lean()).every((p) => !(p.features ?? []).includes('clinic')));
   await PlanModel.deleteMany({});
   forgetTiers();
   forgetPlanFeatures();
