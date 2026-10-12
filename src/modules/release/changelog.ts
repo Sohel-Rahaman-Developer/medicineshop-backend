@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.18.2',
+    date: '2026-10-12',
+    title: 'Monthly or yearly at a tap',
+    shop: ['medbox24.in: a Monthly | Yearly switch above the plans — yearly comes first, shown per month with its saving.'],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.18.1',
     date: '2026-10-12',
     title: 'Shorter plan cards',
