@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.18.1',
+    date: '2026-10-12',
+    title: 'Shorter plan cards',
+    shop: ['medbox24.in: each plan card shows its first five points; “+ more features” opens the rest.'],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.18.0',
     date: '2026-10-12',
     title: 'Terms, privacy and contact pages, a 30-day trial, and more questions in the chat',
