@@ -47,9 +47,20 @@ cd "$ROOT/backend"
 npm ci --no-fund --loglevel=error
 npm run build --silent
 
+# A tab opened before this deploy still asks for the old build's hashed files; keep them 14 days so it doesn't reload on every new screen.
+keep_static() {
+  local live=$ROOT/$1/.next/static kept=$ROOT/static-keep/$1
+  mkdir -p "$kept"
+  if [ "$2" = before ]; then [ -d "$live" ] && { cp -a -n "$live/." "$kept/" 2>/dev/null || true; }; return 0; fi
+  find "$kept" -type f -mtime +14 -delete
+  find "$kept" -mindepth 1 -type d -empty -delete
+  cp -a -n "$kept/." "$live/" 2>/dev/null || true
+}
+
 for app in frontend admin; do
   step "$([ "$app" = frontend ] && echo "Shop app" || echo "Admin") — install + build"
   cd "$ROOT/$app"
+  keep_static "$app" before
   if [ "$app" = frontend ]; then
     printf 'NEXT_PUBLIC_API_BASE_URL=%s\nNEXT_PUBLIC_SITE_URL=%s\nNEXT_PUBLIC_GA_ID=%s\n' "$API_URL" "$SITE_URL" "$GA_ID" > .env.production.local
   else
@@ -57,6 +68,7 @@ for app in frontend admin; do
   fi
   npm ci --no-fund --no-audit --loglevel=error
   npm run build --silent
+  keep_static "$app" after
 done
 
 # What /health and the admin Releases page report: the deploy time and each repo's commit.

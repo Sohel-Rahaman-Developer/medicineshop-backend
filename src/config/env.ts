@@ -58,7 +58,7 @@ const schema = z.object({
   DEV_STATIC_OTP: z.string().optional().transform((v) => v || undefined),
 
   // Trial and Terms until the admin app owns them (B8 / B9)
-  TRIAL_DAYS: z.coerce.number().int().positive().default(14),
+  TRIAL_DAYS: z.coerce.number().int().positive().default(30),
   TRIAL_MAX_USERS: z.coerce.number().int().positive().default(3),
   TERMS_VERSION: z.string().default('2026-10'),
 

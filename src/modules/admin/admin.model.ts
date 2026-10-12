@@ -72,11 +72,15 @@ export const AdminAuditModel = model('AdminAuditLog', adminAuditSchema);
 const platformSchema = new Schema(
   {
     _id: { type: String, default: 'platform' },
-    trialDays: { type: Number, required: true, default: 14 },
+    trialDays: { type: Number, required: true, default: 30 },
     trialMaxUsers: { type: Number, required: true, default: 3 },
     graceDays: { type: Number, required: true, default: 7 },
     supportEmail: { type: String, default: '' },
     supportPhone: { type: String, default: '' },
+    /** Shown on the public Terms, Privacy and Contact pages. */
+    legalName: { type: String, default: '' },
+    address: { type: String, default: '' },
+    grievanceOfficer: { type: String, default: '' },
     maintenance: { on: { type: Boolean, default: false }, message: { type: String, default: '' } },
     updatedBy: { type: String },
   },

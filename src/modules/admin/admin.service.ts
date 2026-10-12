@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { afterCursor, page, sortOf } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { inr } from '../../utils/money';
+import { env } from '../../config/env';
 import { audit } from '../audit/audit.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
@@ -255,7 +256,7 @@ export async function setPlans(a: AdminActor, list: { code: string; name: string
 
 export async function settings() {
   const s = await PlatformSettingsModel.findById('platform').lean();
-  return { trialDays: s?.trialDays ?? 14, trialMaxUsers: s?.trialMaxUsers ?? 3, graceDays: s?.graceDays ?? 7, supportEmail: s?.supportEmail ?? '', supportPhone: s?.supportPhone ?? '', maintenance: { on: s?.maintenance?.on ?? false, message: s?.maintenance?.message ?? '' } };
+  return { trialDays: s?.trialDays ?? env.TRIAL_DAYS, trialMaxUsers: s?.trialMaxUsers ?? env.TRIAL_MAX_USERS, graceDays: s?.graceDays ?? 7, supportEmail: s?.supportEmail ?? '', supportPhone: s?.supportPhone ?? '', legalName: s?.legalName ?? '', address: s?.address ?? '', grievanceOfficer: s?.grievanceOfficer ?? '', maintenance: { on: s?.maintenance?.on ?? false, message: s?.maintenance?.message ?? '' } };
 }
 
 export async function saveSettings(a: AdminActor, input: Awaited<ReturnType<typeof settings>>, reason: string, ip?: string) {

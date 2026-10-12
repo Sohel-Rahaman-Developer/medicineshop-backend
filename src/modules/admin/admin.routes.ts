@@ -41,6 +41,9 @@ const settingsSchema = z
     graceDays: z.number().int().min(0).max(30),
     supportEmail: z.union([z.literal(''), z.email()]),
     supportPhone: z.string().trim().max(20),
+    legalName: z.string().trim().max(120).default(''),
+    address: z.string().trim().max(300).default(''),
+    grievanceOfficer: z.string().trim().max(80).default(''),
     maintenance: z.object({ on: z.boolean(), message: z.string().trim().max(200) }).strict(),
   })
   .strict();
@@ -155,7 +158,7 @@ adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(40
 
 /** Public: the maintenance banner, support contacts and the trial, for the shop app and the public site. */
 export const platformRouter = Router();
-platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers }); }));
+platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers, graceDays: p.graceDays, legalName: p.legalName, address: p.address, grievanceOfficer: p.grievanceOfficer }); }));
 
 /** Shop side (owner): see MedBox24's requests, approve / deny / stop. */
 export const supportAccessRouter = Router();

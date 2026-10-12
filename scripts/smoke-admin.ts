@@ -113,9 +113,10 @@ async function main() {
   check('new price shows on the public plan list', pl.status === 200 && data<{ code: string; price: number }[]>(await h.client().get('/plans')).find((p) => p.code === 'monthly')?.price === 99_900, code(pl));
   const st = await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', maintenance: { on: false, message: '' } }, reason: 'Longer trial for the launch' });
   check('settings saved', st.status === 200, code(st));
-  await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', maintenance: { on: true, message: 'Upgrade tonight 11 pm' } }, reason: 'Planned upgrade window' });
-  const pub = data<{ maintenance: { on: boolean; message: string }; supportEmail: string }>(await h.client().get('/platform'));
+  await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', legalName: 'MedBox24 Test LLP', address: '12 Park Street, Kolkata 700016', grievanceOfficer: 'Rina Das', maintenance: { on: true, message: 'Upgrade tonight 11 pm' } }, reason: 'Planned upgrade window' });
+  const pub = data<{ maintenance: { on: boolean; message: string }; supportEmail: string; legalName: string; address: string; grievanceOfficer: string }>(await h.client().get('/platform'));
   check('the shop app sees the maintenance notice and support email (public)', pub.maintenance.on && pub.maintenance.message === 'Upgrade tonight 11 pm' && pub.supportEmail === 'help@medshop.test');
+  check('the legal pages get the company name, address and grievance officer (public)', pub.legalName === 'MedBox24 Test LLP' && pub.address === '12 Park Street, Kolkata 700016' && pub.grievanceOfficer === 'Rina Das', JSON.stringify(pub));
   const o2 = await h.signIn('kakoli@adm2.test');
   const s2 = data<{ id: string }>(await o2.post('/shops', shopBody('Kakoli Pharmacy'))).id;
   const sub2 = await SubscriptionModel.findOne({ shopId: s2 }).lean();

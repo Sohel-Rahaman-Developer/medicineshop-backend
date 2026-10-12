@@ -50,9 +50,9 @@ async function main() {
   const expense = () => owner.post('/expenses', { clientRequestId: randomUUID(), date: isoDay(), category: 'Rent', description: '', amount: 100, paymentMode: 'UPI', fromDrawer: false, vendor: '', referenceNumber: '' });
   const fy = fyOf(new Date());
 
-  section('1. A new shop is on a 14-day trial; plans are public');
+  section('1. A new shop is on a 30-day trial; plans are public');
   const s0 = await sub();
-  check('trial, 14 days left, test payments on', s0.status === 'trial' && s0.daysLeft === 14 && s0.payments === 'test', JSON.stringify(s0));
+  check('trial, 30 days left, test payments on', s0.status === 'trial' && s0.daysLeft === 30 && s0.payments === 'test', JSON.stringify(s0));
   const plans = data<{ code: string; price: number; maxUsers: number }[]>(await h.client().get('/plans'));
   const pro = plans.find((p) => p.code === 'monthly');
   check('plans without signing in: Basic ×2, then Pro Monthly ₹799 (5 users), Pro Yearly ₹7,990', plans.length === 4 && pro?.price === 79_900 && pro.maxUsers === 5 && plans.find((p) => p.code === 'yearly')?.price === 799_000);

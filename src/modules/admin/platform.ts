@@ -3,7 +3,7 @@ import { setGraceDays } from '../subscription/subscription.model';
 import { PlatformSettingsModel } from './admin.model';
 
 const TTL = 60_000;
-let cached: { at: number; v: { trialDays: number; trialMaxUsers: number; graceDays: number; maintenance: { on: boolean; message: string }; supportEmail: string; supportPhone: string } } | null = null;
+let cached: { at: number; v: { trialDays: number; trialMaxUsers: number; graceDays: number; maintenance: { on: boolean; message: string }; supportEmail: string; supportPhone: string; legalName: string; address: string; grievanceOfficer: string } } | null = null;
 
 /** Platform settings (B9) with a 1-minute cache; the grace days reach the plan status rule from here. */
 export async function platform() {
@@ -16,6 +16,9 @@ export async function platform() {
     maintenance: { on: s?.maintenance?.on ?? false, message: s?.maintenance?.message ?? '' },
     supportEmail: s?.supportEmail ?? '',
     supportPhone: s?.supportPhone ?? '',
+    legalName: s?.legalName ?? '',
+    address: s?.address ?? '',
+    grievanceOfficer: s?.grievanceOfficer ?? '',
   };
   setGraceDays(v.graceDays);
   cached = { at: Date.now(), v };

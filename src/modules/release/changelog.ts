@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.18.0',
+    date: '2026-10-12',
+    title: 'Terms, privacy and contact pages, a 30-day trial, and more questions in the chat',
+    shop: [
+      'Ask AI: after every answer the rest of its group waits below it, and “All questions” beside the box opens all 20 at any time.',
+      'New shops get a 30-day free trial.',
+      'My account: “Delete account” explains what goes and opens a mail to MedBox24 support.',
+      'Sign-up links to the full Terms of Service, Privacy Policy and Refund Policy.',
+      'medbox24.in: Terms of Service, Privacy Policy, Refund and Cancellation, and Contact pages; the plans show monthly auto-debit and the yearly offer; the free trial card lists what it opens; the menu lights up the section you are reading.',
+      'After an update, a page left open no longer reloads itself when you open a new screen.',
+    ],
+    admin: ['Platform settings: the legal name, business address and grievance officer shown on the Terms, Privacy and Contact pages.'],
+    api: ['GET /platform also gives graceDays, legalName, address and grievanceOfficer.'],
+  },
+  {
     version: '1.17.0',
     date: '2026-10-12',
     title: 'Help in English, Hindi and Bengali',
