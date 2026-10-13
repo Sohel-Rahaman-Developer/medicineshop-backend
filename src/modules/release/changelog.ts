@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.21.1',
+    date: '2026-10-14',
+    title: 'Quicker alerts, and new pages and tools on the site',
+    shop: [
+      'Notifications: Read and Read all change the list the moment you tap; if the internet drops, it goes back and says so.',
+      'The bell and the dashboard’s alerts load faster — expiry, stock, udhaar and the cash checks are worked out side by side instead of one after another.',
+      'Website: pages on barcode billing, doctor appointments, a loyalty program and moving from Marg; a PTR / PTS calculator and an expiry return calculator; six new guides — opening a medical store, the drug licence, daily accounts, a stock audit, buying from distributors and choosing a barcode scanner. In English, Hindi and Bengali.',
+      'The app tells MedBox24 when a screen kept you waiting over 1.5 seconds — only which screen and how long, never what was on it — so slow screens get fixed first.',
+    ],
+    admin: ['Messaging & health → Speed: the slow loads of the last 24 hours by screen — how long people waited, how much was the server and the database — and the busiest server routes since the last restart.'],
+    api: ['Every answer carries Server-Timing (app and database time, query count). POST /perf takes a signed-in browser’s slow loads (paths and times only, 10 a minute, kept 7 days); GET /admin/perf reads them.'],
+  },
+  {
     version: '1.21.0',
     date: '2026-10-13',
     title: 'Your logo, and points customers can see',

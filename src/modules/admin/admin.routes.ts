@@ -20,6 +20,7 @@ import { CHANGELOG } from '../release/changelog';
 import { release } from '../release/release';
 import * as ai from '../ai/ai-admin';
 import * as gw from './gateway-admin';
+import { perfOverview } from '../perf/perf';
 import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
 import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
@@ -140,6 +141,7 @@ adminRouter.put('/shops/:id/prices', moneyRole, validate({ params: idParams, bod
 adminRouter.get('/shops/:id/retention', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.retentionOf((req.params as { id: string }).id)); }));
 adminRouter.put('/shops/:id/retention', moneyRole, validate({ params: idParams, body: z.object({ tier: z.enum(['legal', 'y10']), legalHold: z.boolean(), legalHoldReason: z.string().trim().max(200), reason }).strict().refine((v) => !v.legalHold || v.legalHoldReason.length >= 3, { message: 'Name the case for a legal hold', path: ['legalHoldReason'] }) }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { tier: 'legal' | 'y10'; legalHold: boolean; legalHoldReason: string; reason: string }; sent(res, await svc.setRetention(adminOf(req), (req.params as { id: string }).id, b, req.ip), 'Data settings saved'); }));
 adminRouter.get('/health', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.health()); }));
+adminRouter.get('/perf', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await perfOverview()); }));
 adminRouter.get('/release', (_req: Request, res: Response) => { fetched(res, { ...release(), notes: CHANGELOG }); });
 
 // SANDBOX A16: support asks, the owner decides in the shop app, then read-only reports for the hours given.

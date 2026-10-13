@@ -42,6 +42,8 @@ import { brandRouter } from './modules/branding/branding.routes';
 import { publicRouter } from './modules/public/public.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { referralRouter } from './modules/referral/referral.routes';
+import { timing } from './modules/perf/perf';
+import { perfRouter } from './modules/perf/perf.routes';
 
 const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
@@ -56,6 +58,7 @@ export function createApp() {
 
   // Real client IP behind the proxy — rate limits and audit depend on it.
   app.set('trust proxy', 1);
+  app.use(timing);
   const noExpiry = NO_EXPIRY.toISOString();
   app.set('json replacer', (_key: string, value: unknown) => (value === noExpiry ? null : value));
 
@@ -154,6 +157,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
   app.use(`${env.API_PREFIX}/brand`, brandRouter);
   app.use(`${env.API_PREFIX}/public`, publicRouter);
+  app.use(`${env.API_PREFIX}/perf`, perfRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);
   app.use(`${env.API_PREFIX}/clinic`, clinicRouter);

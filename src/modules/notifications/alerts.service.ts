@@ -61,19 +61,19 @@ export function expiryWindows(days: readonly number[]) {
 export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> {
   const day = istIsoDay(now);
   const at8 = new Date(istDayStart(now).getTime() + 8 * 60 * 60 * 1000);
-  const out: Alert[] = [];
 
-  if (expiryAudience(t)) {
+  const s1 = async (): Promise<Alert[]> => {
+    if (!expiryAudience(t)) return [];
     const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.inventory.expiryAlertDays').lean();
     const days = shop?.settings.inventory?.expiryAlertDays;
-    for (const { type, priority, what, from, to, bucket } of expiryWindows(days?.length ? days : DEFAULT_ALERT_DAYS)) {
+    const found = await Promise.all(expiryWindows(days?.length ? days : DEFAULT_ALERT_DAYS).map(async ({ type, priority, what, from, to, bucket }): Promise<Alert[]> => {
       const at = (n: number) => new Date(now.getTime() + n * DAY);
       const expiryDate = from === null ? { $lt: now } : { [from ? '$gt' : '$gte']: from ? at(from) : now, $lte: at(to) };
       const match = { shopId: t.shopId, status: 'active' as const, quantity: { $gt: 0 }, expiryDate };
       const rows = await BatchModel.find(match).sort({ expiryDate: 1 }).select('productId batchNumber expiryDate').limit(200).lean();
-      if (!rows.length) continue;
+      if (!rows.length) return [];
       const names = new Map((await ProductModel.find({ shopId: t.shopId, _id: { $in: rows.slice(0, 3).map((b) => b.productId) } }).select('name').lean()).map((p) => [String(p._id), p.name]));
-      out.push(
+      return [
         alert(type, {
           key: `${type}:${String(to)}:${day}`,
           priority,
@@ -84,15 +84,17 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
           items: rows.slice(0, 3).map((b) => ({ text: names.get(String(b.productId)) ?? '', sub: `Batch ${b.batchNumber} · exp ${monthLabel(b.expiryDate)}` })),
           at: at8,
         }),
-      );
-    }
-  }
+      ];
+    }));
+    return found.flat();
+  };
 
-  if (can(t.permissions, 'stock', 'view')) {
-    for (const [status, type, priority] of [['out', 'STOCK_OUT', 'high'], ['low', 'STOCK_LOW', 'medium']] as const) {
+  const s2 = async (): Promise<Alert[]> => {
+    if (!can(t.permissions, 'stock', 'view')) return [];
+    const found = await Promise.all(([['out', 'STOCK_OUT', 'high'], ['low', 'STOCK_LOW', 'medium']] as const).map(async ([status, type, priority]): Promise<Alert[]> => {
       const rows = await ProductModel.find({ shopId: t.shopId, isActive: true, 'stock.status': status }).sort({ lastSoldAt: -1 }).select('name company').limit(300).lean();
-      if (!rows.length) continue;
-      out.push(
+      if (!rows.length) return [];
+      return [
         alert(type, {
           key: `${type}:${day}`,
           priority,
@@ -103,18 +105,24 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
           items: rows.slice(0, 3).map((p) => ({ text: p.name, sub: p.company })),
           at: at8,
         }),
-      );
-    }
-  }
+      ];
+    }));
+    return found.flat();
+  };
 
-  if (can(t.permissions, 'suppliers', 'view')) {
+  const s3 = async (): Promise<Alert[]> => {
+    const out: Alert[] = [];
+    if (!can(t.permissions, 'suppliers', 'view')) return out;
     const due = await suppliers.summary(t);
     if (due.dueThisWeek) {
       out.push(alert('SUPPLIER_DUE', { key: `SUPPLIER_DUE:${day}`, priority: due.overdue ? 'high' : 'medium', title: `${rupees(due.dueThisWeek)} due to suppliers this week`, body: due.overdue ? `${rupees(due.overdue)} of it is already overdue.` : 'Nothing overdue yet.', route: '/suppliers', action: 'Open suppliers', at: at8 }));
     }
-  }
+    return out;
+  };
 
-  if (can(t.permissions, 'customers', 'view') && (boss(t) || t.roleKey === 'accountant')) {
+  const s4 = async (): Promise<Alert[]> => {
+    const out: Alert[] = [];
+    if (!(can(t.permissions, 'customers', 'view') && (boss(t) || t.roleKey === 'accountant'))) return out;
     const ids = await SaleModel.distinct('customerId', { shopId: t.shopId, status: { $ne: 'cancelled' }, dueAmount: { $gt: 0 }, billDate: { $lt: new Date(now.getTime() - 30 * DAY) } });
     // Old khata udhaar counts from the day it was written down as owed.
     const late = await CustomerModel.find({ shopId: t.shopId, creditBalance: { $gt: 0 }, $or: [{ _id: { $in: ids } }, { oldDue: { $gt: 0 }, oldDueSince: { $lt: new Date(now.getTime() - 30 * DAY) } }] }).sort({ creditBalance: -1 }).select('name creditBalance').lean();
@@ -132,10 +140,25 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
         }),
       );
     }
-  }
+    return out;
+  };
 
-  if (boss(t)) {
-    const shop = await ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry settings.loyalty').lean();
+  const s5 = async (): Promise<Alert[]> => {
+    const out: Alert[] = [];
+    if (!boss(t)) return out;
+    // End-of-day summary: today's after 22:00 IST, otherwise yesterday's (sandbox).
+    const late = now.getTime() - istDayStart(now).getTime() >= 22 * 60 * 60 * 1000;
+    const d0 = late ? istDayStart(now) : new Date(istDayStart(now).getTime() - DAY);
+    const y0 = new Date(istDayStart(now).getTime() - DAY);
+    const yDay = istIsoDay(y0);
+    const [shop, auto, bills, closes, soldYesterday, closedYesterday] = await Promise.all([
+      ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry settings.loyalty').lean(),
+      AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean(),
+      SaleModel.find({ shopId: t.shopId, status: { $ne: 'cancelled' }, billDate: { $gte: d0, $lt: new Date(d0.getTime() + DAY) } }).select('grandTotal payments').lean(),
+      DayCloseModel.find({ shopId: t.shopId, diff: { $lte: -10_000 }, at: { $gte: new Date(now.getTime() - 7 * DAY) } }).select('day diff counted expected byName note at').lean(),
+      SaleModel.exists({ shopId: t.shopId, billDate: { $gte: y0, $lt: istDayStart(now) } }),
+      DayCloseModel.exists({ shopId: t.shopId, day: yDay }),
+    ]);
     if (shop && t.features.includes('loyalty') && !rulesOf(shop.settings.loyalty).configured) {
       out.push(alert('LOYALTY_SETUP', { key: 'LOYALTY_SETUP', priority: 'medium', title: 'Loyalty points are not set up', body: 'Decide what a point is worth — until then customers earn no points.', route: '/loyalty', action: 'Set up points', at: at8 }));
     }
@@ -149,13 +172,8 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${dayLabel(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
 
     // B8c: a failed autopay charge — Razorpay retries (pending), then gives up (halted); the plan screen has the fix.
-    const auto = await AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean();
     if (auto) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `AUTOPAY_${auto.status.toUpperCase()}:${day}`, priority: 'high', title: auto.status === 'pending' ? 'Autopay payment failed' : 'Autopay stopped after failed payments', body: auto.status === 'pending' ? 'Razorpay will try again. Keep money in the account, or pay once so the shop never stops.' : 'Pay once, or turn autopay on again, before the plan ends.', route: '/settings/plan', action: 'Open plan', at: at8 }));
 
-    // End-of-day summary: today's after 22:00 IST, otherwise yesterday's (sandbox).
-    const late = now.getTime() - istDayStart(now).getTime() >= 22 * 60 * 60 * 1000;
-    const d0 = late ? istDayStart(now) : new Date(istDayStart(now).getTime() - DAY);
-    const bills = await SaleModel.find({ shopId: t.shopId, status: { $ne: 'cancelled' }, billDate: { $gte: d0, $lt: new Date(d0.getTime() + DAY) } }).select('grandTotal payments').lean();
     if (bills.length) {
       const modes = new Map<string, number>();
       for (const b of bills) for (const p of b.payments) modes.set(p.mode, (modes.get(p.mode) ?? 0) + p.amount);
@@ -173,21 +191,22 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
       );
     }
 
-    const closes = await DayCloseModel.find({ shopId: t.shopId, diff: { $lte: -10_000 }, at: { $gte: new Date(now.getTime() - 7 * DAY) } }).select('day diff counted expected byName note at').lean();
     for (const c of closes) {
       out.push(alert('CASH_SHORT', { key: `CASH_SHORT:${String(c._id)}`, priority: 'high', title: `Cash short ${rupees(-c.diff)} on ${c.day}`, body: `Counted ${rupees(c.counted)}, expected ${rupees(c.expected)} · closed by ${c.byName}${c.note ? ` · “${c.note}”` : ''}`, route: '/day-close', action: 'See the day', at: c.at }));
     }
-    const y0 = new Date(istDayStart(now).getTime() - DAY);
-    const yDay = istIsoDay(y0);
-    if ((await SaleModel.exists({ shopId: t.shopId, billDate: { $gte: y0, $lt: istDayStart(now) } })) && !(await DayCloseModel.exists({ shopId: t.shopId, day: yDay }))) {
+    if (soldYesterday && !closedYesterday) {
       out.push(alert('CASH_SHORT', { key: `DAY_OPEN:${day}`, priority: 'medium', title: 'Yesterday’s cash was not closed', body: `Count the drawer and close ${yDay} before today’s cash mixes in.`, route: '/day-close', action: 'Close the day', at: at8 }));
     }
-  }
+    return out;
+  };
 
-  if (can(t.permissions, 'pos', 'create')) {
+  const s6 = async (): Promise<Alert[]> => {
+    const out: Alert[] = [];
+    if (!can(t.permissions, 'pos', 'create')) return out;
     const o = await orders.summary(t);
     if (o.ready) out.push(alert('ORDER_READY', { key: `ORDER_READY:${day}:${String(o.ready)}`, priority: 'high', title: `${plural(o.ready, 'customer order')} ${o.ready === 1 ? 'is' : 'are'} ready — call them`, body: 'The stock has come in. Bill it from Orders when they arrive — the advance is taken off.', route: '/orders', action: 'Open orders', at: now }));
     if (o.stale && boss(t)) out.push(alert('ORDER_READY', { key: `ORDER_STALE:${day}`, priority: 'medium', title: `${plural(o.stale, 'order')} not collected for over 10 days`, body: `${rupees(o.advanceHeld)} of advance is held on open orders. Call, or cancel and refund.`, route: '/orders', action: 'Open orders', at: at8 }));
-  }
-  return out;
+    return out;
+  };
+  return (await Promise.all([s1(), s2(), s3(), s4(), s5(), s6()])).flat();
 }
