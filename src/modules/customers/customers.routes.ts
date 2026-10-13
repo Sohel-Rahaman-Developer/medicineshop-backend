@@ -7,6 +7,7 @@ import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import * as svc from './customers.service';
+import { pointsLink, renewPointsLink } from '../loyalty/points-link';
 import { addUdhaarSchema, collectSchema, correctOldSchema, customerListSchema, customerSchema, doctorSchema, updateCustomerSchema, type AddUdhaarInput, type CollectInput, type CorrectOldInput, type CustomerInput, type CustomerListQuery, type DoctorInput, type UpdateCustomerInput } from './customers.validation';
 
 const idOf = (req: Request) => (req.params as { id: string }).id;
@@ -71,6 +72,10 @@ customersRouter.put(
     sent(res, c, `${c.name} saved`);
   }),
 );
+
+// D92: the customer's own points link for the bill's WhatsApp message; a new one kills the old.
+customersRouter.get('/:id/points-link', view, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await pointsLink(tenantOf(req), idOf(req))); }));
+customersRouter.post('/:id/points-link', edit, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { sent(res, await renewPointsLink(tenantOf(req), await actorOf(req), idOf(req), req.ip), 'New points link made — the old one no longer opens'); }));
 
 customersRouter.get('/:id/ledger', view, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.ledger(tenantOf(req), idOf(req))); }));
 

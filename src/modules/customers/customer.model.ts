@@ -33,6 +33,8 @@ const customerSchema = new Schema(
     lifetimePointsEarned: { type: Number, required: true, default: 0 },
     lifetimePointsRedeemed: { type: Number, required: true, default: 0 },
     tier: { type: String, default: '' },
+    /** D92: the secret in the customer's own points link (/p/<token>); a new one makes the old link dead. */
+    pointsToken: { type: String },
     chronicConditions: { type: [String], default: [] },
     notes: { type: String, trim: true, default: '' },
     status: { type: String, enum: ['active', 'blocked'], required: true, default: 'active' },
@@ -46,6 +48,7 @@ customerSchema.index({ shopId: 1, phone: 1 }, { unique: true });
 customerSchema.index({ shopId: 1, nameLower: 1 });
 customerSchema.index({ shopId: 1, creditBalance: -1, _id: -1 });
 customerSchema.index({ shopId: 1, lastVisit: -1, _id: -1 });
+customerSchema.index({ pointsToken: 1 }, { unique: true, partialFilterExpression: { pointsToken: { $type: 'string' } } });
 customerSchema.plugin(tenantScoped);
 
 export const CustomerModel = model('Customer', customerSchema);

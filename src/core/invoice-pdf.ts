@@ -14,6 +14,8 @@ export interface InvoiceSpec {
   issuer: { name: string; lines: string[] };
   /** MedBox24's own papers carry the app mark beside the issuer. */
   logo?: boolean;
+  /** D93: the shop's own logo (512 px PNG) beside its name on its bills. */
+  logoImage?: Buffer | null;
   parties: { label: string; lines: string[] }[];
   columns: { label: string; w: number; num?: boolean }[];
   rows: { cells: string[]; sub?: string }[];
@@ -61,8 +63,9 @@ export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
   // Header: issuer on the left, title and its numbers on the right.
   bar();
   let y = M + 2;
-  const tile = s.logo ? 30 * k : 0;
-  if (s.logo) {
+  const tile = s.logo || s.logoImage ? 30 * k : 0;
+  if (s.logoImage) doc.image(s.logoImage, M, y, { width: tile, height: tile });
+  else if (s.logo) {
     // A logo uploaded in the admin console replaces the drawn MedBox24 mark.
     const custom = await brandFile('mark.png');
     if (custom) doc.image(custom, M, y, { width: tile, height: tile });

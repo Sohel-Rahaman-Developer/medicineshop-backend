@@ -7,6 +7,7 @@ import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import * as svc from './loyalty.service';
 import { adjustSchema, loyaltyListSchema, loyaltySummarySchema, rulesSchema, type AdjustInput, type LoyaltyListQuery, type LoyaltySummaryQuery, type RulesInput } from './loyalty.validation';
+import { counterLink } from './points-link';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -16,6 +17,7 @@ loyaltyRouter.use(shopAuth, needFeature('loyalty'));
 const view = requirePermission('loyalty', 'view');
 const edit = requirePermission('loyalty', 'edit');
 
+loyaltyRouter.get('/counter', view, asyncHandler(async (req: Request, res: Response) => { fetched(res, await counterLink(tenantOf(req))); }));
 loyaltyRouter.get('/settings', view, asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.getRules(tenantOf(req))); }));
 
 loyaltyRouter.patch(

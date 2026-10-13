@@ -8,6 +8,7 @@ import { MembershipModel } from '../memberships/membership.model';
 import { RoleModel } from '../roles/role.model';
 import { actorOf } from '../user/actor';
 import * as svc from './shops.service';
+import { logoPathOf, removeShopLogo, setShopLogo } from './shop-logo';
 import { Types } from 'mongoose';
 import { z } from 'zod';
 import { env } from '../../config/env';
@@ -46,7 +47,7 @@ shopRouter.get(
       RoleModel.findOne({ shopId: t.shopId, _id: t.roleId }).select('name').lean(),
       MembershipModel.findOne({ shopId: t.shopId, _id: t.membershipId }).select('designation').lean(),
     ]);
-    fetched(res, svc.context(t, role?.name ?? '', m?.designation ?? ''));
+    fetched(res, { ...svc.context(t, role?.name ?? '', m?.designation ?? ''), logo: await logoPathOf(t.shopId) });
   }),
 );
 
@@ -100,6 +101,17 @@ shopRouter.get(
     fetched(res, await svc.getProfile(tenantOf(req).shopId));
   }),
 );
+
+// D93: the shop's own logo on its bills, loyalty pages and (paid plan) app header.
+shopRouter.put(
+  '/logo',
+  requirePermission('settings', 'edit'),
+  validate({ body: z.object({ image: z.string().max(900_000) }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await setShopLogo(tenantOf(req), await actorOf(req), (req.body as { image: string }).image, req.ip), 'Logo saved');
+  }),
+);
+shopRouter.delete('/logo', requirePermission('settings', 'edit'), asyncHandler(async (req: Request, res: Response) => { sent(res, await removeShopLogo(tenantOf(req), await actorOf(req), req.ip), 'Logo removed'); }));
 
 shopRouter.patch(
   '/',

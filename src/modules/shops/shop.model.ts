@@ -93,6 +93,8 @@ const shopSchema = new Schema(
     settings: { type: settingsSchema, default: () => ({}) },
     /** D80: the code this shop gives to others; made the first time the owner opens Refer a shop. */
     referralCode: { type: String },
+    /** D92: the shop's loyalty QR page (/l/<code>) and its logo URL; made the first time either is needed. */
+    publicCode: { type: String },
     /** The marketing team's demo shop: free for life, left out of every platform number. */
     demo: { type: Boolean },
   },
@@ -101,6 +103,7 @@ const shopSchema = new Schema(
 
 shopSchema.index({ gstin: 1 }, { sparse: true });
 shopSchema.index({ referralCode: 1 }, { unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } });
+shopSchema.index({ publicCode: 1 }, { unique: true, partialFilterExpression: { publicCode: { $type: 'string' } } });
 
 export const ShopModel = model('Shop', shopSchema);
 export type Shop = InferSchemaType<typeof shopSchema>;

@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.21.0',
+    date: '2026-10-13',
+    title: 'Your logo, and points customers can see',
+    shop: [
+      'Settings → Shop logo: a square logo goes on your bills, your loyalty QR page and your customers’ points page. On a paid plan it takes MedBox24’s place in the app, with “Powered by MedBox24”.',
+      'Bill saved → “WhatsApp to …”: your WhatsApp opens with the bill typed in and, with points on, the customer’s own link to see their points — nothing to sign up for. Also on a bill’s page, under the menu.',
+      'The points link shows their points and what they are worth, their tier, points about to expire, the last bill and every entry — with the first name only.',
+      'Customer → Points: send the link on WhatsApp, copy it, or make a new one if it went to the wrong number (the old one stops opening).',
+      'Loyalty → Counter QR: print a card for the counter. Scanning it shows your shop and how points work — never anyone’s points.',
+    ],
+    admin: [],
+    api: ['GET /customers/:id/points-link (made once) and POST to make a new one; GET /loyalty/counter; PUT / DELETE /shop/logo; /shop/context carries logo. Public, no sign-in, 60 a minute per address: GET /public/points/:token, GET /public/shops/:code and its logo.png.'],
+  },
+  {
     version: '1.20.1',
     date: '2026-10-13',
     title: 'Razorpay keys from the admin console',

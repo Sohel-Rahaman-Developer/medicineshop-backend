@@ -7,6 +7,7 @@ import { ShopModel } from '../shops/shop.model';
 import * as returns from './sale-returns.service';
 import { hsnSummary, packLabel, qrText } from './sale.domain';
 import { forPdf } from './sales.service';
+import { logoBytes } from '../shops/shop-logo';
 
 type Total = [label: string, value: string, bold: boolean];
 interface Row {
@@ -37,13 +38,14 @@ interface Paper {
 
 /** A5 tax invoice / credit note on the shared invoice layout (PLAN §14, §15, §35.7). */
 async function paper(t: TenantContext, p: Paper) {
-  const shop = await ShopModel.findById(t.shopId).select('name address phone gstin drugLicenseNumber').lean();
+  const [shop, logo] = await Promise.all([ShopModel.findById(t.shopId).select('name address phone gstin drugLicenseNumber').lean(), logoBytes(t.shopId)]);
   const a = shop?.address;
   return invoicePdf({
     size: 'A5',
     title: p.title,
     tone: p.danger ? 'danger' : 'brand',
     meta: [[p.numberLabel, p.number], ['Date', dayTime(p.at)], ...(p.extraMeta ?? [])],
+    logoImage: logo,
     issuer: {
       name: shop?.name ?? 'MedBox24',
       lines: [[a?.line1, a?.line2, a ? `${a.city} ${a.pincode}` : '', shop?.phone].filter(Boolean).join(', '), [shop?.gstin ? `GSTIN ${shop.gstin}` : '', shop ? `DL ${shop.drugLicenseNumber}` : ''].filter(Boolean).join(' · ')],
@@ -57,7 +59,7 @@ async function paper(t: TenantContext, p: Paper) {
     notes: p.foot,
     alert: p.alert,
     qr: p.qr ? { text: p.qr, caption: 'Scan to check this bill' } : undefined,
-    footer: 'Computer-generated invoice · MedBox24',
+    footer: 'Computer-generated invoice · Powered by MedBox24',
   });
 }
 
