@@ -135,7 +135,9 @@ async function main() {
   check('…and the next sitting has 4 tokens, one a free follow-up', tokens.length === 4 && tokens.filter((v) => v.kind === 'followup').length === 1, JSON.stringify(tokens.map((v) => v.kind)));
   const staff = h.client();
   await staff.post('/auth/otp/request', { email: 'demo.cashier@medbox24.in' });
-  check('a demo staff address can’t sign in', (await staff.post('/auth/otp/verify', { email: 'demo.cashier@medbox24.in', otp: '482916' })).status === 401);
+  check('the cashier signs in with the same code, to show what a cashier sees', (await staff.post('/auth/otp/verify', { email: 'demo.cashier@medbox24.in', otp: '482916' })).status === 200);
+  staff.shopId = demo.shopId;
+  check('…bills open, the staff list is the owner’s (403)', (await staff.get('/sales?limit=5')).status === 200 && (await staff.get('/staff')).status === 403);
 
   section('4. Ten wrong codes lock it; a new code signs every device out');
   const w = h.client();
@@ -147,7 +149,7 @@ async function main() {
   check('locked for an hour', Boolean((await info()).lockedUntil));
   check('the right code no longer works while locked', (await shop('482916')).r.status === 401);
   check('a new code lifts the lock', (await root.put('/admin/demo/code', { code: '730215', reason: 'New code, old one leaked' })).status === 200 && !(await info()).lockedUntil);
-  check('the device signed in with the old code is signed out', (await demo.get('/subscription')).status === 401);
+  check('the devices signed in with the old code are signed out — owner and staff', (await demo.get('/subscription')).status === 401 && (await staff.get('/sales?limit=5')).status === 401);
   check('the old code is gone', (await shop('482916')).r.status === 401);
   const back = await shop('730215');
   check('the new code works', back.r.status === 200, code(back.r));

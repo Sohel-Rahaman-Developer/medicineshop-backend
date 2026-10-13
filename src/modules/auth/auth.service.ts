@@ -7,7 +7,7 @@ import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, hashOtp, sha256 } from '../../utils/crypto';
 import { UserModel, type UserDoc } from '../user/user.model';
 import { demoFailed, demoSignedIn, demoToken } from '../demo/demo.login';
-import { DEMO_EMAIL, isDemoEmail } from '../demo/demo.model';
+import { isDemoEmail } from '../demo/demo.model';
 import { OtpTokenModel } from './models/otp-token.model';
 import { SessionModel, type SessionDoc } from './models/session.model';
 import {
@@ -74,7 +74,7 @@ export interface VerifyResult {
 
 export async function verifyOtpAndLogin(rawEmail: string, otp: string, ctx: RequestContext & { rememberMe: boolean }): Promise<VerifyResult> {
   const email = rawEmail.toLowerCase().trim();
-  if (email !== DEMO_EMAIL) return verify(email, otp, ctx);
+  if (!isDemoEmail(email)) return verify(email, otp, ctx);
   // Every failed try counts towards the demo lock, with or without a live code.
   return verify(email, otp, ctx).catch(async (err: unknown) => {
     if (err instanceof AppError && err.status === 401) await demoFailed();
@@ -124,7 +124,7 @@ async function verify(email: string, otp: string, ctx: RequestContext & { rememb
     { returnDocument: 'after' },
   );
   if (!consumed) throw invalid(); // another request consumed it first
-  if (email === DEMO_EMAIL) await demoSignedIn();
+  if (isDemoEmail(email)) await demoSignedIn();
 
   // Find or create the user.
   const now = new Date();

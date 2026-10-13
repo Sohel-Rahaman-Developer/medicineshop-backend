@@ -2,14 +2,14 @@ import { Schema, model, type InferSchemaType } from 'mongoose';
 
 /** The marketing team's sign-in; its code is set in the admin console, never sent by email. */
 export const DEMO_EMAIL = 'demo@medbox24.in';
-/** The demo shop's staff: bills carry their names; nobody can sign in as them. */
+/** The demo shop's staff: bills carry their names; they sign in with the demo code to show each role. */
 export const DEMO_STAFF = [
   { email: 'demo.manager@medbox24.in', name: 'Priya Das', role: 'manager', designation: 'Manager' },
   { email: 'demo.cashier@medbox24.in', name: 'Sunita Roy', role: 'cashier', designation: 'Cashier' },
   { email: 'demo.stock@medbox24.in', name: 'Ravi Kumar', role: 'stockKeeper', designation: 'Stock keeper' },
 ] as const;
-const ALL = new Set<string>([DEMO_EMAIL, ...DEMO_STAFF.map((s) => s.email)]);
-export const isDemoEmail = (email: string) => ALL.has(email.toLowerCase().trim());
+export const DEMO_EMAILS: readonly string[] = [DEMO_EMAIL, ...DEMO_STAFF.map((s) => s.email)];
+export const isDemoEmail = (email: string) => DEMO_EMAILS.includes(email.toLowerCase().trim());
 
 const jobSchema = new Schema(
   {

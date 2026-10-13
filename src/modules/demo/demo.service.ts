@@ -18,7 +18,7 @@ import { createShopSchema } from '../shops/shops.validation';
 import { SubscriptionModel } from '../subscription/subscription.model';
 import { UserModel } from '../user/user.model';
 import { HISTORY_DAYS, play, setUp } from './demo.fill';
-import { DEMO_EMAIL, DEMO_STAFF, DemoModel } from './demo.model';
+import { DEMO_EMAIL, DEMO_EMAILS, DEMO_STAFF, DemoModel } from './demo.model';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -63,6 +63,7 @@ export async function demoInfo(now = new Date()) {
   const job = d?.job ? { ...d.job, state: d.job.state === 'running' && (!d.busyUntil || d.busyUntil < now) ? 'failed' : d.job.state, error: d.job.state === 'running' && (!d.busyUntil || d.busyUntil < now) ? 'Stopped by a server restart — the next nightly reset makes it again' : (d.job.error ?? null) } : null;
   return {
     email: DEMO_EMAIL,
+    staff: DEMO_STAFF.map((s) => ({ email: s.email, role: s.designation })),
     shop: shop ? { id: String(shop._id), name: shop.name } : null,
     code: { set: Boolean(d?.codeHash), setAt: d?.codeSetAt ?? null, setBy: d?.codeSetBy ?? null },
     lockedUntil: d?.lockedUntil && d.lockedUntil > now ? d.lockedUntil : null,
@@ -193,8 +194,9 @@ export async function setDemoCode(a: AdminActor, code: string, reason: string, i
   if (!d?.shopId || !d.userId) throw AppError.notFound('Make the demo shop first');
   if (/^(\d)\1{5}$/.test(code) || '0123456789'.includes(code) || '9876543210'.includes(code)) throw AppError.validation('Choose a code that is hard to guess — not 111111 or 123456', [{ field: 'body.code', message: 'Too easy to guess' }]);
   await DemoModel.updateOne({ _id: 'demo' }, { $set: { codeHash: await hashOtp(code), codeSetAt: new Date(), codeSetBy: a.name, fails: [] }, $unset: { lockedUntil: 1 } });
-  await OtpTokenModel.updateMany({ audience: 'shop', email: DEMO_EMAIL, consumedAt: null }, { $set: { consumedAt: new Date() } });
-  const out = await revokeAllForUser(d.userId, 'user_revoked');
+  await OtpTokenModel.updateMany({ audience: 'shop', email: { $in: DEMO_EMAILS }, consumedAt: null }, { $set: { consumedAt: new Date() } });
+  let out = 0;
+  for (const u of await UserModel.find({ email: { $in: DEMO_EMAILS } }).select('_id').lean()) out += await revokeAllForUser(u._id, 'user_revoked');
   await log(a, 'demo_code', reason, `set a new demo sign-in code${out ? ` — ${String(out)} signed-in device(s) signed out` : ''}`, { id: d.shopId, name: DEMO_SHOP }, undefined, ip);
   return demoInfo();
 }

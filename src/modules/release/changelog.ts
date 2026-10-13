@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.19.2',
+    date: '2026-10-13',
+    title: 'Demo staff sign-in',
+    shop: ['Demo shop: the manager, cashier and stock keeper addresses sign in with the same demo code — to show what each role sees.'],
+    admin: ['Demo: the card lists the staff addresses that take the same code. A new code signs out the owner and staff devices; ten wrong codes on any demo address lock all of them for an hour.'],
+    api: [],
+  },
+  {
     version: '1.19.1',
     date: '2026-10-13',
     title: 'Appointments, simpler and safer',
