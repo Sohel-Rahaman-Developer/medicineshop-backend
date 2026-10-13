@@ -96,12 +96,10 @@ export async function create(t: TenantContext, actor: Actor, input: CustomerInpu
   const same = await CustomerModel.findOne({ shopId: t.shopId, phone: input.phone }).select('name').lean();
   if (same) throw AppError.conflict(`${input.phone} is already ${same.name}`, { reason: 'PHONE_TAKEN', id: String(same._id), name: same.name });
   try {
-    // The signup bonus (PLAN §16) lands with the customer or not at all.
     const id = await inTransaction(async (session) => {
       const [c] = await CustomerModel.create([{ ...input, dob: input.dob ?? null, shopId: t.shopId, nameLower: input.name.toLowerCase(), createdBy: oid(actor.id), createdByName: actor.name }], { session });
       if (!c) throw AppError.internal();
-      const bonus = await loyalty.signup(t, c, actor, session);
-      await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: c.name, text: `${actor.name} added customer ${c.name}${input.creditLimit ? ` · udhaar limit ${inr(input.creditLimit)}` : ''}${bonus ? ` · ${String(bonus)} signup points` : ''}`, ip }, session);
+      await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'customers', entityId: String(c._id), entityName: c.name, text: `${actor.name} added customer ${c.name}${input.creditLimit ? ` · udhaar limit ${inr(input.creditLimit)}` : ''}`, ip }, session);
       return String(c._id);
     });
     return shape(await load(t, id));
@@ -146,7 +144,6 @@ export async function addUdhaar(t: TenantContext, actor: Actor, input: AddUdhaar
       if (same) throw AppError.conflict(`${n.phone} is already ${same.name} — pick them from the list`, { reason: 'PHONE_TAKEN', id: String(same._id), name: same.name });
       const [made] = await CustomerModel.create([{ ...n, dob: null, shopId: t.shopId, nameLower: n.name.toLowerCase(), createdBy: oid(actor.id), createdByName: actor.name }], { session });
       if (!made) throw AppError.internal();
-      await loyalty.signup(t, made, actor, session);
       c = await load(t, String(made._id), session);
       what.push('added the customer');
     } else {

@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.20.0',
+    date: '2026-10-13',
+    title: 'Barcode scanners that just work; loyalty in plain words',
+    shop: [
+      'A USB or Bluetooth barcode scanner works anywhere on New bill — the scan goes on the bill, never into a quantity or price box.',
+      'A pack the shop hasn’t scanned before asks once which medicine it is; after that the scan adds it by itself. A medicine can have several barcodes (strip, box); a wrong one comes off on the product page.',
+      'Camera scan keeps going, one item after another, with a beep and a list of what was added; a flash button on phones; it warns when the camera is weak or nothing reads.',
+      'Settings → Inventory → Barcode scanner: scan anything to check the scanner is ready.',
+      'Loyalty: one line says the whole rule; the rules sit in parts — Earning, Using points, Expiry, Tiers, Birthday bonus — each saying what it is now, open one to change it.',
+      'No signup bonus any more: a new customer starts at 0 points. Past signup points stay as they were.',
+    ],
+    admin: [],
+    api: ['POST /products/:id/barcodes links a scanned code (the first becomes the barcode, later ones extra); DELETE /products/:id/barcodes/:code takes an extra one off. Products carry altBarcodes; POS search finds them. signupBonusPoints is gone from the loyalty settings.'],
+  },
+  {
     version: '1.19.2',
     date: '2026-10-13',
     title: 'Demo staff sign-in',

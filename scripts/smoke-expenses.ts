@@ -16,7 +16,7 @@ const units15 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, pu
 const RULES = {
   enabled: true, earnRate: 1, earnPerAmount: 10_000, minBillForEarning: 0, excludedCategories: [] as string[], earnOnDiscountedAmount: true, pointValue: 100, minPointsToRedeem: 100, maxRedeemPercent: 20, redeemMultipleOf: 10, pointExpiryMonths: 12, expiryWarningDays: 30,
   tiers: [{ name: 'Silver', minLifetimePoints: 0, earnMultiplier: 1 }, { name: 'Gold', minLifetimePoints: 1000, earnMultiplier: 1.25 }],
-  birthdayBonusPoints: 0, signupBonusPoints: 50,
+  birthdayBonusPoints: 0,
 };
 
 interface Exp { id: string; expenseNumber: string; amount: number; paymentMode: string; fromDrawer: boolean; status: string; category: string }

@@ -70,6 +70,7 @@ function detailShape(p: Lean, category: string, cost: boolean) {
     hsnCode: p.hsnCode,
     gstRate: p.gstRate,
     barcode: p.barcode ?? '',
+    altBarcodes: p.altBarcodes ?? [],
     units: unitsOut(p.units as Units),
     packSize: p.packSize,
     noExpiry: p.noExpiry,
@@ -113,7 +114,7 @@ export async function list(t: TenantContext, q: ListQuery) {
   const tokens = norm(q.q).split(' ').filter(Boolean).slice(0, 6);
   if (tokens.length) {
     const words = { $and: tokens.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } })) };
-    and.push(/^[A-Za-z0-9-]{4,32}$/.test(q.q) ? { $or: [{ barcode: q.q }, words] } : words);
+    and.push(/^[A-Za-z0-9-]{4,32}$/.test(q.q) ? { $or: [{ barcode: q.q }, { altBarcodes: q.q }, words] } : words);
   }
   const after = afterCursor(q.cursor, sort);
   if (Object.keys(after).length) and.push(after);
@@ -330,8 +331,43 @@ function masterFields(input: CreateProductInput) {
 }
 
 /** Checks done before any transaction: category, GST rate, photo. */
+/** Whoever already carries a code — as its barcode or a learnt one. */
+async function holderOf(t: TenantContext, code: string, except?: Types.ObjectId) {
+  return ProductModel.findOne({ shopId: t.shopId, $or: [{ barcode: code }, { altBarcodes: code }], ...(except ? { _id: { $ne: except } } : {}) }).select('name').lean();
+}
+
+async function assertFreeCode(t: TenantContext, code: string, except?: Types.ObjectId) {
+  const other = code ? await holderOf(t, code, except) : null;
+  if (other) throw AppError.validation(`Another product has this barcode (${other.name})`, [{ field: 'body.barcode', message: 'Another product has this barcode' }]);
+}
+
+const MAX_EXTRA = 10;
+
+/** A code learnt at the counter (D91): the first becomes the barcode, later ones (strip, box, new pack) are kept as extra. */
+export async function addBarcode(t: TenantContext, actor: Actor, id: string, code: string, ip?: string) {
+  const doc = await ProductModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id) }).select('name barcode altBarcodes').lean();
+  if (!doc) throw AppError.notFound('Product not found');
+  const extra = doc.altBarcodes ?? [];
+  if (doc.barcode === code || extra.includes(code)) return { barcode: doc.barcode ?? '', altBarcodes: extra };
+  const other = await holderOf(t, code, doc._id);
+  if (other) throw AppError.conflict(`This barcode is already on ${other.name}`);
+  if (doc.barcode && extra.length >= MAX_EXTRA) throw AppError.validation(`${doc.name} already has ${String(MAX_EXTRA)} extra barcodes — remove one first`);
+  await ProductModel.updateOne({ shopId: t.shopId, _id: doc._id }, doc.barcode ? { $addToSet: { altBarcodes: code } } : { $set: { barcode: code } }).catch(onDuplicate);
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: doc.name, text: `${actor.name} linked barcode ${code} to ${doc.name}`, ip });
+  return doc.barcode ? { barcode: doc.barcode, altBarcodes: [...extra, code] } : { barcode: code, altBarcodes: extra };
+}
+
+/** A wrongly learnt code comes off; the main barcode is changed in the product form. */
+export async function removeBarcode(t: TenantContext, actor: Actor, id: string, code: string, ip?: string) {
+  const doc = await ProductModel.findOneAndUpdate({ shopId: t.shopId, _id: new Types.ObjectId(id), altBarcodes: code }, { $pull: { altBarcodes: code } }, { returnDocument: 'after' }).select('name barcode altBarcodes').lean();
+  if (!doc) throw AppError.notFound('That barcode is not an extra one on this product');
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: doc.name, text: `${actor.name} removed barcode ${code} from ${doc.name}`, ip });
+  return { barcode: doc.barcode ?? '', altBarcodes: doc.altBarcodes ?? [] };
+}
+
 export async function prepareProduct(t: TenantContext, input: CreateProductInput) {
   await assertCategory(t, input.categoryId);
+  await assertFreeCode(t, input.barcode);
   await assertRate(t, input.gstRate);
   return input.photo ? { ...(await processPhoto(input.photo)), updatedAt: new Date() } : null;
 }
@@ -360,6 +396,7 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   if (!doc) throw AppError.notFound('Product not found');
   if (versionOf(doc) !== input.version) throw AppError.conflict('Someone else changed this product. Reload to see the latest.');
   await assertCategory(t, input.categoryId);
+  await assertFreeCode(t, input.barcode, doc._id);
   const oldGst = doc.gstRate;
   // An unchanged rate stays valid even if the shop has since dropped it from the list.
   if (oldGst !== input.gstRate) await assertRate(t, input.gstRate);

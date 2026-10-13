@@ -104,6 +104,19 @@ async function main() {
   const cs = data<{ items: Hit[] }>(await cashier.get('/pos/search?q=dolo')).items[0];
   check('cashier: no cost in POS search', cs !== undefined && cs.batches.every((b) => b.costPerBaseUnit === undefined));
   check('barcode → exact product', data<{ exact: string | null }>(await owner.get('/pos/search?q=8901234567890')).exact === dolo);
+  // D91: a pack the shop hasn't scanned before is linked once to the right product.
+  const strip = '8901234567999';
+  const exactOf = async (q: string) => data<{ exact: string | null }>(await owner.get(`/pos/search?q=${q}`)).exact;
+  check('D91: an unknown barcode finds nothing exact', (await exactOf(strip)) === null);
+  check('D91: the cashier can’t link a barcode (403)', (await cashier.post(`/products/${dolo}/barcodes`, { code: strip })).status === 403);
+  const learnt = await owner.post(`/products/${dolo}/barcodes`, { code: strip });
+  check('D91: linked to Dolo as an extra code; the next scan finds Dolo', learnt.status === 200 && data<{ barcode: string; altBarcodes: string[] }>(learnt).altBarcodes.join() === strip && (await exactOf(strip)) === dolo, code(learnt));
+  check('D91: the same code on another product → 409', (await owner.post(`/products/${amox}/barcodes`, { code: strip })).status === 409);
+  const copy = await owner.post('/products', { name: 'Dolo Strip Copy', company: 'Micro Labs', salt: 'Paracetamol', strength: '', categoryId: cat('Tablet'), scheduleType: 'OTC', storageType: 'NORMAL', hsnCode: '30049099', gstRate: 12, units: units15, packSize: '', defaultRack: 'A-2-1', reorderLevel: 0, reorderQuantity: 0, barcode: strip });
+  check('D91: a new product can’t take a learnt code (422 on barcode)', copy.status === 422 && JSON.stringify(copy.json).includes('body.barcode'), code(copy));
+  check('D91: a product with no barcode takes the code as its barcode', data<{ barcode: string }>(await owner.post(`/products/${amox}/barcodes`, { code: '8901234560625' })).barcode === '8901234560625');
+  check('D91: QR text is not a barcode (422)', (await owner.post(`/products/${dolo}/barcodes`, { code: 'https://qr.example/p?id=1' })).status === 422);
+  check('D91: a wrong one comes off; the scan no longer finds it', data<{ altBarcodes: string[] }>(await owner.del(`/products/${dolo}/barcodes/${strip}`)).altBarcodes.length === 0 && (await exactOf(strip)) === null);
   check('ids → exactly those products (cart refresh)', data<{ items: Hit[] }>(await owner.get(`/pos/search?ids=${dolo},${thermo}`)).items.map((x) => x.id).sort().join() === [dolo, thermo].sort().join());
   check('empty search → in-stock products', data<{ items: Hit[] }>(await owner.get('/pos/search')).items.length === 4);
   const ps = data<{ roundOff: boolean; maxDiscountPercent: number; enforceH1: boolean; canPickBatch: boolean; seesCost: boolean }>(await owner.get('/pos/settings'));

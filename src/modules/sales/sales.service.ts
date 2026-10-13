@@ -51,7 +51,7 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
   else filter['stock.sellable'] = { $gt: 0 };
   // The barcode lookup and the name search go out together; a barcode hit is the whole answer.
   const [hit, found] = await Promise.all([
-    !ids?.length && /^[A-Za-z0-9-]{4,32}$/.test(q) ? ProductModel.findOne({ shopId: t.shopId, isActive: true, barcode: q }).select(fields).lean() : null,
+    !ids?.length && /^[A-Za-z0-9-]{4,32}$/.test(q) ? ProductModel.findOne({ shopId: t.shopId, isActive: true, $or: [{ barcode: q }, { altBarcodes: q }] }).select(fields).lean() : null,
     ProductModel.find(filter)
       .sort(tokens.length ? { 'stock.sellable': -1, nameLower: 1 } : { lastSoldAt: -1, nameLower: 1 })
       .limit(limit)

@@ -134,10 +134,10 @@ async function main() {
   check('owner hears of it; the manager doesn’t (owner-only event)', types(await get(owner)).includes('LARGE_DISCOUNT') && !types(await get(manager)).includes('LARGE_DISCOUNT'));
   const rules = data<Record<string, unknown>>(await owner.get('/loyalty/settings'));
   delete rules.configured;
-  await owner.patch('/loyalty/settings', { ...rules, enabled: true, tiers: [{ name: 'Silver', minLifetimePoints: 0, earnMultiplier: 1 }, { name: 'Gold', minLifetimePoints: 52, earnMultiplier: 1.25 }] });
+  await owner.patch('/loyalty/settings', { ...rules, enabled: true, tiers: [{ name: 'Silver', minLifetimePoints: 0, earnMultiplier: 1 }, { name: 'Gold', minLifetimePoints: 3, earnMultiplier: 1.25 }] });
   const ratna = data<{ id: string }>(await owner.post('/customers', { name: 'Ratna Sen', phone: '98300 12345' }));
   await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 10, unit: 'STRIP' }], customerId: ratna.id, payments: [{ mode: 'CASH', amount: 30_000 }] });
-  check('50 signup + 3 earned → Gold → the cashier (customers: view) sees the tier up', types(await get(cashier)).includes('LOYALTY_TIER_UP'));
+  check('3 earned → Gold (no signup bonus, D92) → the cashier (customers: view) sees the tier up', types(await get(cashier)).includes('LOYALTY_TIER_UP'));
   check('loyalty set up → the set-up alert is gone', !types(await get(owner)).includes('LOYALTY_SETUP'));
 
   section('5. Daily summary after 10 PM');

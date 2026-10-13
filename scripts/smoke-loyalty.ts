@@ -1,4 +1,4 @@
-// B5b checks: loyalty settings, signup bonus, earn, redeem within the cap, FIFO lots, manual adjust, return and cancel, tiers, expiry, tenancy.
+// B5b checks: loyalty settings, no signup bonus (D92), earn, redeem within the cap, FIFO lots, manual adjust, return and cancel, tiers, expiry, tenancy.
 import { randomUUID } from 'node:crypto';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
@@ -35,7 +35,6 @@ const RULES = {
     { name: 'Platinum', minLifetimePoints: 5000, earnMultiplier: 1.5 },
   ],
   birthdayBonusPoints: 100,
-  signupBonusPoints: 50,
 };
 
 interface Cust { id: string; loyaltyPoints: number; tier: string; totalSpend: number }
@@ -96,7 +95,7 @@ async function main() {
   const s0 = data<{ enabled: boolean; configured: boolean }>(await cashier.get('/loyalty/settings'));
   check('a new shop: points off, not set up', !s0.enabled && !s0.configured);
   const kakoli = data<Cust>(await owner.post('/customers', { name: 'Kakoli Ghosh', phone: '98310 55667' }));
-  check('a customer added while off gets no signup points', kakoli.loyaltyPoints === 0 && (await LoyaltyModel.countDocuments({ shopId: shop1 })) === 0);
+  check('a customer added while off gets no points', kakoli.loyaltyPoints === 0 && (await LoyaltyModel.countDocuments({ shopId: shop1 })) === 0);
   const off = data<Bill>(await owner.post('/sales', bill(big, { customerId: kakoli.id, payments: cash(125_000) })));
   check('a bill while off earns nothing', off.pointsEarned === 0);
   check('redeem while off → 422', (await owner.post('/sales', bill(big, { customerId: kakoli.id, redeemPoints: 100, payments: cash(115_000) }))).status === 422);
@@ -111,11 +110,14 @@ async function main() {
   const pos = data<{ loyalty: { enabled: boolean; canRedeem: boolean; canSetUp: boolean; pointValue: number } }>(await cashier.get('/pos/settings'));
   check('POS settings tell the counter the rules; cashier may redeem, not set up', pos.loyalty.enabled && pos.loyalty.canRedeem && !pos.loyalty.canSetUp && pos.loyalty.pointValue === 100);
 
-  section('2. Signup bonus and earning');
-  const ratna = data<Cust>(await cashier.post('/customers', { name: 'Ratna Sen', phone: '98300 12345' }));
+  section('2. No signup bonus; earning');
+  const fresh = data<Cust>(await cashier.post('/customers', { name: 'Ratna Sen', phone: '98300 12345' }));
+  check('D92: a new customer starts at 0 — no signup bonus', fresh.loyaltyPoints === 0 && (await LoyaltyModel.countDocuments({ shopId: shop1, customerId: fresh.id })) === 0);
+  await owner.post('/loyalty/adjust', { clientRequestId: randomUUID(), customerId: fresh.id, points: 50, reason: 'Welcome gift from the owner' });
+  const ratna = data<Cust>(await owner.get(`/customers/${fresh.id}`));
   const lot = await LoyaltyModel.findOne({ shopId: shop1, customerId: ratna.id }).lean();
   const months = lot?.expiresAt ? Math.round((lot.expiresAt.getTime() - Date.now()) / (30.44 * 24 * 3600 * 1000)) : 0;
-  check('new customer: 50 signup points, a lot that expires in 12 months, Silver', ratna.loyaltyPoints === 50 && lot?.type === 'SIGNUP' && lot.remaining === 50 && months === 12 && ratna.tier === 'Silver', `${String(ratna.loyaltyPoints)} ${String(months)} ${ratna.tier}`);
+  check('50 given by hand: a lot that expires in 12 months, Silver', ratna.loyaltyPoints === 50 && lot?.type === 'MANUAL_ADD' && lot.remaining === 50 && months === 12 && ratna.tier === 'Silver', `${String(ratna.loyaltyPoints)} ${String(months)} ${ratna.tier}`);
   const b1 = data<Bill>(await cashier.post('/sales', bill(big, { customerId: ratna.id, payments: cash(125_000) })));
   const s1 = await sale(b1.id);
   check('PLAN §16: ₹1,250 Silver → 12 points, balance 62', b1.pointsEarned === 12 && b1.pointsBalance === 62 && s1.loyaltyPointsEarned === 12 && s1.loyaltyBalanceAfter === 62, JSON.stringify(b1));
@@ -146,7 +148,7 @@ async function main() {
   check('250 points = ₹250 off → pays ₹1,000, earns 10 on ₹1,000, balance 122', r2.status === 201 && b2.pointsRedeemed === 250 && b2.pointsEarned === 10 && b2.pointsBalance === 122, code(r2));
   check('bill: total stays ₹1,250 (GST untouched), toPay ₹1,000, a POINTS line “250 pts”, paid', s2.toPay === 100_000 && s2.payments.some((p) => p.mode === 'POINTS' && p.amount === 25_000 && p.reference === '250 pts') && s2.paidAmount === 125_000 && s2.paymentStatus === 'paid');
   const lots = await LoyaltyModel.find({ shopId: shop1, customerId: ratna.id, remaining: { $exists: true } }).sort({ createdAt: 1, _id: 1 }).lean();
-  check('FIFO: signup and first earn used up, 112 of the 300 left, the new 10 untouched', lots.map((l) => l.remaining).join(',') === '0,0,112,10', lots.map((l) => `${l.type}:${String(l.remaining)}`).join(' '));
+  check('FIFO: the gift and first earn used up, 112 of the 300 left, the new 10 untouched', lots.map((l) => l.remaining).join(',') === '0,0,112,10', lots.map((l) => `${l.type}:${String(l.remaining)}`).join(' '));
   const bk2 = await books(ratna.id);
   check('books: balance = ledger = lots (122)', bk2.ok && bk2.points === 122, JSON.stringify(bk2));
 

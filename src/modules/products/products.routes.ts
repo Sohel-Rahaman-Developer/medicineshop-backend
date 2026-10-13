@@ -142,6 +142,26 @@ productsRouter.put(
   }),
 );
 
+const codeBody = z.object({ code: z.string().trim().regex(/^[A-Za-z0-9-]{4,32}$/, 'A barcode has 4 to 32 letters or digits') }).strict();
+
+productsRouter.post(
+  '/:id/barcodes',
+  requirePermission('products', 'edit'),
+  validate({ params: idParams, body: codeBody }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await svc.addBarcode(tenantOf(req), await actorOf(req), idOf(req), (req.body as { code: string }).code, req.ip), 'Barcode saved — next time it adds by itself');
+  }),
+);
+
+productsRouter.delete(
+  '/:id/barcodes/:code',
+  requirePermission('products', 'edit'),
+  validate({ params: idParams.extend({ code: z.string().regex(/^[A-Za-z0-9-]{4,32}$/) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await svc.removeBarcode(tenantOf(req), await actorOf(req), idOf(req), (req.params as { code: string }).code, req.ip), 'Barcode removed');
+  }),
+);
+
 productsRouter.post(
   '/:id/active',
   requirePermission('products', 'edit'),

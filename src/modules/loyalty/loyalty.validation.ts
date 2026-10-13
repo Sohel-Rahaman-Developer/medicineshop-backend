@@ -35,7 +35,6 @@ export const rulesSchema = z
       .refine((v) => v.every((x, i) => i === 0 || x.minLifetimePoints > (v[i - 1]?.minLifetimePoints ?? 0)), 'Each tier needs more lifetime points than the one before')
       .refine((v) => new Set(v.map((x) => x.name.toLowerCase())).size === v.length, 'Two tiers have the same name'),
     birthdayBonusPoints: whole('Birthday bonus', 0, 100_000),
-    signupBonusPoints: whole('Signup bonus', 0, 100_000),
   })
   .strict();
 

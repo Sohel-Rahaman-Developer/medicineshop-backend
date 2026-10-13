@@ -18,7 +18,9 @@ const oid = (id: string) => new Types.ObjectId(id);
 
 /** Older shops have no loyalty section yet: the PLAN defaults fill it in, points off. */
 export function rulesOf(raw: unknown): LoyaltyRules {
-  const r = (raw ?? {}) as Partial<LoyaltyRules>;
+  const stored = (raw ?? {}) as Record<string, unknown>;
+  // Only the rules there are now: a shop saved before D92 still holds a signup bonus.
+  const r = Object.fromEntries(Object.keys(DEFAULT_RULES).filter((k) => stored[k] !== undefined).map((k) => [k, stored[k]])) as Partial<LoyaltyRules>;
   const tiers = r.tiers?.length ? r.tiers.map((x) => ({ name: x.name, minLifetimePoints: x.minLifetimePoints, earnMultiplier: x.earnMultiplier })) : DEFAULT_RULES.tiers;
   return { ...DEFAULT_RULES, ...r, excludedCategories: [...(r.excludedCategories ?? [])], tiers };
 }
@@ -88,7 +90,9 @@ async function post(t: TenantContext, c: Who, e: Entry, r: LoyaltyRules, session
     ],
     { session },
   );
-  return { balance: after.loyaltyPoints, tier, tierBefore: after.tier };
+  // With no signup bonus (D92) a new customer has no tier saved yet; what they had earned before still sets one.
+  const tierBefore = after.tier || (tierFor(after.lifetimePointsEarned - (inc.lifetimePointsEarned ?? 0), r.tiers)?.name ?? '');
+  return { balance: after.loyaltyPoints, tier, tierBefore };
 }
 
 /** Oldest lots first; the read value is the guard, so a lot is never spent twice. */
@@ -249,14 +253,6 @@ export async function takeBack(t: TenantContext, r: LoyaltyRules, s: SaleForPoin
   }
   if (m.restore) await post(t, c, { ...meta, type: 'REVERSAL', points: m.restore }, r, session);
   return { reversed, restored: m.restore };
-}
-
-/** Signup bonus (PLAN §16) in the customer's own transaction. */
-export async function signup(t: TenantContext, c: Who, actor: Actor, session: ClientSession) {
-  const r = await rules(t, session);
-  if (!r.enabled || !r.signupBonusPoints) return 0;
-  await post(t, c, { type: 'SIGNUP', points: r.signupBonusPoints, refType: 'SIGNUP', reason: 'Welcome bonus', actor, at: new Date() }, r, session);
-  return r.signupBonusPoints;
 }
 
 /** Birthday bonus (PLAN §16) for today's IST birthdays — once a year each, from the nightly job. */

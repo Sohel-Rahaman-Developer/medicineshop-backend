@@ -19,6 +19,7 @@ brandRouter.get(
     const body = await brandFile(file);
     if (!body) throw AppError.notFound('No custom logo — the built-in one is in use');
     res.set({ 'Content-Type': file.endsWith('.ico') ? 'image/x-icon' : 'image/png', 'Cache-Control': 'public, max-age=300', 'Cross-Origin-Resource-Policy': 'cross-origin' });
-    res.send(body);
+    // A stored PNG / ICO with its own fixed type, never HTML.
+    res.send(body); // nosemgrep
   }),
 );

@@ -43,6 +43,8 @@ const productSchema = new Schema(
     hsnCode: { type: String, trim: true, default: '' },
     gstRate: { type: Number, min: 0, max: 100, required: true },
     barcode: { type: String, trim: true },
+    /** Codes learnt at the counter (D91): the strip, the box, a new pack — any of them finds the product. */
+    altBarcodes: { type: [String], default: undefined },
     units: {
       type: { type: String, enum: UNIT_TYPES, required: true },
       base: { type: String, required: true },
@@ -75,6 +77,7 @@ const productSchema = new Schema(
 productSchema.index({ shopId: 1, nameLower: 1 }, { unique: true });
 productSchema.index({ shopId: 1, isActive: 1, nameLower: 1 });
 productSchema.index({ shopId: 1, barcode: 1 }, { unique: true, partialFilterExpression: { barcode: { $type: 'string' } } });
+productSchema.index({ shopId: 1, altBarcodes: 1 });
 productSchema.index({ shopId: 1, categoryId: 1 });
 productSchema.index({ shopId: 1, saltKey: 1 });
 productSchema.index({ shopId: 1, isActive: 1, 'stock.status': 1, nameLower: 1 });

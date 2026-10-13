@@ -22,7 +22,6 @@ export interface LoyaltyRules {
   expiryWarningDays: number;
   tiers: Tier[];
   birthdayBonusPoints: number;
-  signupBonusPoints: number;
 }
 
 export const DEFAULT_RULES: LoyaltyRules = {
@@ -45,7 +44,6 @@ export const DEFAULT_RULES: LoyaltyRules = {
     { name: 'Platinum', minLifetimePoints: 5000, earnMultiplier: 1.5 },
   ],
   birthdayBonusPoints: 100,
-  signupBonusPoints: 50,
 };
 
 /** The highest tier whose threshold the lifetime points reach; tiers are sorted by threshold. */

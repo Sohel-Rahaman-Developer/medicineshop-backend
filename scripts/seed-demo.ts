@@ -128,7 +128,7 @@ async function main() {
       return ok<{ id: string; billNumber: string }>('bill', c.post('/sales', { clientRequestId: randomUUID(), items, payments: total ? [{ mode, amount: total, reference: mode === 'UPI' ? 'UPI8812' : '' }] : [], ...extra }));
     };
     const cashier = team.get('cashier') ?? owner;
-    // Points on with the PLAN §16 rules: ₹100 earns 1, a point is ₹1, up to 20 % of a bill, 50 on signup.
+    // Points on with the PLAN §16 rules: ₹100 earns 1, a point is ₹1, up to 20 % of a bill.
     const rules = await ok<Record<string, unknown>>('loyalty', owner.get('/loyalty/settings'));
     delete rules.configured;
     await ok('loyalty', owner.patch('/loyalty/settings', { ...rules, enabled: true }));

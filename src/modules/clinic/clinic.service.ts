@@ -8,7 +8,6 @@ import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
 import { CustomerModel, DoctorModel } from '../customers/customer.model';
-import * as loyalty from '../loyalty/loyalty.service';
 import { can } from '../rbac/permissions';
 import type { Actor } from '../user/actor';
 import { DayCloseModel } from '../dayclose/dayclose.model';
@@ -102,7 +101,6 @@ export async function book(t: TenantContext, actor: Actor, input: BookInput, ip?
       const name = input.bookerName || input.patient.name;
       const [made] = await CustomerModel.create([{ shopId: t.shopId, name, nameLower: name.toLowerCase(), phone: input.phone, dob: null, createdBy: oid(actor.id), createdByName: actor.name }], { session });
       if (!made) throw AppError.internal();
-      await loyalty.signup(t, made, actor, session);
       customer = { _id: made._id, name: made.name };
     }
     const nameLower = input.patient.name.toLowerCase();

@@ -55,7 +55,6 @@ const settingsSchema = new Schema(
         ],
       },
       birthdayBonusPoints: { type: Number, default: 100 },
-      signupBonusPoints: { type: Number, default: 50 },
     },
     notifications: {
       dailySummaryTime: { type: String, default: '22:00' },
