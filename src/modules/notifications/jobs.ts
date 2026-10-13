@@ -21,6 +21,7 @@ import { AdminUserModel } from '../admin/admin.model';
 import { settleStuckReads } from '../ai/bill-ai';
 import { settleStuckQuestions } from '../ask/ask.service';
 import { demoTick } from '../demo/demo.service';
+import { gateway } from '../subscription/gateway';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -122,7 +123,7 @@ export async function tick(now = new Date()) {
   const shops = await ShopModel.find({ status: 'active' }).select('name ownerUserId settings.notifications').lean();
   const ran: string[] = [];
   // Payments the webhooks missed, once an hour (B8c).
-  if (env.PAYMENTS_MODE === 'razorpay' && (await claim(`reconcile:${now.toISOString().slice(0, 13)}`, now))) {
+  if ((await gateway()).mode === 'razorpay' && (await claim(`reconcile:${now.toISOString().slice(0, 13)}`, now))) {
     await reconcile(now).catch(async (err: unknown) => {
       logger.error({ err }, 'Payment reconcile failed');
       await signal('job_fail', now);

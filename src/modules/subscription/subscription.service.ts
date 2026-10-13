@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
-import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { day, rupees } from '../../core/export';
 import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
@@ -9,7 +8,6 @@ import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
 import { inr, rhu } from '../../utils/money';
 import { rupeesInWords } from '../../utils/words';
-import { stateCodeOf } from '../../utils/india';
 import { checkPayment, checkWebhook, createOrder, fetchPayment, paymentSignature } from '../../services/razorpay';
 import { signal } from '../../services/monitor';
 import { ShopModel } from '../shops/shop.model';
@@ -19,6 +17,7 @@ import { autopayEvent, autopayOf, disputeEvent, refundEvent, stopAutopay, type D
 import { MembershipModel } from '../memberships/membership.model';
 import type { Actor } from '../user/actor';
 import { PlanModel, PlatformCounterModel, SubscriptionPaymentModel, WebhookEventModel } from './billing.model';
+import { billingInfo, gateway } from './gateway';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { priceFor } from './terms';
 import { allFeatures, type Feature, type Tier } from './features';
@@ -67,6 +66,7 @@ export async function plansFor(shopId: Types.ObjectId, now = new Date()) {
 }
 
 export async function current(t: TenantContext, now = new Date()) {
+  const g = await gateway();
   const [sub, list, users, last, autopay, offer] = await Promise.all([
     SubscriptionModel.findOne({ shopId: t.shopId }).lean(),
     plansFor(t.shopId, now),
@@ -93,21 +93,22 @@ export async function current(t: TenantContext, now = new Date()) {
     offer: offer ? { kind: offer.kind, pct: offer.pct, until: offer.until } : null,
     lastPayment: last ? shapePayment(last) : null,
     autopay,
-    payments: env.PAYMENTS_MODE,
-    keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null,
+    payments: g.mode,
+    keyId: g.mode === 'razorpay' ? g.keyId : null,
   };
 }
 
 /** Step 1 of PLAN §8: an order at the plan's price, snapshotted with its 18% GST. */
 export async function order(t: TenantContext, actor: Actor, planCode: string) {
+  const g = await gateway();
   const plan = (await plansFor(t.shopId)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   const offer = await discountFor(t.shopId);
   const { amount, off } = withOffer(plan.price, offer);
   const receipt = `${String(t.shopId).slice(-8)}-${Date.now().toString(36)}`;
   const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), planCode: plan.code });
-  await SubscriptionPaymentModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount, gst: amount - rhu(amount * 100, 118), discount: discountRecord(offer, off, plan.price), razorpayOrderId: orderId, status: 'created', source: env.PAYMENTS_MODE === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount, currency: 'INR', planName: plan.name, keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null, mode: env.PAYMENTS_MODE, shopName: t.shopName };
+  await SubscriptionPaymentModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount, gst: amount - rhu(amount * 100, 118), discount: discountRecord(offer, off, plan.price), razorpayOrderId: orderId, status: 'created', source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  return { orderId, amount, currency: 'INR', planName: plan.name, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 const discountRecord = (o: Offer | null, off: number, listAmount: number) => (o && off ? { kind: o.kind, pct: o.pct, off, listAmount, referralId: o.referralId } : undefined);
@@ -120,7 +121,10 @@ export async function nextInvoice(at: Date, session: ClientSession) {
 }
 
 export interface Party { name?: string | null; address?: string | null; gstin?: string | null; state?: string | null; stateCode?: string | null }
-export const supplier = (): Party => ({ name: env.BILLING_LEGAL_NAME, address: env.BILLING_ADDRESS, gstin: env.BILLING_GSTIN ?? '', state: env.BILLING_STATE, stateCode: stateCodeOf(env.BILLING_STATE) ?? '' });
+export async function supplier(): Promise<Party> {
+  const b = await billingInfo();
+  return { name: b.legalName, address: b.address, gstin: b.gstin, state: b.state, stateCode: b.stateCode };
+}
 export async function buyerOf(shopId: Types.ObjectId, session?: ClientSession): Promise<Party> {
   const s = await ShopModel.findById(shopId).select('legalName name address gstin').session(session ?? null).lean();
   const a = s?.address;
@@ -164,7 +168,7 @@ export async function markPaid(orderId: string, paymentId: string, amount: numbe
     const start = sub.planCode !== 'trial' && statusAt(sub, now) === 'active' ? sub.endDate : now;
     const end = new Date(start.getTime() + pay.durationDays * DAY);
     const invoiceNumber = await nextInvoice(now, session);
-    pay.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, periodStart: start, periodEnd: end, continued: start !== now, invoiceNumber, invoiceFrom: supplier(), invoiceTo: await buyerOf(pay.shopId, session), failureReason: undefined });
+    pay.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, periodStart: start, periodEnd: end, continued: start !== now, invoiceNumber, invoiceFrom: await supplier(), invoiceTo: await buyerOf(pay.shopId, session), failureReason: undefined });
     await pay.save({ session });
     sub.set({ planCode: pay.planCode, status: 'active', endDate: end, graceEndDate: graceEndOf(end), maxUsers: pay.maxUsers, cancelledAt: undefined, cancelReason: undefined, ...(start === now ? { startDate: now } : {}) });
     await sub.save({ session });
@@ -192,7 +196,7 @@ export async function recordManual(shopId: Types.ObjectId, planCode: string, ref
 export async function verify(t: TenantContext, actor: Actor, input: { orderId: string; paymentId: string; signature: string }) {
   const pay = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, razorpayOrderId: input.orderId }).lean();
   if (!pay) throw AppError.notFound('Payment not found');
-  if (!checkPayment(input.orderId, input.paymentId, input.signature)) throw AppError.badRequest('The payment could not be verified', { reason: 'BAD_SIGNATURE' });
+  if (!(await checkPayment(input.orderId, input.paymentId, input.signature))) throw AppError.badRequest('The payment could not be verified', { reason: 'BAD_SIGNATURE' });
   // The signature is valid from authorisation on: time is given only for money Razorpay shows captured, at its amount.
   const g = await fetchPayment(input.paymentId);
   if (g && g.status !== 'captured') return { ...shapePayment(pay), replayed: false, confirming: true };
@@ -202,9 +206,9 @@ export async function verify(t: TenantContext, actor: Actor, input: { orderId: s
 
 /** Test mode only: pays a test order the way Checkout would, with a real signature. Refused in production by config. */
 export async function testPay(t: TenantContext, actor: Actor, orderId: string) {
-  if (env.PAYMENTS_MODE !== 'test') throw AppError.forbidden('Test payments are off');
+  if ((await gateway()).mode !== 'test') throw AppError.forbidden('Test payments are off');
   const paymentId = `pay_test_${orderId.slice(-12)}`;
-  return verify(t, actor, { orderId, paymentId, signature: paymentSignature(orderId, paymentId) });
+  return verify(t, actor, { orderId, paymentId, signature: await paymentSignature(orderId, paymentId) });
 }
 
 interface Hook {
@@ -214,7 +218,7 @@ interface Hook {
 
 /** Step 3: the webhook, in case the browser closed after paying. Signed, logged once per event id, then the same markPaid. */
 export async function webhook(raw: string, signature: string, eventId: string) {
-  const valid = checkWebhook(raw, signature);
+  const valid = await checkWebhook(raw, signature);
   const payloadHash = createHash('sha256').update(raw).digest('hex');
   let body: Hook;
   try {
@@ -281,7 +285,7 @@ export async function payments(t: TenantContext) {
 export async function invoicePdf(t: TenantContext, id: string) {
   const p = await SubscriptionPaymentModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!p?.invoiceNumber || !p.periodStart || !p.periodEnd) throw AppError.notFound('Invoice not found');
-  const from = p.invoiceFrom ?? supplier();
+  const from = p.invoiceFrom ?? (await supplier());
   const to = p.invoiceTo ?? (await buyerOf(p.shopId));
   const support = (await platform()).supportEmail;
   const period = `${day(p.periodStart)} – ${day(p.periodEnd)}`;
@@ -295,7 +299,7 @@ export async function invoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'Subscription', lines: [`${p.planName} plan · up to ${String(p.maxUsers)} users`, `Period ${period}`, how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedBox24 software subscription — ${p.planName}`, env.BILLING_SAC, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }],
+    rows: [{ cells: ['1', `MedBox24 software subscription — ${p.planName}`, (await billingInfo()).sac, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }],
     totals: [{ label: 'Taxable value', value: rupees(p.amount - p.gst) }, ...gstLines(p.gst, from, to), { label: 'Total', value: rupees(p.amount), strong: true }],
     words: rupeesInWords(p.amount),
     notes: ['Thank you for running your shop on MedBox24.', ...(support ? [`Questions about this invoice: ${support}`] : [])],

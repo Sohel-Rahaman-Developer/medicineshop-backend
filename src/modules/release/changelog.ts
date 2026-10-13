@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.20.1',
+    date: '2026-10-13',
+    title: 'Razorpay keys from the admin console',
+    shop: ['A shop pays with the Razorpay account MedBox24 chooses in its console; when it switches from test to live keys, the next payment uses the new ones.'],
+    admin: [
+      'Money → Razorpay keys: test and live keys (key ID, key secret, webhook secret) saved here, sealed — only their last 4 characters are ever shown. Test them against Razorpay with one button.',
+      'Choose which keys take payments — off, test or live — with a reason; live needs MedBox24’s legal name, address and GSTIN first. Keys in use can’t be removed.',
+      'The webhook URL to copy, the events to tick, and the last webhook received with whether its secret matched.',
+      'MedBox24’s GSTIN, state and SAC for its own invoices are set here; name and address stay in Platform settings. Every change is in the audit log.',
+    ],
+    api: ['GET /admin/gateway; PUT / DELETE /admin/gateway/keys/:set and POST …/test (test | live); PUT /admin/gateway/active; PUT /admin/gateway/billing. Until the admin chooses, payments run from the server env as before.'],
+  },
+  {
     version: '1.20.0',
     date: '2026-10-13',
     title: 'Barcode scanners that just work; loyalty in plain words',

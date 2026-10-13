@@ -1,5 +1,4 @@
 import { Types, type ClientSession } from 'mongoose';
-import { env } from '../../config/env';
 import { day, rupees } from '../../core/export';
 import { AppError } from '../../core/errors';
 import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
@@ -11,6 +10,7 @@ import { checkPayment, createOrder, fetchPayment, paymentSignature, type GwPayme
 import { audit } from '../audit/audit.model';
 import { platform } from '../admin/platform';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, nextInvoice, placeOf, supplier } from '../subscription/subscription.service';
+import { billingInfo, gateway } from '../subscription/gateway';
 import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
 import { aiOffer, aiSettings } from './ai-settings';
@@ -79,7 +79,7 @@ export async function wallet(t: TenantContext) {
   return {
     ...offer,
     balance: w?.balance ?? 0,
-    payments: env.PAYMENTS_MODE,
+    payments: (await gateway()).mode,
     ask: { available: s.chat.enabled && s.hasKey, on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) },
     questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
@@ -90,15 +90,16 @@ export async function wallet(t: TenantContext) {
 
 /** A Razorpay order for a coin pack, at its price with the 18% GST inside it — the plan purchase, for coins. */
 export async function orderCoins(t: TenantContext, actor: Actor, packCode: string) {
+  const g = await gateway();
   const offer = await aiOffer();
   if (!offer.enabled) throw AppError.forbidden('AI bill reading is off');
-  if (env.PAYMENTS_MODE === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add coins');
+  if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add coins');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
   const orderId = await createOrder(pack.price, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
-  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount: pack.price, gst: pack.price - rhu(pack.price * 100, 118), razorpayOrderId: orderId, source: env.PAYMENTS_MODE === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount: pack.price, currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} coins`, keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null, mode: env.PAYMENTS_MODE, shopName: t.shopName };
+  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount: pack.price, gst: pack.price - rhu(pack.price * 100, 118), razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  return { orderId, amount: pack.price, currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} coins`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 /** Checkout's verify and the webhook both land here: coins once per order, a second call is a no-op. */
@@ -116,7 +117,7 @@ export async function coinsPaid(orderId: string, paymentId: string, amount: numb
       return { order: o, replayed: true, balance: await balanceOf(o.shopId) };
     }
     const invoiceNumber = await nextInvoice(now, session);
-    o.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, invoiceNumber, invoiceFrom: supplier(), invoiceTo: await buyerOf(o.shopId, session), failureReason: undefined });
+    o.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, invoiceNumber, invoiceFrom: await supplier(), invoiceTo: await buyerOf(o.shopId, session), failureReason: undefined });
     await o.save({ session });
     const who = by ?? { id: String(o.createdBy), name: o.createdByName };
     const balance = await moveCoins(o.shopId, 'purchase', o.coins, `Bought ${o.packName} — ${inr(o.amount)} (${invoiceNumber})`, who.name, String(o._id), session);
@@ -128,7 +129,7 @@ export async function coinsPaid(orderId: string, paymentId: string, amount: numb
 export async function verifyCoins(t: TenantContext, actor: Actor, input: { orderId: string; paymentId: string; signature: string }) {
   const o = await CoinOrderModel.findOne({ shopId: t.shopId, razorpayOrderId: input.orderId }).lean();
   if (!o) throw AppError.notFound('Order not found');
-  if (!checkPayment(input.orderId, input.paymentId, input.signature)) throw AppError.badRequest('The payment could not be verified', { reason: 'BAD_SIGNATURE' });
+  if (!(await checkPayment(input.orderId, input.paymentId, input.signature))) throw AppError.badRequest('The payment could not be verified', { reason: 'BAD_SIGNATURE' });
   const g: GwPayment | null = await fetchPayment(input.paymentId);
   if (g && g.status !== 'captured') return { ...shapeOrder(o), confirming: true, replayed: false, balance: await balanceOf(t.shopId) };
   const r = await coinsPaid(input.orderId, input.paymentId, g?.amount ?? null, g?.method ?? 'checkout', actor);
@@ -137,9 +138,9 @@ export async function verifyCoins(t: TenantContext, actor: Actor, input: { order
 
 /** Test mode only: pays a test order the way Checkout would. */
 export async function testPayCoins(t: TenantContext, actor: Actor, orderId: string) {
-  if (env.PAYMENTS_MODE !== 'test') throw AppError.forbidden('Test payments are off');
+  if ((await gateway()).mode !== 'test') throw AppError.forbidden('Test payments are off');
   const paymentId = `pay_test_${orderId.slice(-12)}`;
-  return verifyCoins(t, actor, { orderId, paymentId, signature: paymentSignature(orderId, paymentId) });
+  return verifyCoins(t, actor, { orderId, paymentId, signature: await paymentSignature(orderId, paymentId) });
 }
 
 /** Webhook: is this Razorpay order a coin pack? */
@@ -152,7 +153,7 @@ export async function coinOrderFailed(orderId: string, reason: string) {
 export async function coinInvoicePdf(t: TenantContext, id: string) {
   const o = await CoinOrderModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'paid' }).lean();
   if (!o?.invoiceNumber) throw AppError.notFound('Invoice not found');
-  const from = o.invoiceFrom ?? supplier();
+  const from = o.invoiceFrom ?? (await supplier());
   const to = o.invoiceTo ?? (await buyerOf(o.shopId));
   const support = (await platform()).supportEmail;
   const how = o.source === 'test' ? 'Test payment' : `Paid by ${o.method ?? 'Razorpay'}${o.razorpayPaymentId ? ` · ${o.razorpayPaymentId}` : ''}`;
@@ -165,7 +166,7 @@ export async function coinInvoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'AI coins', lines: [`${o.packName} · ${String(o.coins)} coins`, 'For reading supplier bills with AI', how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedBox24 AI bill reading — ${String(o.coins)} coins`, env.BILLING_SAC, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
+    rows: [{ cells: ['1', `MedBox24 AI bill reading — ${String(o.coins)} coins`, (await billingInfo()).sac, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
     totals: [{ label: 'Taxable value', value: rupees(o.amount - o.gst) }, ...gstLines(o.gst, from, to), { label: 'Total', value: rupees(o.amount), strong: true }],
     words: rupeesInWords(o.amount),
     notes: ['Coins do not expire and are not refundable as cash.', ...(support ? [`Questions about this invoice: ${support}`] : [])],

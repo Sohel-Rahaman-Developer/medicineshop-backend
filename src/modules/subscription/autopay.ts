@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
-import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { day, rupees } from '../../core/export';
 import type { TenantContext } from '../../core/middleware/tenant';
@@ -13,6 +12,7 @@ import type { Actor } from '../user/actor';
 import { AUTOPAY_STATUSES, AutopayModel, PlatformCounterModel, RzpPlanModel, SubscriptionPaymentModel, type AutopayStatus } from './billing.model';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, markPaid, placeOf, plansFor, supplier } from './subscription.service';
+import { billingInfo, gateway } from './gateway';
 import { platform } from '../admin/platform';
 import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
 import { rupeesInWords } from '../../utils/words';
@@ -25,7 +25,9 @@ const MIN = 60 * 1000;
 const isPending = (id: string) => id.startsWith('pending_');
 
 async function rzpPlanFor(code: string, name: string, amount: number, yearly: boolean) {
-  const key = `${env.PAYMENTS_MODE}:${code}:${String(amount)}`;
+  // One Razorpay account's plan id means nothing to another, so the keys are part of the name.
+  const g = await gateway();
+  const key = `${g.mode}:${g.keyId}:${code}:${String(amount)}`;
   const have = await RzpPlanModel.findById(key).lean();
   if (have) return have.rzpPlanId;
   const id = await createPlan(yearly ? 'yearly' : 'monthly', amount, `MedBox24 ${name}`);
@@ -45,12 +47,13 @@ export async function autopayOf(shopId: Types.ObjectId) {
  * date; a trial or lapsed plan is charged when the owner approves.
  */
 export async function startAutopay(t: TenantContext, actor: Actor, planCode: string, now = new Date()) {
+  const g = await gateway();
   const plan = (await plansFor(t.shopId, now)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   if (await AutopayModel.exists({ shopId: t.shopId, status: { $in: RUNNING } })) throw AppError.conflict('Autopay is already on — stop it first to change the plan', { reason: 'AUTOPAY_ON' });
   const sub = await SubscriptionModel.findOne({ shopId: t.shopId }).lean();
   if (!sub) throw AppError.notFound('No subscription');
-  const shape = (id: string, startAt: Date | null) => ({ subscriptionId: id, amount: plan.price, planName: plan.name, startAt, keyId: env.PAYMENTS_MODE === 'razorpay' ? (env.RAZORPAY_KEY_ID ?? null) : null, mode: env.PAYMENTS_MODE, shopName: t.shopName });
+  const shape = (id: string, startAt: Date | null) => ({ subscriptionId: id, amount: plan.price, planName: plan.name, startAt, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName });
   // Checkout closed and opened again: the same unapproved subscription, never a second mandate.
   const fresh = await AutopayModel.findOne({ shopId: t.shopId, status: 'created', planCode: plan.code, amount: plan.price, createdAt: { $gt: new Date(now.getTime() - 30 * MIN) } }).lean();
   if (fresh && !isPending(fresh.rzpSubscriptionId)) return shape(fresh.rzpSubscriptionId, fresh.startAt ?? null);
@@ -106,7 +109,7 @@ export async function charge(subscriptionId: string, paymentId: string, amount: 
 export async function verifyAutopay(t: TenantContext, actor: Actor, input: { subscriptionId: string; paymentId: string; signature: string }, now = new Date()) {
   const a = await AutopayModel.findOne({ shopId: t.shopId, rzpSubscriptionId: input.subscriptionId });
   if (!a) throw AppError.notFound('Autopay not found');
-  if (!checkSubscription(input.paymentId, input.subscriptionId, input.signature)) throw AppError.badRequest('The approval could not be verified', { reason: 'BAD_SIGNATURE' });
+  if (!(await checkSubscription(input.paymentId, input.subscriptionId, input.signature))) throw AppError.badRequest('The approval could not be verified', { reason: 'BAD_SIGNATURE' });
   if (STOPPED.includes(a.status)) {
     // Replaced or stopped while its Checkout was open: the approval must not leave a live mandate behind.
     await cancelSubscription(a.rzpSubscriptionId).catch(() => undefined);
@@ -126,9 +129,9 @@ export async function verifyAutopay(t: TenantContext, actor: Actor, input: { sub
 
 /** Test mode only: approves the mandate the way Checkout would, with a real signature. */
 export async function testApprove(t: TenantContext, actor: Actor, subscriptionId: string) {
-  if (env.PAYMENTS_MODE !== 'test') throw AppError.forbidden('Test payments are off');
+  if ((await gateway()).mode !== 'test') throw AppError.forbidden('Test payments are off');
   const paymentId = `pay_test_${subscriptionId.slice(-12)}`;
-  return verifyAutopay(t, actor, { subscriptionId, paymentId, signature: subscriptionSignature(paymentId, subscriptionId) });
+  return verifyAutopay(t, actor, { subscriptionId, paymentId, signature: await subscriptionSignature(paymentId, subscriptionId) });
 }
 
 /** The owner (or MedBox24) stops autopay: Razorpay cancels the mandate first, so nothing is charged after we say stopped. */
@@ -336,7 +339,7 @@ export async function creditNotePdf(t: TenantContext, paymentId: string, refundI
   const r = p?.refunds.find((x) => String(x._id) === refundId);
   if (!p || !r?.creditNote || r.status === 'failed') throw AppError.notFound('Credit note not found');
   const gst = r.amount - rhu(r.amount * 100, 118);
-  const from = p.invoiceFrom ?? supplier();
+  const from = p.invoiceFrom ?? (await supplier());
   const to = p.invoiceTo ?? (await buyerOf(p.shopId));
   const support = (await platform()).supportEmail;
   const buf = await invoiceDoc({
@@ -347,7 +350,7 @@ export async function creditNotePdf(t: TenantContext, paymentId: string, refundI
     logo: true,
     parties: [billedTo(to), { label: 'Refund', lines: [`${rupees(r.amount)} of ${rupees(p.amount)} paid`, `Reason: ${r.reason}`, r.daysRemoved ? `${String(r.daysRemoved)} plan days removed` : 'Plan days unchanged'] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `Refund — MedBox24 software subscription (${p.planName})`, env.BILLING_SAC, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
+    rows: [{ cells: ['1', `Refund — MedBox24 software subscription (${p.planName})`, (await billingInfo()).sac, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
     totals: [{ label: 'Taxable value', value: rupees(r.amount - gst) }, ...gstLines(gst, from, to), { label: 'Refunded', value: rupees(r.amount), strong: true }],
     words: rupeesInWords(r.amount),
     notes: [`This credit note reduces invoice ${p.invoiceNumber ?? ''}; the invoice itself stays as issued.`, ...(support ? [`Questions: ${support}`] : [])],

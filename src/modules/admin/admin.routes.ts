@@ -19,6 +19,9 @@ import { istDay } from '../../core/zod';
 import { CHANGELOG } from '../release/changelog';
 import { release } from '../release/release';
 import * as ai from '../ai/ai-admin';
+import * as gw from './gateway-admin';
+import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
+import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import * as chat from '../ask/ask-admin';
 import { ASK_ROUTES } from '../ask/ask.model';
@@ -111,6 +114,18 @@ adminRouter.put('/ai/chat', superOnly, validate({ body: z.object({ chat: chatSet
 adminRouter.put('/ai/prices', superOnly, validate({ body: z.object({ prices: pricesSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { prices: PricesInput; reason: string }; sent(res, await chat.updatePrices(adminOf(req), b.prices, b.reason, req.ip), 'Prices saved'); }));
 adminRouter.get('/shops/:id/coins', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await ai.shopCoins((req.params as { id: string }).id)); }));
 adminRouter.post('/shops/:id/coins', moneyRole, validate({ params: idParams, body: z.object({ coins: z.number().int().min(-100_000).max(100_000).refine((n) => n !== 0, 'Give or take at least 1 coin'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { coins: number; reason: string }; sent(res, await ai.grantCoins(adminOf(req), (req.params as { id: string }).id, b.coins, b.reason, req.ip), b.coins > 0 ? `${String(b.coins)} coins added` : `${String(-b.coins)} coins taken back`); }));
+
+// D95: Razorpay keys and the invoice details — the admin sets them here, never the server's env; accounts may look.
+const setParams = z.object({ set: z.enum(GATEWAY_SETS) }).strict();
+const secret = (what: string) => z.string().trim().regex(/^[!-~]{8,200}$/, `${what}: 8 or more characters, no spaces`);
+const keysBody = z.object({ keyId: z.string().trim().regex(/^rzp_(test|live)_[A-Za-z0-9]{8,32}$/, 'A Razorpay key ID looks like rzp_live_…'), keySecret: secret('Key secret').optional(), webhookSecret: secret('Webhook secret').optional(), reason }).strict();
+const billingBody = z.object({ gstin: z.string().trim().toUpperCase().refine((v) => v === '' || /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(v), 'A GSTIN has 15 characters, like 19AABCM1234A1Z5'), state: z.enum(STATES.map((x) => x.name) as [string, ...string[]]), sac: z.string().trim().regex(/^\d{6}$/, 'SAC: 6 digits'), reason }).strict();
+adminRouter.get('/gateway', moneyRole, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await gw.gatewayOverview()); }));
+adminRouter.put('/gateway/keys/:set', superOnly, validate({ params: setParams, body: keysBody }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as KeysInput & { reason: string }; sent(res, await gw.updateKeys(adminOf(req), (req.params as { set: GatewaySet }).set, { keyId: b.keyId, keySecret: b.keySecret, webhookSecret: b.webhookSecret }, b.reason, req.ip), 'Keys saved'); }));
+adminRouter.delete('/gateway/keys/:set', superOnly, validate({ params: setParams, body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await gw.removeKeys(adminOf(req), (req.params as { set: GatewaySet }).set, (req.body as { reason: string }).reason, req.ip), 'Keys removed'); }));
+adminRouter.post('/gateway/keys/:set/test', superOnly, validate({ params: setParams }), asyncHandler(async (req: Request, res: Response) => { const r = await gw.testGatewayKeys((req.params as { set: GatewaySet }).set); sent(res, r, r.message); }));
+adminRouter.put('/gateway/active', superOnly, validate({ body: z.object({ active: z.enum(GATEWAY_ACTIVE), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { active: GatewayActive; reason: string }; sent(res, await gw.switchActive(adminOf(req), b.active, b.reason, req.ip), 'Online payments switched'); }));
+adminRouter.put('/gateway/billing', superOnly, validate({ body: billingBody }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as BillingInput & { reason: string }; sent(res, await gw.updateBilling(adminOf(req), { gstin: b.gstin, state: b.state, sac: b.sac }, b.reason, req.ip), 'Invoice details saved'); }));
 
 // D80: referral program — the terms are super's; who referred a shop is support's (shops role).
 adminRouter.get('/referrals', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.referrals()); }));
