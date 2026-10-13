@@ -32,6 +32,7 @@ clinicRouter.post(
   }),
 );
 clinicRouter.post('/visits/:id/pay', counter, validate({ params: idParams, body: payFeeSchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.pay(tenantOf(req), await actorOf(req), idOf(req), (req.body as { mode: 'CASH' | 'UPI' | 'CARD' }).mode, req.ip), 'Fee paid'); }));
+clinicRouter.post('/visits/:id/undo-pay', counter, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.undoPay(tenantOf(req), await actorOf(req), idOf(req), req.ip), 'Payment undone'); }));
 clinicRouter.post('/visits/:id/status', counter, validate({ params: idParams, body: visitStatusSchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.setStatus(tenantOf(req), await actorOf(req), idOf(req), (req.body as { status: 'booked' | 'arrived' | 'seen' | 'no_show' }).status, req.ip), 'Updated'); }));
 clinicRouter.post('/visits/:id/cancel', counter, validate({ params: idParams, body: cancelVisitSchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.cancel(tenantOf(req), await actorOf(req), idOf(req), req.body as CancelVisitInput, req.ip), 'Appointment cancelled'); }));
 clinicRouter.post('/visits/:id/move', counter, validate({ params: idParams, body: moveVisitSchema }), asyncHandler(async (req: Request, res: Response) => { const v = await svc.move(tenantOf(req), await actorOf(req), idOf(req), req.body as { day: string; start: string }, req.ip); sent(res, v, `Moved · token ${String(v.token)}`); }));

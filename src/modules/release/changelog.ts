@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.19.1',
+    date: '2026-10-13',
+    title: 'Appointments, simpler and safer',
+    shop: [
+      'Book a doctor: the doctor from a list, the next three sittings as buttons and the rest under “More dates” — nothing scrolls sideways; “Book token N” stays at the bottom.',
+      'Find a patient by phone or by a customer’s name — pick them and the phone fills in.',
+      'Every fee shows where it goes: what the shop collects, what the shop keeps, what the doctor gets.',
+      'Taking a fee asks how it was paid — cash, UPI or card — before it is taken. Pressed by mistake? “Undo” on the message, or on the visit for 10 minutes.',
+      'Doctors’ money: per doctor, fees collected − shop keeps = doctor’s share − already paid = still to pay the doctor.',
+      'A smaller top bar and Ask AI button; a compact day bar and counts on phones.',
+    ],
+    admin: [],
+    api: ['POST /clinic/visits/:id/undo-pay takes back the last fee payment within 10 minutes (not once its day is closed or the doctor was paid it). Visits carry the shop’s commission.'],
+  },
+  {
     version: '1.19.0',
     date: '2026-10-12',
     title: 'Doctor appointments (Pro)',

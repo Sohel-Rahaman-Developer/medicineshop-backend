@@ -16,7 +16,7 @@ const shopBody = (name: string) => ({
 const DAY = 86_400_000;
 const ist = (ms: number) => new Date(ms + 5.5 * 3_600_000).toISOString().slice(0, 10);
 
-interface Visit { id: string; token: number; time: string; status: string; fee: number; paid: number; due: number; kind: string; customerId: string | null; day: string; start: string; patient: { name: string } }
+interface Visit { id: string; token: number; time: string; status: string; fee: number; commission: number; paid: number; due: number; payments: { amount: number; mode: string }[]; kind: string; customerId: string | null; day: string; start: string; patient: { name: string } }
 interface Slot { day: string; start: string; left: number; nextToken: number; time: string; off: boolean }
 interface Due { id: string; fees: number; commission: number; earned: number; paidOut: number; balance: number; visits: number; notCollected: number; advanceHeld: number }
 
@@ -25,6 +25,7 @@ async function main() {
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
   const { CustomerModel } = await import('../src/modules/customers/customer.model.js');
+  const { AppointmentModel } = await import('../src/modules/clinic/clinic.model.js');
   const today = ist(Date.now());
   const tomorrow = ist(Date.now() + DAY);
   const later = ist(Date.now() + 2 * DAY);
@@ -77,7 +78,14 @@ async function main() {
   const wrong = await st(v1, 'no_show');
   check('a seen patient can’t become a no-show (409)', wrong.status === 409, code(wrong));
   const paidUpi = await owner.post(`/clinic/visits/${v2.id}/pay`, { mode: 'UPI' });
-  check('Rina pays ₹500 by UPI at the visit', data<Visit>(paidUpi).paid === 50_000 && (await owner.post(`/clinic/visits/${v2.id}/pay`, { mode: 'CASH' })).status === 409);
+  check('Rina pays ₹500 by UPI at the visit; the shop’s 20% (₹100) rides on the visit', data<Visit>(paidUpi).paid === 50_000 && data<Visit>(paidUpi).commission === 10_000 && (await owner.post(`/clinic/visits/${v2.id}/pay`, { mode: 'CASH' })).status === 409);
+  const undone = await owner.post(`/clinic/visits/${v2.id}/undo-pay`, {});
+  const twice = await owner.post(`/clinic/visits/${v2.id}/undo-pay`, {});
+  check('taken by mistake: undo puts ₹500 due again and drops the payment; a 2nd undo has nothing to undo (409)', data<Visit>(undone).due === 50_000 && data<Visit>(undone).payments.length === 0 && twice.status === 409, `${code(undone)} | ${code(twice)}`);
+  await owner.post(`/clinic/visits/${v2.id}/pay`, { mode: 'UPI' });
+  await AppointmentModel.updateOne({ shopId: owner.shopId, _id: v2.id }, { $set: { 'payments.0.at': new Date(Date.now() - 11 * 60_000) } });
+  const stale = await owner.post(`/clinic/visits/${v2.id}/undo-pay`, {});
+  check('after 10 minutes the payment stays (409)', stale.status === 409 && /10 minutes/.test(stale.json.error?.message ?? ''), code(stale));
   await st(v2, 'seen');
   check('Farida cancels (nothing paid)', data<Visit>(await owner.post(`/clinic/visits/${v3.id}/cancel`, { reason: 'Feeling better' })).status === 'cancelled');
   const again = await book({ phone: '98300 88888', patient: { name: 'Someone Else', age: null, gender: '' } });

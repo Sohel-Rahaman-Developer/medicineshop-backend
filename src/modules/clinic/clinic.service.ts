@@ -11,6 +11,7 @@ import { CustomerModel, DoctorModel } from '../customers/customer.model';
 import * as loyalty from '../loyalty/loyalty.service';
 import { can } from '../rbac/permissions';
 import type { Actor } from '../user/actor';
+import { DayCloseModel } from '../dayclose/dayclose.model';
 import { AppointmentModel, DoctorPayoutModel, SittingOffModel } from './clinic.model';
 import type { BookInput, CancelVisitInput, ChamberInput, PayoutInput, SittingOffInput } from './clinic.validation';
 
@@ -53,6 +54,7 @@ function shape(a: VisitLean, minutes: number) {
     customerId: a.customerId ? String(a.customerId) : null,
     kind: a.kind,
     fee: a.fee,
+    commission: a.commission,
     paid: a.paid,
     due: Math.max(0, a.fee - a.paid),
     payments: a.payments.map((p) => ({ amount: p.amount, mode: p.mode, at: p.at, by: p.by })),
@@ -148,13 +150,13 @@ async function minutesFor(t: TenantContext, doctorId: Types.ObjectId) {
   return d ? chamberOf(d).minutes : 10;
 }
 
-async function change(t: TenantContext, actor: Actor, id: string, ip: string | undefined, work: (a: VisitLean, now: Date, session: ClientSession) => Promise<{ set: Record<string, unknown>; push?: Record<string, unknown>; text: string }>) {
+async function change(t: TenantContext, actor: Actor, id: string, ip: string | undefined, work: (a: VisitLean, now: Date, session: ClientSession) => Promise<{ set: Record<string, unknown>; push?: Record<string, unknown>; pop?: Record<string, 1>; text: string }>) {
   return inTransaction(async (session) => {
     const now = new Date();
     const a = await findVisit(t, id, session);
     if (!a) throw AppError.notFound('Appointment not found');
-    const { set, push, text } = await work(a, now, session);
-    const done = await AppointmentModel.updateOne({ shopId: t.shopId, _id: a._id, status: a.status, paid: a.paid, day: a.day, start: a.start }, { $set: set, ...(push ? { $push: push } : {}) }, { session });
+    const { set, push, pop, text } = await work(a, now, session);
+    const done = await AppointmentModel.updateOne({ shopId: t.shopId, _id: a._id, status: a.status, paid: a.paid, day: a.day, start: a.start }, { $set: set, ...(push ? { $push: push } : {}), ...(pop ? { $pop: pop } : {}) }, { session });
     if (!done.modifiedCount) throw AppError.conflict('This appointment changed meanwhile — reload');
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: set.status === 'cancelled' ? 'cancel' : 'update', module: 'customers', entityId: String(a._id), entityName: `${a.doctorName} #${String(a.token)}`, text: `${actor.name} · ${a.patient.name} with ${a.doctorName} ${a.day} ${a.start} · ${text}`, ip }, session);
     return shape((await findVisit(t, id, session)) as VisitLean, await minutesFor(t, a.doctorId));
@@ -168,6 +170,23 @@ export function pay(t: TenantContext, actor: Actor, id: string, mode: 'CASH' | '
     const due = a.fee - a.paid;
     if (due <= 0) throw AppError.conflict('Nothing is due on this appointment');
     return Promise.resolve({ set: { paid: a.fee }, push: { payments: { amount: due, mode, at: now, by: actor.name } }, text: `fee ${inr(due)} paid ${mode}` });
+  });
+}
+
+export const UNDO_MINUTES = 10;
+
+/** A fee taken by mistake: the last payment comes off within 10 minutes, while its day is still open. */
+export function undoPay(t: TenantContext, actor: Actor, id: string, ip?: string) {
+  return change(t, actor, id, ip, async (a, now, session) => {
+    const last = a.payments.at(-1);
+    if (a.status === 'cancelled' || !last || last.amount <= 0) throw AppError.conflict('There is no payment to undo');
+    if (now.getTime() - last.at.getTime() > UNDO_MINUTES * 60_000) throw AppError.conflict(`A payment can be undone only within ${String(UNDO_MINUTES)} minutes`);
+    if (await DayCloseModel.exists({ shopId: t.shopId, day: today(last.at) }).session(session)) throw AppError.conflict('That day is closed — the payment stays');
+    if (a.status === 'seen' || a.status === 'no_show') {
+      const owed = (await dues(t)).find((x) => x.id === String(a.doctorId))?.balance ?? 0;
+      if (owed < last.amount) throw AppError.conflict('The doctor has been paid this fee already — it can’t be undone');
+    }
+    return { set: { paid: a.paid - last.amount }, pop: { payments: 1 }, text: `${inr(last.amount)} ${last.mode} undone` };
   });
 }
 
