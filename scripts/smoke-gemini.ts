@@ -19,7 +19,7 @@ const shopBody = (name: string) => ({
 const PHOTO = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(4000, 7)]);
 const b64 = (b: Buffer, type: string) => `data:${type};base64,${b.toString('base64')}`;
 
-interface Settings { enabled: boolean; hasKey: boolean; model: string; gemini: { hasKey: boolean; keyLast4: string | null }; chat: { enabled: boolean }; models: { id: string; provider: string; free: boolean }[] }
+interface Settings { enabled: boolean; hasKey: boolean; model: string; gemini: { hasKey: boolean; keyLast4: string | null; paid: boolean }; chat: { enabled: boolean }; models: { id: string; provider: string; free: boolean }[] }
 interface ReadOut { lines: unknown[]; meta: { invoiceNumber: string | null }; ai: { readId: string; coins: number; balance: number } }
 
 async function main() {
@@ -116,13 +116,45 @@ async function main() {
   check('“Test key” says Google refused it', !data<{ ok: boolean; message: string }>(await root.post('/admin/ai/gemini-key/test', {})).ok);
   fake.key = realKey;
 
+  section('3b. The status card: why a feature is off, and one tap to fix it');
+  type Status = { read: { model: string; blocks: string[] }; chat: { model: string; blocks: string[]; shopsOn: number } };
+  const statusOf = async () => data<{ status: Status }>(await root.get('/admin/ai')).status;
+  const flip = (b: Record<string, unknown>) => root.post('/admin/ai/switch', { reason: 'from the status card', ...b });
+  check('bill reading on Gemini with its key → running, nothing to fix', (await statusOf()).read.blocks.length === 0);
+  check('the chat by default (Claude Haiku 5.5, no Claude key, switched off) → “key” then “off”', (await statusOf()).chat.blocks.join() === 'key,off');
+  check('accounts can’t tap it → 403', (await acc.post('/admin/ai/switch', { feature: 'read', on: false, reason: 'from the status card' })).status === 403);
+  const off = await flip({ feature: 'read', on: false });
+  check('“Turn off” → bill reading off, the card says “off”, the shop sees it off', off.status === 200 && data<{ status: Status }>(off).status.read.blocks.join() === 'off' && !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled, code(off));
+  const back = await flip({ feature: 'read', on: true });
+  check('“Turn on” → running again; audited as turned on, with the reason', back.status === 200 && data<{ status: Status }>(back).status.read.blocks.length === 0 && Boolean(await AdminAuditModel.exists({ action: 'ai_settings', reason: 'from the status card', text: { $regex: 'turned on' } })), code(back));
+  // An older setting that now loses money: ₹2,000 a dollar → a page's worst (3,750 + 30,000) × 2,000 × 100 / 1M = 6,750 paise.
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 2000 } });
+  check('a price that now loses money → “loss” (and the feature pauses)', (await statusOf()).read.blocks.join() === 'loss' && !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
+  check('“Charge 6 coins” → still a loss (6 × ₹10.13 = ₹60.78 < ₹67.50) → 422', (await flip({ feature: 'read', on: true, coins: 6 })).status === 422);
+  const seven = await flip({ feature: 'read', on: true, coins: 7 });
+  check('“Charge 7 coins” (₹70.91) → saved, running', seven.status === 200 && data<{ status: Status; settings: Settings }>(seven).status.read.blocks.length === 0 && data<{ settings: { coinsPerPage: number } }>(seven).settings.coinsPerPage === 7, code(seven));
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 88, coinsPerPage: 2 } });
+  check('a chat question costs 20 coins at most → 422', (await flip({ feature: 'chat', on: true, coins: 21 })).status === 422);
+
   section('4. The shop chat on Gemini, with the shop’s tools');
   const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'chat on Gemini Flash-Lite' };
   const freeTier = await root.put('/admin/ai/chat', chatOn);
   check('the chat on a free-tier Gemini key → 422 (Google may use what is sent; questions carry customers’ names)', freeTier.status === 422 && String(freeTier.json.error?.message).startsWith('Turn on billing for the Gemini key first'), code(freeTier));
+  check('the chat set to Gemini but left off → saved (off needs no paid key)', (await root.put('/admin/ai/chat', { ...chatOn, chat: { ...chatOn.chat, enabled: false } })).status === 200);
+  check('the card says why: “freeTier” then “off”', (await statusOf()).chat.blocks.join() === 'freeTier,off');
+  check('“Turn on” as it is → 422, the free-tier reason', String((await flip({ feature: 'chat', on: true })).json.error?.message).startsWith('Turn on billing for the Gemini key first'));
+  check('“Use Claude Haiku 5.5 instead” with no Claude key → 422 naming Claude', String((await flip({ feature: 'chat', on: true, model: 'claude-haiku-5-5' })).json.error?.message).includes('Claude'));
+  check('“Billing is on” without the key pasted again: accounts → 403', (await acc.put('/admin/ai/gemini-key/billing', { paid: true, reason: 'billing on in AI Studio' })).status === 403);
+  const billed = await root.put('/admin/ai/gemini-key/billing', { paid: true, reason: 'billing on in AI Studio' });
+  check('super → billing on, the key itself untouched; audited', billed.status === 200 && data<{ settings: Settings }>(billed).settings.gemini.paid && data<{ settings: Settings }>(billed).settings.gemini.keyLast4 === fake.key.slice(-4) && Boolean(await AdminAuditModel.exists({ action: 'ai_key_billing', text: 'Gemini key: billing on' })), code(billed));
+  await root.put('/admin/ai/gemini-key/billing', { paid: false, reason: 'back to the free tier' });
   check('the same key, billing on → saved and audited', (await root.put('/admin/ai/gemini-key', { apiKey: fake.key, paid: true, reason: 'billing turned on in AI Studio' })).status === 200 && Boolean(await AdminAuditModel.exists({ action: 'ai_key_set', text: { $regex: 'billing on' } })));
+  check('billing on → the card says only “off”', (await statusOf()).chat.blocks.join() === 'off');
+  const chatUp = await flip({ feature: 'chat', on: true });
+  check('one tap → the chat runs on Gemini 3.5 Flash-Lite', chatUp.status === 200 && data<{ status: Status }>(chatUp).status.chat.blocks.length === 0 && data<{ status: Status }>(chatUp).status.chat.model === 'gemini-3.5-flash-lite', code(chatUp));
   check('chat on Gemini 3.5 Flash-Lite', (await root.put('/admin/ai/chat', chatOn)).status === 200);
   await owner.put('/ask/ai', { on: true });
+  check('the card counts the shops that turned AI answers on: 1', (await statusOf()).chat.shopsOn === 1);
   fake.queue.push({ tools: [{ name: 'product_stock', args: { name: 'dolo' } }] }, { say: 'Dolo 650 mein paracetamol hai — bukhar aur dard ke liye. Stock mein hai.' });
   const n = fake.seen.length;
   const ask = await owner.post('/ask', { text: 'Dolo kis kaam aati hai', confirm: true, history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹0' }] });

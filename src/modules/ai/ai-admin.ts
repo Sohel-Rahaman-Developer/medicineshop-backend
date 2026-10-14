@@ -8,10 +8,12 @@ import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
 import { ShopModel } from '../shops/shop.model';
 import { GeminiError, modelInfo } from '../../services/gemini';
-import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, saveAiSettings, setApiKey, type AiSettingsInput } from './ai-settings';
+import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, saveAiSettings, setApiKey, setGeminiPaid, type AiSettingsInput } from './ai-settings';
 import type { AiModelId, AiProvider } from './ai.model';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
 import { moveCoins } from './coins';
+import { aiStatus, type Feature } from './status';
+import { updateChat } from '../ask/ask-admin';
 
 const DAY = 86_400_000;
 
@@ -33,6 +35,7 @@ export async function aiOverview(now = new Date()) {
     month: { reads: month[0]?.n ?? 0, coins: month[0]?.coins ?? 0, costPaise: month[0]?.cost ?? 0, salesPaise: soldMonth[0]?.amount ?? 0, salesNetPaise: (soldMonth[0]?.amount ?? 0) - (soldMonth[0]?.gst ?? 0) },
     sold: { orders: sold[0]?.n ?? 0, coins: sold[0]?.coins ?? 0, amountPaise: sold[0]?.amount ?? 0, netPaise: (sold[0]?.amount ?? 0) - (sold[0]?.gst ?? 0) },
     held: { coins: held[0]?.coins ?? 0, shops: held[0]?.shops ?? 0 },
+    status: await aiStatus(settings),
   };
 }
 
@@ -81,6 +84,21 @@ export async function updateAiSettings(a: AdminActor, input: AiSettingsInput, re
   const changed = (Object.keys(input) as (keyof AiSettingsInput)[]).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
   await log(a, 'ai_settings', reason, `AI reading: ${changed.join(', ') || 'no change'}${input.enabled !== before.enabled ? ` — turned ${input.enabled ? 'on' : 'off'}` : ''}`, undefined, { before: Object.fromEntries(changed.map((k) => [k, before[k]])), after: Object.fromEntries(changed.map((k) => [k, after[k]])) }, ip);
   return after;
+}
+
+/** The status card's one tap: a feature on or off, with the model or coins that let it run — through the same checks and log as the full form. */
+export async function switchAi(a: AdminActor, b: { feature: Feature; on: boolean; model?: AiModelId; coins?: number }, reason: string, ip?: string) {
+  const s = await aiSettings();
+  if (b.feature === 'read') await updateAiSettings(a, { enabled: b.on, model: b.model ?? s.model, effort: s.effort, coinsPerPage: b.coins ?? s.coinsPerPage, maxPages: s.maxPages, welcomeCoins: s.welcomeCoins, targetMargin: s.targetMargin, usdInr: s.usdInr, packs: s.packs }, reason, ip);
+  else await updateChat(a, { ...s.chat, enabled: b.on, model: b.model ?? s.chat.model, coinsPerQuestion: b.coins ?? s.chat.coinsPerQuestion }, reason, ip);
+  return aiOverview();
+}
+
+export async function updateGeminiBilling(a: AdminActor, paid: boolean, reason: string, ip?: string) {
+  const before = await aiSettings();
+  const s = await setGeminiPaid(paid, a.name);
+  await log(a, 'ai_key_billing', reason, `Gemini key: billing ${paid ? 'on' : 'off (free tier)'}${before.chat.enabled && !s.chat.enabled ? ' — the chat off' : ''}`, undefined, undefined, ip);
+  return aiOverview();
 }
 
 export async function updateApiKey(a: AdminActor, key: string | null, reason: string, ip?: string, p: AiProvider = 'anthropic', paid = false) {

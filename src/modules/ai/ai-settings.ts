@@ -155,6 +155,15 @@ export async function setApiKey(key: string, by: string, p: AiProvider = 'anthro
   return aiSettings();
 }
 
+/** Billing on or off for the Gemini key without pasting it again; off stops a chat running on Gemini. */
+export async function setGeminiPaid(paid: boolean, by: string) {
+  const s = await aiSettings();
+  if (!s.gemini.hasKey) throw AppError.validation('Set the Gemini key first', [{ field: 'body.paid', message: 'No Gemini key' }]);
+  const chatOff = !paid && providerOf(s.chat.model) === 'google' ? { 'chat.enabled': false } : {};
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { 'gemini.paid': paid, updatedBy: by, ...chatOff } });
+  return aiSettings();
+}
+
 /** Removing a key also turns off whatever runs on that provider's model — bill reading, the chat or both. */
 export async function clearApiKey(by: string, p: AiProvider = 'anthropic') {
   const s = await aiSettings();

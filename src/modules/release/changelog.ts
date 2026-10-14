@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.2',
+    date: '2026-10-14',
+    title: 'AI settings that say why AI is off',
+    shop: ['Behind the scenes: the MedBox24 team now sees at a glance why AI bill reading or AI answers are off and turns them on in one step — so they reach your shop sooner.'],
+    admin: [
+      'AI status, on top of AI bill reading and Shop chat: each feature On, Off or Paused, why in plain words (no key, a free-tier Gemini key under the chat, a price that would lose money, switched off), and the one tap that fixes it — with a reason already filled in for the audit log.',
+      'Settings show what matters first (on, model, coins); the rest is under More settings. Save stays in sight at the bottom and says when something changed.',
+      'Billing on for the Gemini key without pasting the key again.',
+    ],
+    api: ['POST /admin/ai/switch (feature, on, optional model or coins — the same checks as the full settings); PUT /admin/ai/gemini-key/billing; GET /admin/ai carries status (each feature’s blocks, shops with AI answers on).'],
+  },
+  {
     version: '1.22.1',
     date: '2026-10-14',
     title: 'AI never costs more than its coins bring in',

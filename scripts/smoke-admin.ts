@@ -190,7 +190,9 @@ async function main() {
   check('public /health carries the version and deploy time', live.version === CHANGELOG[0]?.version && !Number.isNaN(Date.parse(live.deployedAt)), JSON.stringify(live));
   const rel = await nobody.get('/release');
   const relData = data<{ version: string; notes: { version: string; items: string[] }[]; commits?: unknown }>(rel);
-  check('public /release: shop notes only, newest first, no commits', rel.status === 200 && relData.notes[0]?.version === CHANGELOG[0]?.version && relData.notes[0]?.items.join() === CHANGELOG[0]?.shop.join() && !('commits' in relData), code(rel));
+  // An admin-only release has no shop notes; the shop sees the newest one that has.
+  const newestShop = CHANGELOG.find((n) => n.shop.length);
+  check('public /release: shop notes only, newest first, no commits', rel.status === 200 && relData.notes[0]?.version === newestShop?.version && relData.notes[0]?.items.join() === newestShop?.shop.join() && relData.notes.every((n) => n.items.length > 0) && !('commits' in relData), code(rel));
   check('admin /release needs an admin session', (await nobody.get('/admin/release')).status === 401);
   const adm = data<{ version: string; commits: Record<string, unknown>; notes: { admin: string[]; api: string[] }[] }>(await vee.get('/admin/release'));
   check('admin /release: every note with admin + API items, and the commits', adm.version === CHANGELOG[0]?.version && 'backend' in adm.commits && adm.notes.length === CHANGELOG.length && JSON.stringify(adm.notes.map((n) => [n.admin.length, n.api.length])) === JSON.stringify(CHANGELOG.map((n) => [n.admin.length, n.api.length])));

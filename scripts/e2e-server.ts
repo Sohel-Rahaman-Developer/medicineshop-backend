@@ -61,8 +61,9 @@ async function main() {
   const { inTransaction } = await import('../src/core/transaction.js');
   const { DEFAULT_PACKS } = await import('../src/modules/ai/ai.model.js');
   /** AI suite (D78): AI reading on with the stand-in's key, and coins for the named shop. */
-  const seedAi = async (b: { shopName?: string; coins?: number }) => {
+  const seedAi = async (b: { shopName?: string; coins?: number; chatOff?: boolean }) => {
     await setApiKey(claude.key, 'E2E');
+    if (b.chatOff) await saveChatSettings(CHAT_DEFAULTS, 'E2E');
     await saveAiSettings({ enabled: true, model: 'claude-haiku-4-5-20251001', effort: 'low', coinsPerPage: 1, maxPages: 10, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: DEFAULT_PACKS }, 'E2E');
     if (!b.shopName || !b.coins) return;
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
@@ -112,7 +113,7 @@ async function main() {
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string };
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean };
       (req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),

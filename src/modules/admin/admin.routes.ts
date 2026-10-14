@@ -23,7 +23,7 @@ import * as gw from './gateway-admin';
 import { perfOverview } from '../perf/perf';
 import { aiMoney } from '../ai/ledger';
 import * as credit from '../ai/credits';
-import { AI_PROVIDERS, type AiProvider } from '../ai/ai.model';
+import { AI_MODEL_IDS, AI_PROVIDERS, type AiProvider } from '../ai/ai.model';
 import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
 import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
@@ -107,12 +107,16 @@ adminRouter.get('/ai', asyncHandler(async (_req: Request, res: Response) => { fe
 adminRouter.get('/ai/reads', validate({ query: readsQuery }), asyncHandler(async (req: Request, res: Response) => { const r = await ai.aiReads(req.query as unknown as { shopId?: string; status?: string; cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 adminRouter.get('/ai/orders', moneyRole, validate({ query: z.object({ cursor: z.string().max(400).optional(), limit: LIMIT }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await ai.coinOrders(req.query as unknown as { cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 adminRouter.put('/ai/settings', superOnly, validate({ body: z.object({ settings: aiSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: AiSettingsInput; reason: string }; sent(res, await ai.updateAiSettings(adminOf(req), b.settings, b.reason, req.ip), 'AI settings saved'); }));
+// The status card: one tap on or off; a model or coins only when that is the fix it offers.
+const switchBody = z.object({ feature: z.enum(['read', 'chat']), on: z.boolean(), model: z.enum(AI_MODEL_IDS).optional(), coins: z.number().int().min(1).max(100).optional(), reason }).strict().refine((b) => b.feature === 'read' || (b.coins ?? 1) <= 20, { message: 'A chat question costs 20 coins at most', path: ['coins'] });
+adminRouter.post('/ai/switch', superOnly, validate({ body: switchBody }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as z.infer<typeof switchBody>; sent(res, await ai.switchAi(adminOf(req), b, b.reason, req.ip), b.on ? 'Turned on' : 'Turned off'); }));
 adminRouter.put('/ai/key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^sk-ant-[A-Za-z0-9_-]{20,200}$/, 'An Anthropic API key starts with sk-ant-'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip), 'API key saved'); }));
 adminRouter.delete('/ai/key', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await ai.updateApiKey(adminOf(req), null, (req.body as { reason: string }).reason, req.ip), 'API key removed — AI reading is off'); }));
 adminRouter.post('/ai/key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey(); sent(res, r, r.message); }));
 // D96: the Gemini key — Google's older keys start with AIza, its auth keys (from 2026) with AQ.
 adminRouter.put('/ai/gemini-key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^(AIza[A-Za-z0-9_-]{30,80}|AQ\.[A-Za-z0-9_-]{20,200})$/, 'A Gemini API key starts with AIza or AQ.'), paid: z.boolean(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; paid: boolean; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip, 'google', b.paid), 'Gemini key saved'); }));
 adminRouter.delete('/ai/gemini-key', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await ai.updateApiKey(adminOf(req), null, (req.body as { reason: string }).reason, req.ip, 'google'), 'Gemini key removed'); }));
+adminRouter.put('/ai/gemini-key/billing', superOnly, validate({ body: z.object({ paid: z.boolean(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { paid: boolean; reason: string }; sent(res, await ai.updateGeminiBilling(adminOf(req), b.paid, b.reason, req.ip), b.paid ? 'Billing on' : 'Billing off'); }));
 adminRouter.post('/ai/gemini-key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey('google'); sent(res, r, r.message); }));
 // D81: the shop chat — its caps, prices and use.
 const questionsQuery = z.object({ shopId: objectId.optional(), route: z.enum(ASK_ROUTES).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
