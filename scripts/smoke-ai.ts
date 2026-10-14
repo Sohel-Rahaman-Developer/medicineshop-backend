@@ -82,7 +82,7 @@ async function main() {
   const offer0 = data<{ enabled: boolean; balance: number }>(await owner.get('/ai/offer'));
   check('a new platform: AI reading off, 0 coins', !offer0.enabled && offer0.balance === 0, JSON.stringify(offer0));
   check('reading with AI while off → 403, nothing asked of Claude', (await photo()).status === 403 && fake.seen.length === 0);
-  const settings = (over: Record<string, unknown> = {}) => ({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 2, maxPages: 5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 100, price: 99_900 }], ...over });
+  const settings = (over: Record<string, unknown> = {}) => ({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 100, price: 99_900 }], ...over });
   const early = await root.put('/admin/ai/settings', { settings: settings(), reason: 'launch AI bill reading' });
   check('turning it on before a key is set → 422', early.status === 422, code(early));
 

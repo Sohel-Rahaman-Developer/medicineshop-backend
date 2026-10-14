@@ -4,15 +4,27 @@ import { tenantScoped } from '../../core/tenant-scope';
 // D78: reading a supplier's bill with Claude, paid in coins. Settings, reads and coin orders are platform-side (the
 // admin lists them across shops, every shop-facing query filters by shopId); the wallet and its ledger are per shop.
 
-/** Models the admin can pick, with Anthropic's list price in US$ per million tokens (input / output); the admin can override. */
+export const AI_PROVIDERS = ['anthropic', 'google'] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+/**
+ * Models the admin can pick, with the list price in US$ per million tokens (input / output); the admin can override.
+ * Google's free tier costs nothing but lets Google use what is sent (D96), so `free` only marks that it exists.
+ */
 export const AI_MODELS = {
-  'claude-opus-5-5': { name: 'Claude Opus 5.5', input: 4, output: 20, effort: true },
-  'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', input: 2, output: 10, effort: true },
-  'claude-fable-5-1': { name: 'Claude Fable 5.1', input: 10, output: 50, effort: true },
+  'claude-opus-5-5': { name: 'Claude Opus 5.5', provider: 'anthropic', input: 4, output: 20, effort: true, free: false },
+  'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', provider: 'anthropic', input: 2, output: 10, effort: true, free: false },
+  'claude-fable-5-1': { name: 'Claude Fable 5.1', provider: 'anthropic', input: 10, output: 50, effort: true, free: false },
   // Prompts over 100K tokens cost 5× on Haiku 5.5; the chat's input cap keeps every question far below that.
-  'claude-haiku-5-5': { name: 'Claude Haiku 5.5', input: 0.1, output: 0.5, effort: false },
-  'claude-haiku-4-5-20251001': { name: 'Claude Haiku 4.5', input: 1, output: 5, effort: false },
-} as const;
+  'claude-haiku-5-5': { name: 'Claude Haiku 5.5', provider: 'anthropic', input: 0.1, output: 0.5, effort: false, free: false },
+  'claude-haiku-4-5-20251001': { name: 'Claude Haiku 4.5', provider: 'anthropic', input: 1, output: 5, effort: false, free: false },
+  // Gemini prices are for prompts up to 200K tokens; the chat cap and a bill's pages stay far below that.
+  'gemini-3.8-flash': { name: 'Gemini 3.8 Flash', provider: 'google', input: 0.75, output: 3.75, effort: true, free: true },
+  'gemini-3.6-flash': { name: 'Gemini 3.6 Flash', provider: 'google', input: 0.75, output: 3.75, effort: true, free: true },
+  'gemini-3.5-flash-lite': { name: 'Gemini 3.5 Flash-Lite', provider: 'google', input: 0.3, output: 2.5, effort: true, free: true },
+  'gemini-3.1-flash-lite': { name: 'Gemini 3.1 Flash-Lite', provider: 'google', input: 0.25, output: 1.5, effort: true, free: true },
+  'gemini-4-argon': { name: 'Gemini 4 Argon', provider: 'google', input: 2, output: 10, effort: true, free: false },
+} as const satisfies Record<string, { name: string; provider: AiProvider; input: number; output: number; effort: boolean; free: boolean }>;
 export type AiModelId = keyof typeof AI_MODELS;
 export const AI_MODEL_IDS = Object.keys(AI_MODELS) as [AiModelId, ...AiModelId[]];
 export const AI_EFFORTS = ['low', 'medium', 'high'] as const;
@@ -45,10 +57,14 @@ const settingsSchema = new Schema(
     keyLast4: { type: String },
     keySetAt: { type: Date },
     keySetBy: { type: String },
+    /** D96: the Google Gemini API key, sealed the same way. */
+    gemini: { type: new Schema({ keySealed: String, keyLast4: String, keySetAt: Date, keySetBy: String, paid: Boolean }, { _id: false }) },
     model: { type: String, enum: AI_MODEL_IDS, required: true, default: 'claude-opus-5-5' },
     effort: { type: String, enum: AI_EFFORTS, required: true, default: 'low' },
     coinsPerPage: { type: Number, required: true, default: 1 },
     maxPages: { type: Number, required: true, default: 10 },
+    /** Free coins every shop gets once (D96); 0 stops new ones. */
+    welcomeCoins: { type: Number, required: true, default: 100 },
     /** Rupees for one US dollar, for the real cost of each read. */
     usdInr: { type: Number, required: true, default: 88 },
     /** Paise, GST included. */
@@ -73,6 +89,8 @@ const walletSchema = new Schema(
     balance: { type: Number, required: true, default: 0, min: 0 },
     /** Free chat questions this shop has used (D81). */
     askFree: { type: Number, required: true, default: 0, min: 0 },
+    /** When the welcome coins were given — once per shop. */
+    welcomeAt: { type: Date },
     /** The shop's own switch for AI chat answers: off until the owner turns it on. */
     askAi: { type: Boolean, required: true, default: false },
     askAiBy: { type: String },
@@ -83,7 +101,7 @@ const walletSchema = new Schema(
 walletSchema.plugin(tenantScoped);
 export const CoinWalletModel = model('CoinWallet', walletSchema);
 
-export const COIN_KINDS = ['purchase', 'grant', 'read', 'ask', 'refund'] as const;
+export const COIN_KINDS = ['purchase', 'grant', 'welcome', 'read', 'ask', 'refund'] as const;
 export type CoinKind = (typeof COIN_KINDS)[number];
 
 // Append-only: every coin in or out, with the balance after it.

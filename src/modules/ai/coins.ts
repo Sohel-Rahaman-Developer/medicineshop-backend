@@ -13,7 +13,7 @@ import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, nextInvoice, placeO
 import { billingInfo, gateway } from '../subscription/gateway';
 import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
-import { aiOffer, aiSettings } from './ai-settings';
+import { aiOffer, aiSettings, readyFor } from './ai-settings';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 
 const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
@@ -80,7 +80,7 @@ export async function wallet(t: TenantContext) {
     ...offer,
     balance: w?.balance ?? 0,
     payments: (await gateway()).mode,
-    ask: { available: s.chat.enabled && s.hasKey, on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) },
+    ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) },
     questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
     reads: reads.map(shapeRead),

@@ -7,13 +7,14 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { signal } from '../../services/monitor';
 import { istDayStart, istMonth } from '../../utils/date';
-import { aiSettings, apiKey, priceOf, type AiSettings } from '../ai/ai-settings';
+import { aiSettings, apiKey, priceOf, providerOf, readyFor, type AiSettings } from '../ai/ai-settings';
+import { GeminiError } from '../../services/gemini';
 import { CoinWalletModel } from '../ai/ai.model';
 import { moveCoins } from '../ai/coins';
 import { audit } from '../audit/audit.model';
 import { can } from '../rbac/permissions';
 import type { Actor } from '../user/actor';
-import { askClaude, costOf, type Turn, type Usage } from './ask-ai';
+import { askClaude, askGemini, costOf, type Turn, type Usage } from './ask-ai';
 import { AskQuestionModel } from './ask.model';
 import * as C from './cards';
 import * as F from './facts';
@@ -113,7 +114,7 @@ type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'budget' | 'dayLimit';
 type Wallet = { askAi?: boolean | null } | null;
 
 async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Promise<Stop | null> {
-  if (!s.chat.enabled || !s.hasKey) return 'aiOff';
+  if (!s.chat.enabled || !readyFor(s, s.chat.model)) return 'aiOff';
   if (!t.features.includes('ai')) return 'plan';
   if (!w?.askAi) return 'shopOff';
   if (!can(t.permissions, 'reports', 'view')) return 'ownerOnly';
@@ -128,7 +129,7 @@ export async function offer(t: TenantContext, now = new Date()) {
   const [s, w] = await Promise.all([aiSettings(), CoinWalletModel.findOne({ shopId: t.shopId }).lean()]);
   const stop = await stopOf(t, s, w, now);
   return {
-    ai: { on: s.chat.enabled && s.hasKey, shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)), balance: w?.balance ?? 0 },
+    ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)), balance: w?.balance ?? 0 },
     chips: CHIPS,
     groups: CHIP_GROUPS,
   };
@@ -180,7 +181,8 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
   }
 
   const stop = await stopOf(t, s, await CoinWalletModel.findOne({ shopId: t.shopId }).lean(), now);
-  const key = stop ? null : await apiKey();
+  const provider = providerOf(s.chat.model);
+  const key = stop ? null : await apiKey(provider);
   if (stop || !key) {
     if (stop === 'budget') await signal('ask_budget', now);
     await AskQuestionModel.create({ ...who, route: 'blocked', intent: stop ?? 'aiOff' });
@@ -210,11 +212,11 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
   const back = held.free ? say(TEXT.backFree, voice) : say(TEXT.back, voice);
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
-    answer = await askClaude({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut }, voice, input.text, turnsOf(input.history), used);
+    answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut }, voice, input.text, turnsOf(input.history), used);
   } catch (err) {
-    logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : String(err) }, 'AI chat question failed');
+    logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI chat question failed');
     await signal('ai_fail', now);
-    await settle(t, actor, held, { status: 'failed', error: err instanceof Anthropic.APIError ? `Anthropic ${String(err.status)}` : 'Not reached', refund: true }, used, s, started);
+    await settle(t, actor, held, { status: 'failed', error: err instanceof Anthropic.APIError ? `Anthropic ${String(err.status)}` : err instanceof GeminiError ? `Gemini ${err.kind}${err.status ? ` ${String(err.status)}` : ''}` : 'Not reached', refund: true }, used, s, started);
     return { route: 'failed' as const, voice, text: say(TEXT.failed, voice, { back }), suggestions };
   }
   const tools = answer.tools;

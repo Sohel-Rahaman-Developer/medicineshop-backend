@@ -17,6 +17,7 @@ import { linkAtSignup, referralSettings } from '../referral/referral.service';
 import type { CreateShopInput, UpdateShopInput } from './shops.validation';
 import { TERMS_POINTS } from './terms.content';
 import { TermsAcceptanceModel } from './terms-acceptance.model';
+import { giveWelcome } from '../ai/welcome';
 
 interface Ctx {
   ip?: string;
@@ -101,6 +102,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
       );
       await seedSystemCategories(shopId, session);
       if (input.referralCode) await linkAtSignup(shopId, uid, input.referralCode, owner.name, now, session);
+      await giveWelcome(shopId, session);
       await TermsAcceptanceModel.create(
         [{ shopId, version: env.TERMS_VERSION, userId: uid, userName: owner.name, ip: ctx.ip, userAgent: ctx.userAgent }],
         { session },

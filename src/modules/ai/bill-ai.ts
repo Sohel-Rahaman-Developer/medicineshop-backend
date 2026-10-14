@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { GeminiError, generate, schemaFor, textOf, usageOf, type GeminiPart } from '../../services/gemini';
 import { signal } from '../../services/monitor';
 import { AppError } from '../../core/errors';
 import type { TenantContext } from '../../core/middleware/tenant';
@@ -12,7 +13,7 @@ import { docxContent, readRows } from '../purchases/bill-read';
 import { previewRead } from '../purchases/bill-import';
 import { SupplierModel } from '../suppliers/supplier.model';
 import type { Actor } from '../user/actor';
-import { aiSettings, apiKey, listPrice, priceOf, type Price } from './ai-settings';
+import { aiSettings, apiKey, listPrice, priceOf, providerOf, type Price } from './ai-settings';
 import { AI_MODELS, AiReadModel } from './ai.model';
 import { balanceOf, moveCoins } from './coins';
 
@@ -127,12 +128,39 @@ async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   }
 }
 
+function partOf(kind: Kind, file: Buffer): GeminiPart {
+  if (kind.type === 'pdf') return { inlineData: { mimeType: 'application/pdf', data: file.toString('base64') } };
+  if (kind.type === 'image') return { inlineData: { mimeType: kind.media, data: file.toString('base64') } };
+  const { rows, text } = docxContent(file);
+  return { text: `The bill, from a Word file (table rows, cells split by " | "):\n${text}\n\n${rows.map((r) => r.join(' | ')).join('\n')}` };
+}
+
+/** D96: the same read on Gemini — the same prompt and JSON shape, so the same checks follow. */
+async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_MODELS; effort: 'low' | 'medium' | 'high' }, key: string) {
+  const r = await generate(key, s.model, {
+    systemInstruction: { parts: [{ text: SYSTEM }] },
+    contents: [{ role: 'user', parts: [partOf(kind, file), { text: 'Copy this bill into the JSON.' }] }],
+    generationConfig: { maxOutputTokens: 32_000, responseMimeType: 'application/json', responseJsonSchema: schemaFor(z.toJSONSchema(aiBillSchema)), thinkingConfig: { thinkingLevel: s.effort } },
+  }, { timeoutMs: 4 * 60_000, retries: 2 });
+  const usage = usageOf(r);
+  const total = { input: usage.input + usage.cacheRead, output: usage.output };
+  const c = r.candidates?.[0];
+  if (r.promptFeedback?.blockReason || !c || (c.finishReason && !['STOP', 'MAX_TOKENS'].includes(c.finishReason))) return { usage: total, error: 'The AI would not read this file' };
+  if (c.finishReason === 'MAX_TOKENS') return { usage: total, error: 'The bill is too long to read in one go — upload fewer pages' };
+  try {
+    return { usage: total, bill: aiBillSchema.parse(JSON.parse(textOf(c.content))) };
+  } catch {
+    return { usage: total, error: 'The AI answer could not be used' };
+  }
+}
+
 const FAILED = (coins: number) => `${coins === 1 ? 'Your coin is' : `Your ${String(coins)} coins are`} back`;
 
-/** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude, paid by the page in coins. */
+/** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude or Gemini (D96), paid by the page in coins. */
 export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadInput) {
   const s = await aiSettings();
-  const key = s.enabled ? await apiKey() : null;
+  const provider = providerOf(s.model);
+  const key = s.enabled ? await apiKey(provider) : null;
   if (!key) throw AppError.forbidden('AI bill reading is off');
   const supplier = await SupplierModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(input.supplierId) }).select('name').lean();
   if (!supplier) throw AppError.notFound('Supplier not found');
@@ -167,11 +195,13 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
 
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
-    answer = await askClaude(kind, file, s, key);
+    answer = provider === 'google' ? await askGemini(kind, file, s, key) : await askClaude(kind, file, s, key);
   } catch (err) {
-    logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : String(err) }, 'AI bill read failed');
+    logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI bill read failed');
     await signal('ai_fail');
-    const why = err instanceof Anthropic.AuthenticationError ? 'the AI key was refused — MedBox24 has been told' : err instanceof Anthropic.RateLimitError ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';
+    const refused = err instanceof Anthropic.AuthenticationError || (err instanceof GeminiError && err.kind === 'refused');
+    const busy = err instanceof Anthropic.RateLimitError || (err instanceof GeminiError && err.kind === 'busy');
+    const why = refused ? 'the AI key was refused — MedBox24 has been told' : busy ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';
     throw new AppError(503, 'SERVICE_UNAVAILABLE', `Could not read the bill: ${await giveBack(why)}. ${FAILED(coins)}`);
   }
   if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', `${await giveBack(answer.error, answer.usage)}. ${FAILED(coins)}`);

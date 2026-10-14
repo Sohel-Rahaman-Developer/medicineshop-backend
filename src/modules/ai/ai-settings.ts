@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { open, seal } from '../../utils/totp';
-import { AI_EFFORTS, AI_MODEL_IDS, AI_MODELS, AiSettingsModel, DEFAULT_PACKS, type AiModelId } from './ai.model';
+import { AI_EFFORTS, AI_MODEL_IDS, AI_MODELS, AiSettingsModel, DEFAULT_PACKS, type AiModelId, type AiProvider } from './ai.model';
 
-// Its own key from the admin secret, so a TOTP secret and the API key never share one.
-const sealKey = () => `${env.ADMIN_TOTP_KEY ?? env.JWT_ACCESS_SECRET}|anthropic-api-key`;
+// Its own key from the admin secret, so a TOTP secret and an API key never share one.
+const sealKey = (p: AiProvider) => `${env.ADMIN_TOTP_KEY ?? env.JWT_ACCESS_SECRET}|${p === 'anthropic' ? 'anthropic' : 'gemini'}-api-key`;
+export const PROVIDER_NAME: Record<AiProvider, string> = { anthropic: 'Claude', google: 'Gemini' };
+export const providerOf = (model: AiModelId): AiProvider => AI_MODELS[model].provider;
 
 export const packSchema = z
   .object({
@@ -23,6 +25,7 @@ export const aiSettingsSchema = z
     effort: z.enum(AI_EFFORTS),
     coinsPerPage: z.number().int().min(1).max(100),
     maxPages: z.number().int().min(1).max(20),
+    welcomeCoins: z.number().int().min(0).max(1000),
     usdInr: z.number().min(50).max(200),
     packs: z.array(packSchema).min(1).max(6).refine((p) => new Set(p.map((x) => x.code)).size === p.length, 'Each pack needs its own code'),
   })
@@ -53,7 +56,7 @@ export type ChatSettingsInput = z.infer<typeof chatSettingsSchema>;
 
 export const CHAT_DEFAULTS: ChatSettingsInput = { enabled: false, model: 'claude-haiku-5-5', coinsPerQuestion: 1, freeQuestions: 20, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50, margin: 2 };
 
-/** List price unless the admin set one; cache reads at a tenth, cache writes at 1.25× input, as Anthropic bills them. */
+/** List price unless the admin set one; cache reads at a tenth, cache writes at 1.25× input (Anthropic's rule; Gemini never writes). */
 export interface Price {
   model: AiModelId;
   input: number;
@@ -74,10 +77,12 @@ export async function aiSettings() {
     keyLast4: s?.keyLast4 ?? null,
     keySetAt: s?.keySetAt ?? null,
     keySetBy: s?.keySetBy ?? null,
+    gemini: { hasKey: Boolean(s?.gemini?.keySealed), keyLast4: s?.gemini?.keyLast4 ?? null, keySetAt: s?.gemini?.keySetAt ?? null, keySetBy: s?.gemini?.keySetBy ?? null, paid: Boolean(s?.gemini?.paid) },
     model: s?.model ?? 'claude-opus-5-5',
     effort: s?.effort ?? 'low',
     coinsPerPage: s?.coinsPerPage ?? 1,
     maxPages: s?.maxPages ?? 10,
+    welcomeCoins: s?.welcomeCoins ?? 100,
     usdInr: s?.usdInr ?? 88,
     packs: (s?.packs?.length ? s.packs : DEFAULT_PACKS).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 })),
     models: AI_MODEL_IDS.map((id) => ({ id, ...AI_MODELS[id] })),
@@ -91,17 +96,24 @@ export async function aiSettings() {
 
 const stripNull = (o: object | null | undefined): Record<string, unknown> => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== null && v !== undefined));
 
+/** A model can run only when its provider's key is set. */
+export const readyFor = (s: { hasKey: boolean; gemini: { hasKey: boolean } }, model: AiModelId) => (providerOf(model) === 'anthropic' ? s.hasKey : s.gemini.hasKey);
+
 export const priceOf = (s: { prices: Price[] }, model: AiModelId): Price => s.prices.find((p) => p.model === model) ?? listPrice(model);
 export type AiSettings = Awaited<ReturnType<typeof aiSettings>>;
 
 /** What the shop sees: on only when the admin turned it on and a key is set. */
 export async function aiOffer() {
   const s = await aiSettings();
-  return { enabled: s.enabled && s.hasKey, coinsPerPage: s.coinsPerPage, maxPages: s.maxPages, packs: s.packs };
+  return { enabled: s.enabled && readyFor(s, s.model), coinsPerPage: s.coinsPerPage, maxPages: s.maxPages, packs: s.packs };
 }
 
+const needKey = (s: AiSettings, model: AiModelId, what: string, field: string) => {
+  if (!readyFor(s, model)) throw AppError.validation(`Set the ${PROVIDER_NAME[providerOf(model)]} API key before turning ${what} on`, [{ field, message: 'No API key yet' }]);
+};
+
 export async function saveAiSettings(input: AiSettingsInput, by: string) {
-  if (input.enabled && !(await AiSettingsModel.exists({ _id: 'ai', keySealed: { $type: 'string' } }))) throw AppError.validation('Set the Claude API key before turning AI reading on', [{ field: 'body.settings.enabled', message: 'No API key yet' }]);
+  if (input.enabled) needKey(await aiSettings(), input.model, 'AI reading', 'body.settings.enabled');
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { ...input, updatedBy: by } }, { upsert: true });
   return aiSettings();
 }
@@ -111,25 +123,40 @@ export async function savePrices(input: PricesInput, by: string) {
   return aiSettings();
 }
 
+/** On Google's free tier what is sent may be used by Google; chat questions carry customers' names, so the chat needs the paid tier. */
+export const FREE_TIER_CHAT = 'Turn on billing for the Gemini key first — on the free tier Google may use what is sent, and chat questions carry customers’ names';
+
 export async function saveChatSettings(input: ChatSettingsInput, by: string) {
-  if (input.enabled && !(await AiSettingsModel.exists({ _id: 'ai', keySealed: { $type: 'string' } }))) throw AppError.validation('Set the Claude API key before turning the chat on', [{ field: 'body.chat.enabled', message: 'No API key yet' }]);
+  const s = await aiSettings();
+  if (input.enabled) needKey(s, input.model, 'the chat', 'body.chat.enabled');
+  if (input.enabled && providerOf(input.model) === 'google' && !s.gemini.paid) throw AppError.validation(FREE_TIER_CHAT, [{ field: 'body.chat.model', message: 'Gemini key on the free tier' }]);
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { chat: input, updatedBy: by } }, { upsert: true });
   return aiSettings();
 }
 
-export async function setApiKey(key: string, by: string) {
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { keySealed: seal(key, sealKey()), keyLast4: key.slice(-4), keySetAt: new Date(), keySetBy: by } }, { upsert: true });
+const prefix = (p: AiProvider) => (p === 'anthropic' ? '' : 'gemini.');
+
+/** paid: the admin says billing is on for a Gemini key; a free-tier key stops a chat running on Gemini. */
+export async function setApiKey(key: string, by: string, p: AiProvider = 'anthropic', paid = false) {
+  const f = prefix(p);
+  const s = await aiSettings();
+  const chatOff = p === 'google' && !paid && providerOf(s.chat.model) === 'google' ? { 'chat.enabled': false } : {};
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { [`${f}keySealed`]: seal(key, sealKey(p)), [`${f}keyLast4`]: key.slice(-4), [`${f}keySetAt`]: new Date(), [`${f}keySetBy`]: by, ...(p === 'google' ? { 'gemini.paid': paid } : {}), ...chatOff } }, { upsert: true });
   return aiSettings();
 }
 
-/** Removing the key also turns AI reading off. */
-export async function clearApiKey(by: string) {
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { enabled: false, updatedBy: by }, $unset: { keySealed: '', keyLast4: '', keySetAt: '', keySetBy: '' } }, { upsert: true });
+/** Removing a key also turns off whatever runs on that provider's model — bill reading, the chat or both. */
+export async function clearApiKey(by: string, p: AiProvider = 'anthropic') {
+  const s = await aiSettings();
+  const f = prefix(p);
+  const off = { ...(providerOf(s.model) === p ? { enabled: false } : {}), ...(providerOf(s.chat.model) === p ? { 'chat.enabled': false } : {}) };
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { ...off, updatedBy: by }, $unset: { [`${f}keySealed`]: '', [`${f}keyLast4`]: '', [`${f}keySetAt`]: '', [`${f}keySetBy`]: '', ...(p === 'google' ? { 'gemini.paid': '' } : {}) } }, { upsert: true });
   return aiSettings();
 }
 
-/** The plain key, only for the call to Anthropic. */
-export async function apiKey(): Promise<string | null> {
-  const s = await AiSettingsModel.findById('ai').select('keySealed').lean();
-  return s?.keySealed ? open(s.keySealed, sealKey()) : null;
+/** The plain key, only for the call to the provider. */
+export async function apiKey(p: AiProvider = 'anthropic'): Promise<string | null> {
+  const s = await AiSettingsModel.findById('ai').select('keySealed gemini').lean();
+  const sealed = p === 'anthropic' ? s?.keySealed : s?.gemini?.keySealed;
+  return sealed ? open(sealed, sealKey(p)) : null;
 }

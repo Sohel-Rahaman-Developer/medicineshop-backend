@@ -81,6 +81,8 @@ const schema = z.object({
   BILLING_SAC: z.string().default('998314'),
   /** D78 tests only: a stand-in for api.anthropic.com. The API key itself lives sealed in the database, set from the admin app. */
   AI_BASE_URL: z.url().optional(),
+  /** D96 tests only: a stand-in for generativelanguage.googleapis.com. The Gemini key lives sealed in the database too. */
+  GEMINI_BASE_URL: z.url().optional(),
   /** D95 tests only: a stand-in for api.razorpay.com. The keys live sealed in the database, set from the admin app. */
   RAZORPAY_BASE_URL: z.url().optional(),
 
@@ -98,6 +100,7 @@ const parsed = schema
   })
   .refine((e) => e.NODE_ENV !== 'production' || Boolean(e.ADMIN_TOTP_KEY), { message: 'is required in production', path: ['ADMIN_TOTP_KEY'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.AI_BASE_URL), { message: 'is for tests only — remove it in production', path: ['AI_BASE_URL'] })
+  .refine((e) => !(e.NODE_ENV === 'production' && e.GEMINI_BASE_URL), { message: 'is for tests only — remove it in production', path: ['GEMINI_BASE_URL'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.RAZORPAY_BASE_URL), { message: 'is for tests only — remove it in production', path: ['RAZORPAY_BASE_URL'] })
   .refine((e) => !(e.NODE_ENV === 'production' && e.PAYMENTS_MODE === 'test'), { message: 'PAYMENTS_MODE=test is refused in production', path: ['PAYMENTS_MODE'] })
   .refine((e) => e.PAYMENTS_MODE !== 'razorpay' || Boolean(e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET && e.RAZORPAY_WEBHOOK_SECRET), { message: 'needs RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET', path: ['PAYMENTS_MODE'] })

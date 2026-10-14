@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.0',
+    date: '2026-10-14',
+    title: 'Gemini beside Claude, and 100 free AI coins for every shop',
+    shop: [
+      'Every shop gets 100 free AI coins once — new shops when they sign up, and every shop already on MedBox24. They show in AI coins as a “Welcome gift”.',
+      'AI bill reading and AI answers can now run on Google Gemini as well as Claude — MedBox24 picks which; nothing changes on your screens.',
+      'Privacy policy: Google (Gemini) is listed beside Anthropic (Claude). AI answers about your shop only ever run on paid access, which the providers do not use to improve their models.',
+    ],
+    admin: [
+      'AI bill reading / Shop chat: a Gemini API key beside the Claude key — sealed, last 4 shown, tested with one button; tick “Billing is on” for a paid-tier key.',
+      'Every model in the lists says whose it is (Anthropic, Google, free tier). Bill reading or the chat can be put on Gemini; the chat needs a Gemini key with billing on, since on the free tier Google may use what is sent.',
+      'Removing a key turns off whatever ran on it, and says so in the audit log.',
+      '“Free coins for every shop” in AI settings (100 to start; 0 stops new ones). The AI prices table covers Gemini too — set 0 for a key on the free tier.',
+    ],
+    api: ['PUT / DELETE /admin/ai/gemini-key (with paid) and POST /admin/ai/gemini-key/test; AI settings carry welcomeCoins and gemini; models carry provider and free. Coin entries have a new kind: welcome.'],
+  },
+  {
     version: '1.21.1',
     date: '2026-10-14',
     title: 'Quicker alerts, and new pages and tools on the site',

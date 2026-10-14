@@ -182,7 +182,8 @@ export interface Harness {
 
 /** Must run before anything imports src/config/env — env is read once at import. */
 /** `dbPath`: a fixed folder, wiped first — for servers that get killed before they can clean up (e2e on Windows). */
-export async function startHarness(opts: { port?: number; dbPath?: string } = {}): Promise<Harness> {
+/** welcomeCoins: the free coins a new shop gets (D96) — 0 unless a test is about them, so balances start at zero. */
+export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
   out('\n⏳ Starting in-memory MongoDB…\n');
   const { MongoMemoryReplSet } = await import('mongodb-memory-server');
@@ -221,6 +222,8 @@ export async function startHarness(opts: { port?: number; dbPath?: string } = {}
   const { hashOtp } = await import('../../src/utils/crypto.js');
 
   await connectDb();
+  const { AiSettingsModel } = await import('../../src/modules/ai/ai.model.js');
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { welcomeCoins: opts.welcomeCoins ?? 0 } }, { upsert: true });
   const server: Server = createApp().listen(opts.port ?? 0);
   await new Promise<void>((resolve) => server.once('listening', () => { resolve(); }));
   const address = server.address();

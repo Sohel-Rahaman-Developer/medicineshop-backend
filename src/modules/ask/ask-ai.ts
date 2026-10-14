@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../config/env';
+import { generate, textOf, usageOf, type GeminiContent } from '../../services/gemini';
 import type { Price } from '../ai/ai-settings';
 import type { AiModelId } from '../ai/ai.model';
 import type { Voice } from './lang';
@@ -84,6 +85,41 @@ export async function askClaude(c: Ctx, key: string, s: { model: AiModelId; capI
     const next = lastIn + msg.usage.output_tokens + results.reduce((a, r) => a + roughTokens(r.text), 0);
     if (used.input + used.cacheRead + used.cacheWrite + next > s.capIn) return { kind: 'too_big', tools: called };
     messages.push({ role: 'assistant', content: msg.content }, { role: 'user', content: uses.map((u, i) => ({ type: 'tool_result' as const, tool_use_id: u.id, content: results[i]?.text ?? '', is_error: !results[i]?.ok })) });
+  }
+  return { kind: 'too_big', tools: called };
+}
+
+/** D96: the same question on Gemini — the same tools, caps and answer kinds; the model's turns go back as given (thought signatures). */
+export async function askGemini(c: Ctx, key: string, s: { model: AiModelId; capIn: number; capOut: number }, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
+  const contents: GeminiContent[] = [...history.map((h): GeminiContent => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: `${question}\n\n(Reply in ${LANGUAGE[voice]}.)` }] }];
+  const tools = [{ functionDeclarations: toolDefs().map((t) => ({ name: t.name, description: t.description ?? '', parametersJsonSchema: t.input_schema })) }];
+  const called: string[] = [];
+  const links: string[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    const room = s.capOut - used.output;
+    if (room < 64) return { kind: 'too_big', tools: called };
+    const r = await generate(key, s.model, { systemInstruction: { parts: [{ text: SYSTEM }] }, contents, tools, generationConfig: { maxOutputTokens: room, thinkingConfig: { thinkingLevel: 'low' } } }, { timeoutMs: 45_000, retries: 1 });
+    const u = usageOf(r);
+    used.input += u.input;
+    used.cacheRead += u.cacheRead;
+    used.output += u.output;
+    const cand = r.candidates?.[0];
+    if (r.promptFeedback?.blockReason || !cand?.content || (cand.finishReason && !['STOP', 'MAX_TOKENS'].includes(cand.finishReason))) return { kind: 'refused', tools: called };
+    const calls = cand.content.parts.filter((p) => p.functionCall).map((p) => p.functionCall).filter((f) => f !== undefined);
+    if (!calls.length) {
+      const text = textOf(cand.content).trim();
+      if (!text || cand.finishReason === 'MAX_TOKENS') return { kind: 'too_big', tools: called };
+      if (text === OFF_TOPIC || text.startsWith(OFF_TOPIC)) return { kind: 'off_topic', tools: called };
+      return { kind: 'answer', text, tools: called, links: [...new Set(links)] };
+    }
+    const results = await Promise.all(calls.map((f) => runTool(c, f.name, f.args ?? {})));
+    for (const x of results) {
+      called.push(x.name);
+      if (x.href) links.push(x.href);
+    }
+    const next = u.input + u.cacheRead + u.output + results.reduce((a, x) => a + roughTokens(x.text), 0);
+    if (used.input + used.cacheRead + next > s.capIn) return { kind: 'too_big', tools: called };
+    contents.push(cand.content, { role: 'user', parts: calls.map((f, i) => ({ functionResponse: { ...(f.id ? { id: f.id } : {}), name: f.name, response: results[i]?.ok ? { result: results[i].text } : { error: results[i]?.text ?? '' } } })) });
   }
   return { kind: 'too_big', tools: called };
 }

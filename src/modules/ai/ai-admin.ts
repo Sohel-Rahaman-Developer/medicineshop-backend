@@ -7,7 +7,9 @@ import { inTransaction } from '../../core/transaction';
 import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
 import { ShopModel } from '../shops/shop.model';
-import { aiSettings, apiKey, clearApiKey, saveAiSettings, setApiKey, type AiSettingsInput } from './ai-settings';
+import { GeminiError, modelInfo } from '../../services/gemini';
+import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, saveAiSettings, setApiKey, type AiSettingsInput } from './ai-settings';
+import type { AiModelId, AiProvider } from './ai.model';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
 import { moveCoins } from './coins';
 
@@ -81,22 +83,41 @@ export async function updateAiSettings(a: AdminActor, input: AiSettingsInput, re
   return after;
 }
 
-export async function updateApiKey(a: AdminActor, key: string | null, reason: string, ip?: string) {
-  const s = key ? await setApiKey(key, a.name) : await clearApiKey(a.name);
-  await log(a, key ? 'ai_key_set' : 'ai_key_removed', reason, key ? `set the Claude API key (…${key.slice(-4)})` : 'removed the Claude API key — AI reading off', undefined, undefined, ip);
+export async function updateApiKey(a: AdminActor, key: string | null, reason: string, ip?: string, p: AiProvider = 'anthropic', paid = false) {
+  const before = await aiSettings();
+  const s = key ? await setApiKey(key, a.name, p, paid) : await clearApiKey(a.name, p);
+  const off = [before.enabled && !s.enabled ? 'AI reading' : '', before.chat.enabled && !s.chat.enabled ? 'the chat' : ''].filter(Boolean).join(' and ');
+  await log(a, key ? 'ai_key_set' : 'ai_key_removed', reason, key ? `set the ${PROVIDER_NAME[p]} API key (…${key.slice(-4)})${p === 'google' ? (paid ? ', billing on' : ', free tier') : ''}${off ? ` — ${off} off` : ''}` : `removed the ${PROVIDER_NAME[p]} API key${off ? ` — ${off} off` : ''}`, undefined, undefined, ip);
   return s;
 }
 
+/** A Gemini key is tried on the model a feature already uses, else the newest Flash. */
+async function testGeminiKey(s: Awaited<ReturnType<typeof aiSettings>>) {
+  const key = await apiKey('google');
+  if (!key) throw AppError.validation('No Gemini API key yet');
+  const model: AiModelId = [s.model, s.chat.model].find((m) => providerOf(m) === 'google') ?? 'gemini-3.8-flash';
+  try {
+    const m = await modelInfo(key, model);
+    return { ok: true, model, message: `The key works — ${m.displayName ?? model} answered` };
+  } catch (err) {
+    const kind = err instanceof GeminiError ? err.kind : 'down';
+    const message = kind === 'refused' ? 'Google refused this key' : kind === 'missing' ? `This key cannot use ${model}` : kind === 'busy' ? 'Google says the key is over its limit — try again later' : 'Google could not be reached';
+    return { ok: false, model, message };
+  }
+}
+
 /** One small call with the saved key: is it accepted, and can it use the chosen model? */
-export async function testApiKey() {
+export async function testApiKey(p: AiProvider = 'anthropic') {
+  if (p === 'google') return testGeminiKey(await aiSettings());
   const [key, s] = await Promise.all([apiKey(), aiSettings()]);
   if (!key) throw AppError.validation('No API key yet');
+  const model: AiModelId = [s.model, s.chat.model].find((m) => providerOf(m) === 'anthropic') ?? 'claude-haiku-5-5';
   try {
-    const m = await new Anthropic({ apiKey: key, baseURL: env.AI_BASE_URL, maxRetries: 0, timeout: 20_000 }).models.retrieve(s.model);
+    const m = await new Anthropic({ apiKey: key, baseURL: env.AI_BASE_URL, maxRetries: 0, timeout: 20_000 }).models.retrieve(model);
     return { ok: true, model: m.id, message: `The key works — ${m.display_name} answered` };
   } catch (err) {
-    const message = err instanceof Anthropic.AuthenticationError ? 'Anthropic refused this key' : err instanceof Anthropic.NotFoundError ? `This key cannot use ${s.model}` : err instanceof Anthropic.APIError ? `Anthropic said ${String(err.status)}` : 'Anthropic could not be reached';
-    return { ok: false, model: s.model, message };
+    const message = err instanceof Anthropic.AuthenticationError ? 'Anthropic refused this key' : err instanceof Anthropic.NotFoundError ? `This key cannot use ${model}` : err instanceof Anthropic.APIError ? `Anthropic said ${String(err.status)}` : 'Anthropic could not be reached';
+    return { ok: false, model, message };
   }
 }
 

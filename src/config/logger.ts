@@ -16,6 +16,7 @@ export const logger = pino({
       '*.RAZORPAY_KEY_SECRET',
       '*.apiKey',
       'req.headers["x-api-key"]',
+      'req.headers["x-goog-api-key"]',
     ],
     censor: '[redacted]',
   },
