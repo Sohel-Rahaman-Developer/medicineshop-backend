@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { open, seal } from '../../utils/totp';
+import { assertNoLoss, safeNow } from './guard';
 import { AI_EFFORTS, AI_MODEL_IDS, AI_MODELS, AiSettingsModel, DEFAULT_PACKS, type AiModelId, type AiProvider } from './ai.model';
 
 // Its own key from the admin secret, so a TOTP secret and an API key never share one.
@@ -26,6 +27,7 @@ export const aiSettingsSchema = z
     coinsPerPage: z.number().int().min(1).max(100),
     maxPages: z.number().int().min(1).max(20),
     welcomeCoins: z.number().int().min(0).max(1000),
+    targetMargin: z.number().min(1).max(20),
     usdInr: z.number().min(50).max(200),
     packs: z.array(packSchema).min(1).max(6).refine((p) => new Set(p.map((x) => x.code)).size === p.length, 'Each pack needs its own code'),
   })
@@ -49,12 +51,11 @@ export const chatSettingsSchema = z
     capOut: z.number().int().min(200).max(4000),
     perShopDay: z.number().int().min(1).max(1000),
     budgetUsd: z.number().min(1).max(100_000),
-    margin: z.number().min(1).max(20),
   })
   .strict();
 export type ChatSettingsInput = z.infer<typeof chatSettingsSchema>;
 
-export const CHAT_DEFAULTS: ChatSettingsInput = { enabled: false, model: 'claude-haiku-5-5', coinsPerQuestion: 1, freeQuestions: 20, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50, margin: 2 };
+export const CHAT_DEFAULTS: ChatSettingsInput = { enabled: false, model: 'claude-haiku-5-5', coinsPerQuestion: 1, freeQuestions: 20, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50 };
 
 /** List price unless the admin set one; cache reads at a tenth, cache writes at 1.25× input (Anthropic's rule; Gemini never writes). */
 export interface Price {
@@ -83,6 +84,7 @@ export async function aiSettings() {
     coinsPerPage: s?.coinsPerPage ?? 1,
     maxPages: s?.maxPages ?? 10,
     welcomeCoins: s?.welcomeCoins ?? 100,
+    targetMargin: s?.targetMargin ?? 1.5,
     usdInr: s?.usdInr ?? 88,
     packs: (s?.packs?.length ? s.packs : DEFAULT_PACKS).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 })),
     models: AI_MODEL_IDS.map((id) => ({ id, ...AI_MODELS[id] })),
@@ -90,9 +92,12 @@ export async function aiSettings() {
       const p = s?.prices?.find((x) => x.model === id);
       return p ? { model: id, input: p.input ?? 0, output: p.output ?? 0, cacheRead: p.cacheRead ?? 0, cacheWrite: p.cacheWrite ?? 0 } : listPrice(id);
     }),
-    chat: { ...CHAT_DEFAULTS, ...(stripNull(s?.chat) as Partial<ChatSettingsInput>) },
+    chat: chatOf(stripNull(s?.chat)),
   };
 }
+
+/** Only the fields the chat has now — an older stored one (its own margin) is left behind. */
+const chatOf = (c: Partial<ChatSettingsInput>): ChatSettingsInput => Object.fromEntries(Object.entries(CHAT_DEFAULTS).map(([k, v]) => [k, (c as Record<string, unknown>)[k] ?? v])) as ChatSettingsInput;
 
 const stripNull = (o: object | null | undefined): Record<string, unknown> => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== null && v !== undefined));
 
@@ -105,7 +110,7 @@ export type AiSettings = Awaited<ReturnType<typeof aiSettings>>;
 /** What the shop sees: on only when the admin turned it on and a key is set. */
 export async function aiOffer() {
   const s = await aiSettings();
-  return { enabled: s.enabled && readyFor(s, s.model), coinsPerPage: s.coinsPerPage, maxPages: s.maxPages, packs: s.packs };
+  return { enabled: s.enabled && readyFor(s, s.model) && safeNow(s, 'read'), coinsPerPage: s.coinsPerPage, maxPages: s.maxPages, packs: s.packs };
 }
 
 const needKey = (s: AiSettings, model: AiModelId, what: string, field: string) => {
@@ -113,12 +118,16 @@ const needKey = (s: AiSettings, model: AiModelId, what: string, field: string) =
 };
 
 export async function saveAiSettings(input: AiSettingsInput, by: string) {
-  if (input.enabled) needKey(await aiSettings(), input.model, 'AI reading', 'body.settings.enabled');
+  const s = await aiSettings();
+  if (input.enabled) needKey(s, input.model, 'AI reading', 'body.settings.enabled');
+  assertNoLoss({ ...s, ...input }, 'body.settings');
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { ...input, updatedBy: by } }, { upsert: true });
   return aiSettings();
 }
 
 export async function savePrices(input: PricesInput, by: string) {
+  const s = await aiSettings();
+  assertNoLoss({ ...s, prices: AI_MODEL_IDS.map((id) => input.find((p) => p.model === id) ?? listPrice(id)) }, 'body.prices');
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { prices: input, updatedBy: by } }, { upsert: true });
   return aiSettings();
 }
@@ -130,6 +139,7 @@ export async function saveChatSettings(input: ChatSettingsInput, by: string) {
   const s = await aiSettings();
   if (input.enabled) needKey(s, input.model, 'the chat', 'body.chat.enabled');
   if (input.enabled && providerOf(input.model) === 'google' && !s.gemini.paid) throw AppError.validation(FREE_TIER_CHAT, [{ field: 'body.chat.model', message: 'Gemini key on the free tier' }]);
+  assertNoLoss({ ...s, chat: input }, 'body.chat');
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { chat: input, updatedBy: by } }, { upsert: true });
   return aiSettings();
 }

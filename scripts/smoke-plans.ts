@@ -95,7 +95,7 @@ async function main() {
   check('super: Basic now opens Ask your shop', saved.status === 200 && data<Plan[]>(saved).find((p) => p.code === 'basic-monthly')?.features.join() === 'ask', code(saved));
   check('…the Basic shop can ask at once (no waiting for a cache)', (await owner.get('/ask/offer')).status === 200 && (await ctx()).features.join() === 'ask');
   await root.put('/admin/ai/key', { apiKey: fake.key, reason: 'new key from Anthropic console' });
-  await root.put('/admin/ai/chat', { chat: { enabled: true, model: 'claude-haiku-4-5-20251001', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50, margin: 2 }, reason: 'launch the shop chat' });
+  await root.put('/admin/ai/chat', { chat: { enabled: true, model: 'claude-haiku-4-5-20251001', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'launch the shop chat' });
   await owner.put('/ask/ai', { on: true });
   const stop = data<{ ai: { stop: string | null } }>(await owner.get('/ask/offer')).ai.stop;
   const yes = data<{ route: string; text: string }>(await owner.post('/ask', { text: 'Dolo kis kaam aati hai', confirm: true }));

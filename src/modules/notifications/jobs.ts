@@ -22,6 +22,8 @@ import { settleStuckReads } from '../ai/bill-ai';
 import { settleStuckQuestions } from '../ask/ask.service';
 import { demoTick } from '../demo/demo.service';
 import { welcomeMissing } from '../ai/welcome';
+import { lowCredits } from '../ai/credits';
+import { aiCreditEmail } from '../../services/email-templates';
 import { gateway } from '../subscription/gateway';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -152,6 +154,19 @@ export async function tick(now = new Date()) {
       return 0;
     });
     if (welcomed) ran.push(`welcome:${String(welcomed)}`);
+    // D97: AI credit under the admin's line → the super admins, once a day per provider.
+    const low = await lowCredits().catch(async (err: unknown) => {
+      logger.error({ err }, 'AI credit check failed');
+      await signal('job_fail', now);
+      return [];
+    });
+    const fresh = [];
+    for (const c of low) if (await claim(`aicredit:${c.provider}:${day}`, now)) fresh.push(c);
+    if (fresh.length) {
+      const mail = aiCreditEmail(fresh);
+      for (const a of await AdminUserModel.find({ role: 'super', status: 'active' }).select('email').lean()) await queueMail({ kind: 'ai_credit', to: a.email, ...mail }, now);
+      ran.push(`aicredit:${fresh.map((c) => c.provider).join(',')}`);
+    }
   }
   // The demo shop's bills keep up with the clock, and it starts afresh each night; it runs beside the tick.
   if (await claim(`demo:${now.toISOString().slice(0, 15)}`, now)) {

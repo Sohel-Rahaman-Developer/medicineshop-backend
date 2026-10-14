@@ -63,7 +63,7 @@ async function main() {
   /** AI suite (D78): AI reading on with the stand-in's key, and coins for the named shop. */
   const seedAi = async (b: { shopName?: string; coins?: number }) => {
     await setApiKey(claude.key, 'E2E');
-    await saveAiSettings({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 1, maxPages: 10, welcomeCoins: 0, usdInr: 88, packs: DEFAULT_PACKS }, 'E2E');
+    await saveAiSettings({ enabled: true, model: 'claude-haiku-4-5-20251001', effort: 'low', coinsPerPage: 1, maxPages: 10, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: DEFAULT_PACKS }, 'E2E');
     if (!b.shopName || !b.coins) return;
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop) throw new Error('shop not found');

@@ -197,10 +197,10 @@ async function main() {
   };
   const root = await login('root@medshop.test');
   const viewer = await login('view@medshop.test');
-  const chatOn = (over: Record<string, unknown> = {}) => ({ chat: { enabled: true, model: 'claude-haiku-4-5-20251001', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50, margin: 2, ...over }, reason: 'launch the shop chat' });
+  const chatOn = (over: Record<string, unknown> = {}) => ({ chat: { enabled: true, model: 'claude-haiku-4-5-20251001', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50, ...over }, reason: 'launch the shop chat' });
   check('turning the chat on before a key → 422', (await root.put('/admin/ai/chat', chatOn())).status === 422);
   const fresh = data<{ settings: { model: string }; pricing: { worstPaise: number } }>(await viewer.get('/admin/ai/chat'));
-  check('out of the box: Haiku 5.5, worst case (8,000 × $0.10 + 500 × $0.50) / 1M × ₹88 = 10 paise', fresh.settings.model === 'claude-haiku-5-5' && fresh.pricing.worstPaise === 10, JSON.stringify(fresh.pricing));
+  check('out of the box: Haiku 5.5, worst case (8,000 × $0.125 cache-write + 500 × $0.50) / 1M × ₹88 = 11 paise', fresh.settings.model === 'claude-haiku-5-5' && fresh.pricing.worstPaise === 11, JSON.stringify(fresh.pricing));
   await root.put('/admin/ai/key', { apiKey: fake.key, reason: 'new key from Anthropic console' });
   check('viewer can’t change the chat → 403', (await viewer.put('/admin/ai/chat', chatOn())).status === 403);
   check('an input cap under 6,000 tokens → 422', (await root.put('/admin/ai/chat', chatOn({ capIn: 2000 }))).status === 422);
@@ -208,12 +208,13 @@ async function main() {
   check('super turns it on: Haiku 4.5, 1 coin, 2 free, caps 8,000 / 500', on.status === 200 && data<{ settings: { enabled: boolean } }>(on).settings.enabled, code(on));
   check('…audited with its reason', Boolean(await AdminAuditModel.exists({ action: 'ai_chat_settings', reason: 'launch the shop chat', text: { $regex: 'turned on' } })));
   const view = data<{ pricing: { worstPaise: number; coinPaise: number; chargePaise: number; safe: boolean } }>(await viewer.get('/admin/ai/chat'));
-  check('worst case of a question: (8,000 × $1 + 500 × $5) / 1M × ₹88 = 93 paise', view.pricing.worstPaise === 93, JSON.stringify(view.pricing));
+  check('worst case of a question: (8,000 × $1.25 cache-write + 500 × $5) / 1M × ₹88 = 110 paise', view.pricing.worstPaise === 110, JSON.stringify(view.pricing));
   check('a coin brings in at least ₹7.62 (₹4,499 pack ÷ 1.18 GST ÷ 500) → safe, even in the worst case', view.pricing.coinPaise === 762 && view.pricing.chargePaise === 762 && view.pricing.safe, JSON.stringify(view.pricing));
   const pricey = await root.put('/admin/ai/prices', { prices: [{ model: 'claude-haiku-4-5-20251001', input: 50, output: 5, cacheRead: 5, cacheWrite: 62.5 }], reason: 'Anthropic raised Haiku prices' });
-  const pp = data<{ pricing: { worstPaise: number; safe: boolean } }>(pricey).pricing;
-  check('the admin’s own price ($50 in) → worst ₹35.42, no longer safe at 1 coin', pricey.status === 200 && pp.worstPaise === 3542 && !pp.safe, JSON.stringify(pp));
-  check('…audited', Boolean(await AdminAuditModel.exists({ action: 'ai_prices', reason: 'Anthropic raised Haiku prices' })));
+  check('D97: a price under which a question could lose money is refused — (8,000 × $62.50 + 500 × $5) / 1M × ₹88 = ₹44.22 against ₹7.62', pricey.status === 422 && String(pricey.json.error?.message) === 'That would lose money. A chat question can cost up to ₹44.22 but its coins bring in ₹7.62 — charge more coins a question, lower the caps or pick a cheaper model.', code(pricey));
+  check('…nothing saved, nothing audited', data<{ pricing: { worstPaise: number } }>(await viewer.get('/admin/ai/chat')).pricing.worstPaise === 110 && !(await AdminAuditModel.exists({ action: 'ai_prices', reason: 'Anthropic raised Haiku prices' })));
+  const raised = await root.put('/admin/ai/prices', { prices: [{ model: 'claude-haiku-4-5-20251001', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }], reason: 'Anthropic raised Haiku prices' });
+  check('a raise that still pays → saved: worst (8,000 × $2.50 + 500 × $10) / 1M × ₹88 = ₹2.20, audited', raised.status === 200 && data<{ pricing: { worstPaise: number; safe: boolean } }>(raised).pricing.worstPaise === 220 && Boolean(await AdminAuditModel.exists({ action: 'ai_prices', reason: 'Anthropic raised Haiku prices' })), code(raised));
   await root.put('/admin/ai/prices', { prices: [], reason: 'back to the list price' });
 
   section('5. Each shop turns AI on for itself; who and when is kept');

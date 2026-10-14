@@ -9,6 +9,8 @@ import { signal } from '../../services/monitor';
 import { istDayStart, istMonth } from '../../utils/date';
 import { aiSettings, apiKey, priceOf, providerOf, readyFor, type AiSettings } from '../ai/ai-settings';
 import { GeminiError } from '../../services/gemini';
+import { fits, safeNow, worstQuestion } from '../ai/guard';
+import { outOfCredit } from '../ai/credits';
 import { CoinWalletModel } from '../ai/ai.model';
 import { moveCoins } from '../ai/coins';
 import { audit } from '../audit/audit.model';
@@ -110,8 +112,8 @@ async function spentThisMonth(now: Date) {
 /** Tests start each case from a clean month. */
 export const forgetSpend = () => Object.assign(spent, { month: '', at: 0, paise: 0 });
 
-type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'budget' | 'dayLimit';
-type Wallet = { askAi?: boolean | null } | null;
+type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'paused' | 'budget' | 'dayLimit';
+type Wallet = { askAi?: boolean | null; askFree?: number | null } | null;
 
 async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Promise<Stop | null> {
   if (!s.chat.enabled || !readyFor(s, s.chat.model)) return 'aiOff';
@@ -121,6 +123,9 @@ async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Pr
   if ((await spentThisMonth(now)) >= s.chat.budgetUsd * s.usdInr * 100) return 'budget';
   const today = await AskQuestionModel.countDocuments({ shopId: t.shopId, route: { $in: ['ai', 'off_topic'] }, createdAt: { $gte: istDayStart(now) } });
   if (today >= s.chat.perShopDay) return 'dayLimit';
+  // D97: never at a price that could lose money, nor past what this shop has paid for — a free question is a gift.
+  const freeLeft = s.chat.freeQuestions - (w.askFree ?? 0);
+  if (!safeNow(s, 'chat') || (freeLeft <= 0 && !(await fits(t.shopId, s, worstQuestion(s))))) return 'paused';
   return null;
 }
 
@@ -185,6 +190,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
   const key = stop ? null : await apiKey(provider);
   if (stop || !key) {
     if (stop === 'budget') await signal('ask_budget', now);
+    if (stop === 'paused') await signal('ai_paused', now);
     await AskQuestionModel.create({ ...who, route: 'blocked', intent: stop ?? 'aiOff' });
     return { route: 'blocked' as const, voice, text: stopText(stop ?? 'aiOff', s, voice), suggestions };
   }
@@ -215,7 +221,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
     answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut }, voice, input.text, turnsOf(input.history), used);
   } catch (err) {
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI chat question failed');
-    await signal('ai_fail', now);
+    await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail', now);
     await settle(t, actor, held, { status: 'failed', error: err instanceof Anthropic.APIError ? `Anthropic ${String(err.status)}` : err instanceof GeminiError ? `Gemini ${err.kind}${err.status ? ` ${String(err.status)}` : ''}` : 'Not reached', refund: true }, used, s, started);
     return { route: 'failed' as const, voice, text: say(TEXT.failed, voice, { back }), suggestions };
   }

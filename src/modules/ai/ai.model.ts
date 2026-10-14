@@ -43,7 +43,6 @@ const chatSchema = new Schema(
     capOut: { type: Number, default: 500 },
     perShopDay: { type: Number, default: 30 },
     budgetUsd: { type: Number, default: 50 },
-    margin: { type: Number, default: 2 },
   },
   { _id: false },
 );
@@ -65,6 +64,8 @@ const settingsSchema = new Schema(
     maxPages: { type: Number, required: true, default: 10 },
     /** Free coins every shop gets once (D96); 0 stops new ones. */
     welcomeCoins: { type: Number, required: true, default: 100 },
+    /** What coins should bring in against the AI cost (1.5 = $20 of AI sold for $30); suggestions aim at it (D97). */
+    targetMargin: { type: Number, required: true, default: 1.5 },
     /** Rupees for one US dollar, for the real cost of each read. */
     usdInr: { type: Number, required: true, default: 88 },
     /** Paise, GST included. */

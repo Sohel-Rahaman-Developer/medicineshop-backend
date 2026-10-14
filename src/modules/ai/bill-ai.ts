@@ -15,6 +15,8 @@ import { SupplierModel } from '../suppliers/supplier.model';
 import type { Actor } from '../user/actor';
 import { aiSettings, apiKey, listPrice, priceOf, providerOf, type Price } from './ai-settings';
 import { AI_MODELS, AiReadModel } from './ai.model';
+import { outOfCredit } from './credits';
+import { AI_PAUSED, MAX_OUT, PAGE_OUT, fits, safeNow, worstPage } from './guard';
 import { balanceOf, moveCoins } from './coins';
 
 export const aiReadSchema = z
@@ -107,11 +109,11 @@ export function rowsOfAi(bill: AiBill) {
   return readRows([header, ...rows, ...bill.notes.map((n) => ['', '', '', '', n])], text);
 }
 
-async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_MODELS; effort: 'low' | 'medium' | 'high' }, key: string) {
+async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_MODELS; effort: 'low' | 'medium' | 'high' }, key: string, maxOut: number) {
   const client = new Anthropic({ apiKey: key, baseURL: env.AI_BASE_URL, maxRetries: 2, timeout: 4 * 60_000 });
   const stream = client.messages.stream({
     model: s.model,
-    max_tokens: 32_000,
+    max_tokens: maxOut,
     system: SYSTEM,
     output_config: { ...(AI_MODELS[s.model].effort ? { effort: s.effort } : {}), format: { type: 'json_schema', schema: z.toJSONSchema(aiBillSchema) } },
     messages: [{ role: 'user', content: [blockOf(kind, file), { type: 'text', text: 'Copy this bill into the JSON.' }] }],
@@ -128,6 +130,12 @@ async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   }
 }
 
+/** What a Word bill sends: its paragraphs and its table rows. */
+function docxChars(file: Buffer) {
+  const { rows, text } = docxContent(file);
+  return text.length + rows.reduce((a, r) => a + r.join(' | ').length + 1, 0);
+}
+
 function partOf(kind: Kind, file: Buffer): GeminiPart {
   if (kind.type === 'pdf') return { inlineData: { mimeType: 'application/pdf', data: file.toString('base64') } };
   if (kind.type === 'image') return { inlineData: { mimeType: kind.media, data: file.toString('base64') } };
@@ -136,11 +144,11 @@ function partOf(kind: Kind, file: Buffer): GeminiPart {
 }
 
 /** D96: the same read on Gemini — the same prompt and JSON shape, so the same checks follow. */
-async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_MODELS; effort: 'low' | 'medium' | 'high' }, key: string) {
+async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_MODELS; effort: 'low' | 'medium' | 'high' }, key: string, maxOut: number) {
   const r = await generate(key, s.model, {
     systemInstruction: { parts: [{ text: SYSTEM }] },
     contents: [{ role: 'user', parts: [partOf(kind, file), { text: 'Copy this bill into the JSON.' }] }],
-    generationConfig: { maxOutputTokens: 32_000, responseMimeType: 'application/json', responseJsonSchema: schemaFor(z.toJSONSchema(aiBillSchema)), thinkingConfig: { thinkingLevel: s.effort } },
+    generationConfig: { maxOutputTokens: maxOut, responseMimeType: 'application/json', responseJsonSchema: schemaFor(z.toJSONSchema(aiBillSchema)), thinkingConfig: { thinkingLevel: s.effort } },
   }, { timeoutMs: 4 * 60_000, retries: 2 });
   const usage = usageOf(r);
   const total = { input: usage.input + usage.cacheRead, output: usage.output };
@@ -173,8 +181,16 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
       throw AppError.validation(e instanceof PdfTextError && e.reason === 'password' ? 'This PDF is locked with a password — ask the supplier for one without it' : 'This PDF could not be opened — download it again and try once more');
     });
   }
-  if (pages > s.maxPages) throw AppError.validation(`AI reads up to ${String(s.maxPages)} pages at a time — this PDF has ${String(pages)}`);
+  // A Word file is counted by its text: about 9,000 characters (3,000 tokens) a page, so a long one costs what it uses.
+  if (kind.type === 'docx') pages = Math.max(1, Math.ceil(docxChars(file) / 9000));
+  if (pages > s.maxPages) throw AppError.validation(`AI reads up to ${String(s.maxPages)} pages at a time — this file has ${String(pages)}`);
   const coins = pages * s.coinsPerPage;
+  // D97: nothing runs at a price that could lose money, or past what this shop has paid for; no coins are taken.
+  // Too few coins is told as such (buy coins) by the charge below.
+  if (!safeNow(s, 'read') || ((await balanceOf(t.shopId)) >= coins && !(await fits(t.shopId, s, pages * worstPage(s))))) {
+    await signal('ai_paused');
+    throw AppError.conflict('AI bill reading is paused for your shop — MedBox24 has been told and will sort it out. No coins were taken.', { reason: AI_PAUSED });
+  }
 
   const read = await inTransaction(async (session) => {
     const [doc] = await AiReadModel.create([{ shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, supplierId: supplier._id, supplierName: supplier.name, fileName: input.fileName, fileType: kind.type, pages, coins, model: s.model }], { session });
@@ -195,10 +211,11 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
 
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
-    answer = provider === 'google' ? await askGemini(kind, file, s, key) : await askClaude(kind, file, s, key);
+    const maxOut = Math.min(MAX_OUT, pages * PAGE_OUT);
+    answer = provider === 'google' ? await askGemini(kind, file, s, key, maxOut) : await askClaude(kind, file, s, key, maxOut);
   } catch (err) {
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI bill read failed');
-    await signal('ai_fail');
+    await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail');
     const refused = err instanceof Anthropic.AuthenticationError || (err instanceof GeminiError && err.kind === 'refused');
     const busy = err instanceof Anthropic.RateLimitError || (err instanceof GeminiError && err.kind === 'busy');
     const why = refused ? 'the AI key was refused — MedBox24 has been told' : busy ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';

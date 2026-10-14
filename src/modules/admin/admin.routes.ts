@@ -21,6 +21,9 @@ import { release } from '../release/release';
 import * as ai from '../ai/ai-admin';
 import * as gw from './gateway-admin';
 import { perfOverview } from '../perf/perf';
+import { aiMoney } from '../ai/ledger';
+import * as credit from '../ai/credits';
+import { AI_PROVIDERS, type AiProvider } from '../ai/ai.model';
 import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
 import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
@@ -107,12 +110,19 @@ adminRouter.put('/ai/settings', superOnly, validate({ body: z.object({ settings:
 adminRouter.put('/ai/key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^sk-ant-[A-Za-z0-9_-]{20,200}$/, 'An Anthropic API key starts with sk-ant-'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip), 'API key saved'); }));
 adminRouter.delete('/ai/key', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await ai.updateApiKey(adminOf(req), null, (req.body as { reason: string }).reason, req.ip), 'API key removed — AI reading is off'); }));
 adminRouter.post('/ai/key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey(); sent(res, r, r.message); }));
-// D96: the Gemini key — Google AI Studio keys start with AIza.
-adminRouter.put('/ai/gemini-key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^AIza[A-Za-z0-9_-]{30,80}$/, 'A Gemini API key starts with AIza'), paid: z.boolean(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; paid: boolean; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip, 'google', b.paid), 'Gemini key saved'); }));
+// D96: the Gemini key — Google's older keys start with AIza, its auth keys (from 2026) with AQ.
+adminRouter.put('/ai/gemini-key', superOnly, validate({ body: z.object({ apiKey: z.string().trim().regex(/^(AIza[A-Za-z0-9_-]{30,80}|AQ\.[A-Za-z0-9_-]{20,200})$/, 'A Gemini API key starts with AIza or AQ.'), paid: z.boolean(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { apiKey: string; paid: boolean; reason: string }; sent(res, await ai.updateApiKey(adminOf(req), b.apiKey, b.reason, req.ip, 'google', b.paid), 'Gemini key saved'); }));
 adminRouter.delete('/ai/gemini-key', superOnly, validate({ body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await ai.updateApiKey(adminOf(req), null, (req.body as { reason: string }).reason, req.ip, 'google'), 'Gemini key removed'); }));
 adminRouter.post('/ai/gemini-key/test', superOnly, asyncHandler(async (_req: Request, res: Response) => { const r = await ai.testApiKey('google'); sent(res, r, r.message); }));
 // D81: the shop chat — its caps, prices and use.
 const questionsQuery = z.object({ shopId: objectId.optional(), route: z.enum(ASK_ROUTES).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
+// D97: is every AI price safe, the real margin, and what each shop (and who in it) spends against what it paid.
+adminRouter.get('/ai/money', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await aiMoney()); }));
+// D97: the admin writes down each top-up at Anthropic / Google; the estimate and the low-credit email follow from it.
+const providerParam = z.object({ provider: z.enum(AI_PROVIDERS) }).strict();
+adminRouter.get('/ai/credits', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await credit.credits()); }));
+adminRouter.post('/ai/credits/:provider', moneyRole, validate({ params: providerParam, body: z.object({ usd: z.number().min(1).max(100_000), at: istDay.optional(), note: z.string().trim().max(120).default(''), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { usd: number; at?: Date; note: string; reason: string }; sent(res, await credit.addTopup(adminOf(req), (req.params as { provider: AiProvider }).provider, b, b.reason, req.ip), 'Top-up added'); }));
+adminRouter.put('/ai/credits/:provider/alert', moneyRole, validate({ params: providerParam, body: z.object({ alertUsd: z.number().min(0).max(10_000), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { alertUsd: number; reason: string }; sent(res, await credit.setAlert(adminOf(req), (req.params as { provider: AiProvider }).provider, b.alertUsd, b.reason, req.ip), 'Alert saved'); }));
 adminRouter.get('/ai/chat', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await chat.chatOverview()); }));
 adminRouter.get('/ai/chat/questions', validate({ query: questionsQuery }), asyncHandler(async (req: Request, res: Response) => { const r = await chat.chatQuestions(req.query as unknown as { shopId?: string; route?: string; cursor?: string; limit: number }); fetched(res, r.items, r.meta); }));
 adminRouter.put('/ai/chat', superOnly, validate({ body: z.object({ chat: chatSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { chat: ChatSettingsInput; reason: string }; sent(res, await chat.updateChat(adminOf(req), b.chat, b.reason, req.ip), 'Chat settings saved'); }));

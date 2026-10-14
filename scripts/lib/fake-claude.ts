@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 /** What the next /v1/messages call answers. */
 export type Reply =
   | { bill: unknown; input?: number; output?: number }
-  | { status: number; type?: string }
+  | { status: number; type?: string; message?: string }
   | { text: string }
   | { stop: 'refusal' | 'max_tokens' }
   /** Chat (not streamed): call these tools, or answer this text. */
@@ -44,9 +44,9 @@ const sse = (res: ServerResponse, events: [string, unknown][]) => {
   res.end();
 };
 
-const fail = (res: ServerResponse, status: number, type: string) => {
+const fail = (res: ServerResponse, status: number, type: string, message = type) => {
   res.writeHead(status, { 'content-type': 'application/json', 'retry-after-ms': '5' });
-  res.end(JSON.stringify({ type: 'error', error: { type, message: type } }));
+  res.end(JSON.stringify({ type: 'error', error: { type, message } }));
 };
 
 /** A stand-in for api.anthropic.com: the Messages API (streamed) and Models API, enough for the SDK. */
@@ -87,7 +87,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
       });
       const reply = fake.queue.shift() ?? (body.tools?.length && fake.chat ? fake.chat : fake.answer);
       if ('status' in reply) {
-        fail(res, reply.status, reply.type ?? 'api_error');
+        fail(res, reply.status, reply.type ?? 'api_error', reply.message);
         return;
       }
       if ('tools' in reply || 'say' in reply) {
@@ -99,7 +99,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
       }
       const text = 'bill' in reply ? JSON.stringify(reply.bill) : 'text' in reply ? reply.text : '';
       const stop = 'stop' in reply ? reply.stop : 'end_turn';
-      const usage = 'bill' in reply ? { input: reply.input ?? 3200, output: reply.output ?? 2400 } : { input: 3000, output: 100 };
+      const usage = 'bill' in reply ? { input: reply.input ?? 3200, output: Math.min(reply.output ?? 2400, body.max_tokens) } : { input: 3000, output: 100 };
       sse(res, [
         ['message_start', { type: 'message_start', message: { id: 'msg_fake', type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input, output_tokens: 1 } } }],
         ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],

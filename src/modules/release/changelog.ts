@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.1',
+    date: '2026-10-14',
+    title: 'AI never costs more than its coins bring in',
+    shop: [
+      'AI bill reading caps how much the AI may write for each page, so a read never costs more than its coins. A long Word file is counted by its length (about 9,000 characters a page), not as one page.',
+      'If MedBox24 has to pause AI reading or AI answers for your shop, it says so plainly and takes no coins; free answers keep working.',
+    ],
+    admin: [
+      'AI bill reading → Money & safety: what one coin brings in (the cheapest pack, GST out), each bill page and chat question against its worst cost, the real cost of the last 30 days, and the coins to charge for your target margin — every number with its arithmetic.',
+      'A price, model, cap or pack under which a page or a question could cost more than its coins bring in can’t be saved; one left from before pauses that feature until it is fixed.',
+      'Each shop can’t spend on AI more than it paid for coins (GST out) plus what MedBox24 gave it — failed reads included. AI spend by shop: paid, given, spent, left, margin, and who in the shop spent it.',
+      'Target margin (1.5 = $20 of AI sold for $30) in AI settings, for bill reading and the chat together; the chat’s own margin box is gone.',
+      'AI credit: write down each top-up at Anthropic and Google; MedBox24 takes off the cost of every call and emails the super admins (once a day) when it falls under your line. An alert too when Anthropic says the credit is used up.',
+    ],
+    api: ['GET /admin/ai/money; GET /admin/ai/credits, POST /admin/ai/credits/:provider (top-up), PUT /admin/ai/credits/:provider/alert. AI settings carry targetMargin; the chat settings lose margin. A read past a shop’s allowance → 409 AI_PAUSED.'],
+  },
+  {
     version: '1.22.0',
     date: '2026-10-14',
     title: 'Gemini beside Claude, and 100 free AI coins for every shop',

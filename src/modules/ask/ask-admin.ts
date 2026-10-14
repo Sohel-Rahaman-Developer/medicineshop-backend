@@ -4,6 +4,7 @@ import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
 import { aiSettings, priceOf, saveChatSettings, savePrices, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import { CoinWalletModel } from '../ai/ai.model';
+import { coinValue, worstQuestion } from '../ai/guard';
 import { AskQuestionModel } from './ask.model';
 import { forgetSpend } from './ask.service';
 
@@ -11,7 +12,6 @@ import { forgetSpend } from './ask.service';
 
 const DAY = 86_400_000;
 const IST = 5.5 * 3_600_000;
-const GST = 1.18;
 
 export async function chatOverview(now = new Date()) {
   const ist = new Date(now.getTime() + IST);
@@ -38,14 +38,13 @@ export async function chatOverview(now = new Date()) {
 
   const c = s.chat;
   const p = priceOf(s, c.model);
-  // Worst case: every token of the caps, none from the cache.
-  const worstPaise = Math.ceil(((c.capIn * p.input + c.capOut * p.output) * s.usdInr * 100) / 1_000_000);
-  // A coin at the cheapest pack's price, GST taken out — the least a coin brings in.
-  const coinPaise = Math.min(...s.packs.map((k) => Math.floor(k.price / GST / Math.max(1, k.coins))));
+  // Worst case: every token of the caps, input at the dearer of input and cache-write (D97).
+  const worstPaise = worstQuestion(s);
+  const coinPaise = coinValue(s);
   const chargePaise = c.coinsPerQuestion * coinPaise;
   const avgPaise = last30[0]?.n ? Math.round(last30[0].cost / last30[0].n) : null;
   const ratio = (cost: number | null) => (cost ? Math.round((chargePaise / cost) * 10) / 10 : null);
-  const suggest = Math.max(1, Math.ceil((c.margin * (avgPaise ?? worstPaise)) / Math.max(1, coinPaise)));
+  const suggest = Math.max(1, Math.ceil((s.targetMargin * (avgPaise ?? worstPaise)) / Math.max(1, coinPaise)));
 
   const by = (r: string) => routes.find((x) => x._id === r);
   const sum = (k: 'n' | 'cost' | 'coins' | 'free' | 'tokensIn' | 'tokensOut') => routes.reduce((a, r) => a + r[k], 0);
@@ -57,6 +56,7 @@ export async function chatOverview(now = new Date()) {
     settings: c,
     model: { id: c.model, price: p },
     usdInr: s.usdInr,
+    targetMargin: s.targetMargin,
     pricing: { worstPaise, coinPaise, chargePaise, avgPaise, worstRatio: ratio(worstPaise), avgRatio: ratio(avgPaise), suggestCoins: suggest, safe: chargePaise >= worstPaise },
     month: {
       questions: sum('n'),

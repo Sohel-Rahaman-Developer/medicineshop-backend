@@ -57,7 +57,7 @@ async function main() {
   const settingsOf = async () => data<{ settings: Settings }>(await root.get('/admin/ai')).settings;
   const balance = async () => (await CoinWalletModel.findOne({ shopId: shop }).lean())?.balance ?? 0;
   const readAi = (c: Client, file: Buffer, type: string, name: string) => c.post('/purchases/import/ai', { supplierId: ma, fileName: name, data: b64(file, type) });
-  const read = (s: Record<string, unknown> = {}) => ({ settings: { enabled: true, model: 'gemini-3.8-flash', effort: 'medium', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }], ...s }, reason: 'bill reading on Gemini' });
+  const read = (s: Record<string, unknown> = {}) => ({ settings: { enabled: true, model: 'gemini-3.8-flash', effort: 'medium', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }], ...s }, reason: 'bill reading on Gemini' });
 
   section('1. The Gemini key: super only, sealed, last 4 shown, Claude untouched');
   const s0 = await settingsOf();
@@ -65,6 +65,7 @@ async function main() {
   check('bill reading on Gemini before its key → 422 naming Gemini', (await root.put('/admin/ai/settings', read())).status === 422 && String((await root.put('/admin/ai/settings', read())).json.error?.message).includes('Gemini'));
   check('accounts can’t set it → 403', (await acc.put('/admin/ai/gemini-key', { apiKey: fake.key, paid: false, reason: 'key from AI Studio' })).status === 403);
   check('not a Gemini key → 422', (await root.put('/admin/ai/gemini-key', { apiKey: 'sk-ant-api03-not-google-0123456789', paid: false, reason: 'key from AI Studio' })).status === 422);
+  check('Google’s newer auth key (AQ.…) is taken too', (await root.put('/admin/ai/gemini-key', { apiKey: 'AQ.Ab8FakeAuthKeyForTests_0123456789-abcdef', paid: false, reason: 'auth key from AI Studio' })).status === 200); // gitleaks:allow
   const set = await root.put('/admin/ai/gemini-key', { apiKey: fake.key, paid: false, reason: 'key from AI Studio' });
   const s1 = data<Settings>(set);
   check('saved: Gemini key set, last 4 only, the Claude key still not set', set.status === 200 && s1.gemini.hasKey && s1.gemini.keyLast4 === fake.key.slice(-4) && !s1.hasKey && !JSON.stringify(set.json).includes(fake.key), code(set));
@@ -116,7 +117,7 @@ async function main() {
   fake.key = realKey;
 
   section('4. The shop chat on Gemini, with the shop’s tools');
-  const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50, margin: 2 }, reason: 'chat on Gemini Flash-Lite' };
+  const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'chat on Gemini Flash-Lite' };
   const freeTier = await root.put('/admin/ai/chat', chatOn);
   check('the chat on a free-tier Gemini key → 422 (Google may use what is sent; questions carry customers’ names)', freeTier.status === 422 && String(freeTier.json.error?.message).startsWith('Turn on billing for the Gemini key first'), code(freeTier));
   check('the same key, billing on → saved and audited', (await root.put('/admin/ai/gemini-key', { apiKey: fake.key, paid: true, reason: 'billing turned on in AI Studio' })).status === 200 && Boolean(await AdminAuditModel.exists({ action: 'ai_key_set', text: { $regex: 'billing on' } })));

@@ -198,6 +198,25 @@ export function summaryEmail(raw: DaySummary) {
   };
 }
 
+/** D97: AI credit under the admin's line — an estimate from the recorded cost since the top-ups. */
+export function aiCreditEmail(items: { name: string; leftUsd: number; alertUsd: number; loadedUsd: number; spentUsd: number }[]) {
+  const t = THEMES.admin;
+  const usd = (n: number) => `$${n.toFixed(2)}`;
+  const head = items.map((i) => `${i.name} about ${usd(i.leftUsd)} left`).join(' · ');
+  return {
+    subject: `${BRAND} — top up AI credit: ${head}`.slice(0, 160),
+    html: shell({
+      theme: t,
+      preheader: head.slice(0, 140),
+      eyebrow: 'AI credit',
+      title: 'Time to top up',
+      intro: 'The AI credit is under the line you set. When it runs out, bill reading and the chat stop for every shop until it is topped up.',
+      body: `${rows(items.map((i) => [i.name, `about ${usd(i.leftUsd)} left (${usd(i.loadedUsd)} put in − ${usd(i.spentUsd)} used) · alert below ${usd(i.alertUsd)}`]))}${button(`${env.ADMIN_APP_URL}/ai`, 'Open AI bill reading', t)}${note('This is MedBox24’s estimate from the cost of every call. After topping up at Anthropic or Google, add the amount under AI → Credits so the estimate stays right.', 'warn')}`,
+    }),
+    text: `${BRAND} — AI credit is low\n\n${items.map((i) => `${i.name}: about ${usd(i.leftUsd)} left (${usd(i.loadedUsd)} put in − ${usd(i.spentUsd)} used), alert below ${usd(i.alertUsd)}`).join('\n')}\n\nTop up, then add it under AI → Credits: ${env.ADMIN_APP_URL}/ai`,
+  };
+}
+
 /** Ops alert to the super admins: what crossed its limit, and where to look. */
 export function monitorAlertEmail(items: { label: string; n: number; limit: number }[], windowMin: number) {
   const t = THEMES.admin;
