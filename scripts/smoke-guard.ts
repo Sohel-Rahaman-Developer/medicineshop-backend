@@ -72,12 +72,12 @@ async function main() {
 
   section('1. A price that could lose money can’t be saved');
   const lossy = await root.put('/admin/ai/settings', settings({ coinsPerPage: 1 }));
-  check('Opus 5.5 at 1 coin a page → 422: a page (4,000 in × $5 + 8,000 out × $20) / 1M × ₹88 = ₹15.84 against ₹7.62', lossy.status === 422 && lossy.json.error?.message === 'That would lose money. A bill page can cost up to ₹15.84 but its coins bring in ₹7.62 — charge more coins a page or pick a cheaper model.', code(lossy));
+  check('Opus 5.5 at 1 coin a page → 422: a page (4,000 in × $5 + 8,000 out × $20) / 1M × ₹88 = ₹15.84 against ₹7.62', lossy.status === 422 && lossy.json.error?.message === 'That would lose money. A bill page can cost up to ₹15.84 but its tokens bring in ₹7.62 — charge more tokens a page or pick a cheaper model.', code(lossy));
   check('…the same price with reading off can be kept (nothing runs)', (await root.put('/admin/ai/settings', settings({ coinsPerPage: 1, enabled: false }))).status === 200);
   const ok3 = await root.put('/admin/ai/settings', settings());
   check('3 coins a page → ₹22.86 ≥ ₹15.84 → saved', ok3.status === 200, code(ok3));
   const cheap = await root.put('/admin/ai/settings', settings({ packs: [{ code: 'bulk', name: 'Bulk', coins: 500, price: 99_900 }] }));
-  check('a pack that drops a coin to ₹1.69 (₹999 ÷ 1.18 ÷ 500) → 422, 3 coins = ₹5.07', cheap.status === 422 && String(cheap.json.error?.message).includes('its coins bring in ₹5.07'), code(cheap));
+  check('a pack that drops a coin to ₹1.69 (₹999 ÷ 1.18 ÷ 500) → 422, 3 coins = ₹5.07', cheap.status === 422 && String(cheap.json.error?.message).includes('its tokens bring in ₹5.07'), code(cheap));
   const m0 = await money();
   check('the money view shows it: coin ₹7.62, page worst ₹15.84 vs ₹22.86, safe; 1.5× suggests 4 coins (1.5 × ₹15.84 ÷ ₹7.62)', m0.coin.paise === 762 && m0.read.worstPaise === 1584 && m0.read.chargePaise === 2286 && m0.read.safe && m0.read.suggestCoins === 4 && m0.read.avgPaise === null, JSON.stringify(m0.read));
 
@@ -87,7 +87,7 @@ async function main() {
   check('the shop’s offer turns off', !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
   const seen0 = fake.seen.length;
   const paused = await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg');
-  check('a read → 409 AI_PAUSED, “No coins were taken”, Claude not asked, no read recorded', paused.status === 409 && reason(paused) === 'AI_PAUSED' && String(paused.json.error?.message).endsWith('No coins were taken.') && fake.seen.length === seen0 && (await balance()) === 20 && (await AiReadModel.countDocuments({ shopId: shop })) === 0, code(paused));
+  check('a read → 409 AI_PAUSED, “No tokens were taken”, Claude not asked, no read recorded', paused.status === 409 && reason(paused) === 'AI_PAUSED' && String(paused.json.error?.message).endsWith('No tokens were taken.') && fake.seen.length === seen0 && (await balance()) === 20 && (await AiReadModel.countDocuments({ shopId: shop })) === 0, code(paused));
   check('MedBox24 is told (a monitor signal)', Boolean(await SignalModel.exists({ kind: 'ai_paused' })));
   check('the money view marks it unsafe', !(await money()).read.safe);
 
@@ -121,13 +121,17 @@ async function main() {
   fake.answer = { bill: MA_AI, input: 3200, output: 2400 };
   check('MedBox24 gives 30 more → reading works again', w.status === 200 && (await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg')).status === 200);
 
-  section('5. The chat pauses the same way; a free question is a gift');
-  const chatOn = { chat: { enabled: true, model: 'claude-haiku-5-5', coinsPerQuestion: 1, freeQuestions: 0, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50 }, reason: 'chat for the guard test' };
+  section('5. The chat pauses the same way');
+  const chatOn = { chat: { enabled: true, model: 'claude-haiku-5-5', coinsPerQuestion: 1, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50 }, reason: 'chat for the guard test' };
   check('chat on (Haiku 5.5: worst 11 paise vs ₹7.62)', (await root.put('/admin/ai/chat', chatOn)).status === 200);
   await other.put('/ask/ai', { on: true });
-  check('a shop that paid nothing and has no free question left → paused', data<{ ai: { stop: string | null } }>(await other.get('/ask/offer')).ai.stop === 'paused');
-  await root.put('/admin/ai/chat', { ...chatOn, chat: { ...chatOn.chat, freeQuestions: 2 } });
-  check('with free questions left it may ask (they are MedBox24’s gift)', data<{ ai: { stop: string | null } }>(await other.get('/ask/offer')).ai.stop === null);
+  const stopOf = async () => data<{ ai: { stop: string | null } }>(await other.get('/ask/offer')).ai.stop;
+  check('a shop with no tokens → “buy tokens”', (await stopOf()) === 'noCoins');
+  await root.post(`/admin/shops/${other.shopId}/coins`, { coins: 5, reason: 'tokens for the guard test' });
+  check('given 5 tokens it may ask — within what it was given', (await stopOf()) === null);
+  const { AskQuestionModel } = await import('../src/modules/ask/ask.model.js');
+  await AskQuestionModel.create({ shopId: new Types.ObjectId(other.shopId), shopName: 'Mina Medical', userId: new Types.ObjectId(), userName: 'x', route: 'ai', voice: 'en', costPaise: 10_000 });
+  check('…once its AI cost passes what it was given (₹100 > 5 × ₹7.62) → paused, though tokens are left', (await stopOf()) === 'paused');
 
   section('6. Who spends what');
   const m1 = await money();

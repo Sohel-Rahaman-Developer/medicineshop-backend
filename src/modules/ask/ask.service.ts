@@ -24,13 +24,13 @@ import { bareName, matchIntent, type Intent } from './intents';
 import { LANGS, langOf, voiceOf, type Voice } from './lang';
 import { CHIPS, CHIP_GROUPS, TEXT, say } from './texts';
 
-// D81 "Ask your shop": free first (the software answers), AI only when the shop says yes, inside the admin's caps.
+// D81 "Ask your shop": ready answers first (no AI, free); anything else goes straight to the AI for a token, inside the admin's caps.
 
 export const askSchema = z
   .object({
     text: z.string().trim().min(1, 'Type a question').max(300, 'Keep the question under 300 letters'),
     lang: z.enum(LANGS).optional(),
-    /** The shop said yes to spending a coin (or a free question) on the AI. */
+    /** Older apps asked first; the AI now answers without it. */
     confirm: z.boolean().optional(),
     history: z.array(z.object({ role: z.enum(['user', 'assistant']), text: z.string().trim().min(1).max(600) }).strict()).max(8).optional(),
   })
@@ -112,29 +112,29 @@ async function spentThisMonth(now: Date) {
 /** Tests start each case from a clean month. */
 export const forgetSpend = () => Object.assign(spent, { month: '', at: 0, paise: 0 });
 
-type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'paused' | 'budget' | 'dayLimit';
-type Wallet = { askAi?: boolean | null; askFree?: number | null } | null;
+type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'noCoins' | 'paused' | 'budget' | 'dayLimit';
+type Wallet = { askAi?: boolean | null; balance?: number | null } | null;
 
 async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Promise<Stop | null> {
   if (!s.chat.enabled || !readyFor(s, s.chat.model)) return 'aiOff';
   if (!t.features.includes('ai')) return 'plan';
   if (!w?.askAi) return 'shopOff';
   if (!can(t.permissions, 'reports', 'view')) return 'ownerOnly';
+  if ((w.balance ?? 0) < s.chat.coinsPerQuestion) return 'noCoins';
   if ((await spentThisMonth(now)) >= s.chat.budgetUsd * s.usdInr * 100) return 'budget';
   const today = await AskQuestionModel.countDocuments({ shopId: t.shopId, route: { $in: ['ai', 'off_topic'] }, createdAt: { $gte: istDayStart(now) } });
   if (today >= s.chat.perShopDay) return 'dayLimit';
-  // D97: never at a price that could lose money, nor past what this shop has paid for — a free question is a gift.
-  const freeLeft = s.chat.freeQuestions - (w.askFree ?? 0);
-  if (!safeNow(s, 'chat') || (freeLeft <= 0 && !(await fits(t.shopId, s, worstQuestion(s))))) return 'paused';
+  // D97: never at a price that could lose money, nor past what this shop has paid for.
+  if (!safeNow(s, 'chat') || !(await fits(t.shopId, s, worstQuestion(s)))) return 'paused';
   return null;
 }
 
-/** What the chat shows up top: is AI on for this person, what a question costs, free questions left, coins. */
+/** What the chat shows up top: is AI on for this person, what a question costs, tokens left. */
 export async function offer(t: TenantContext, now = new Date()) {
   const [s, w] = await Promise.all([aiSettings(), CoinWalletModel.findOne({ shopId: t.shopId }).lean()]);
   const stop = await stopOf(t, s, w, now);
   return {
-    ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)), balance: w?.balance ?? 0 },
+    ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, balance: w?.balance ?? 0 },
     chips: CHIPS,
     groups: CHIP_GROUPS,
   };
@@ -152,7 +152,6 @@ export async function switchAi(t: TenantContext, actor: Actor, on: boolean, ip?:
 }
 
 const stopText = (stop: Stop, s: AiSettings, v: Voice) => say(TEXT[stop], v, { n: s.chat.perShopDay });
-const costText = (o: Awaited<ReturnType<typeof offer>>['ai'], v: Voice) => (o.freeLeft > 0 ? say(TEXT.free, v, { n: o.freeLeft - 1 }) : o.coinsPerQuestion === 1 ? say(TEXT.coin, v) : say(TEXT.coins, v, { n: o.coinsPerQuestion }));
 
 /** Alternating turns that end with the assistant, so the new question follows on. */
 function turnsOf(history: AskInput['history']): Turn[] {
@@ -178,13 +177,8 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
     return { route: 'free' as const, voice, cards: [card] };
   }
 
+  // No ready answer: straight to the AI, a token a question (given back when it is not about the shop or fails).
   const s = await aiSettings();
-  if (!input.confirm) {
-    const o = (await offer(t, now)).ai;
-    await AskQuestionModel.create({ ...who, route: 'unmatched' });
-    return { route: 'needs_ai' as const, voice, text: o.stop ? stopText(o.stop, s, voice) : say(TEXT.needsAi, voice, { cost: costText(o, voice) }), canAsk: !o.stop, ai: o, suggestions };
-  }
-
   const stop = await stopOf(t, s, await CoinWalletModel.findOne({ shopId: t.shopId }).lean(), now);
   const provider = providerOf(s.chat.model);
   const key = stop ? null : await apiKey(provider);
@@ -195,17 +189,15 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
     return { route: 'blocked' as const, voice, text: stopText(stop ?? 'aiOff', s, voice), suggestions };
   }
 
-  // Hold the price first: a free question if any are left, else coins. Both come back if no answer is given.
-  await CoinWalletModel.updateOne({ shopId: t.shopId }, { $setOnInsert: { balance: 0, askFree: 0 } }, { upsert: true });
+  // Hold the tokens first; they come back if no answer is given.
   let held: { id: Types.ObjectId; free: boolean; coins: number };
   try {
     held = await inTransaction(async (session) => {
-      const free = await CoinWalletModel.findOneAndUpdate({ shopId: t.shopId, askFree: { $lt: s.chat.freeQuestions } }, { $inc: { askFree: 1 } }, { session, returnDocument: 'after' }).lean();
-      const coins = free ? 0 : s.chat.coinsPerQuestion;
-      const [doc] = await AskQuestionModel.create([{ ...who, route: 'ai', status: 'running', free: Boolean(free), coins, model: s.chat.model }], { session });
+      const coins = s.chat.coinsPerQuestion;
+      const [doc] = await AskQuestionModel.create([{ ...who, route: 'ai', status: 'running', free: false, coins, model: s.chat.model }], { session });
       if (!doc) throw AppError.internal();
-      if (!free) await moveCoins(t.shopId, 'ask', -coins, 'AI question', actor.name, String(doc._id), session);
-      return { id: doc._id, free: Boolean(free), coins };
+      await moveCoins(t.shopId, 'ask', -coins, 'AI question', actor.name, String(doc._id), session);
+      return { id: doc._id, free: false, coins };
     });
   } catch (err) {
     if (!(err instanceof AppError && (err.details as { reason?: string } | undefined)?.reason === NOT_ENOUGH)) throw err;
@@ -215,7 +207,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
 
   const used: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const started = Date.now();
-  const back = held.free ? say(TEXT.backFree, voice) : say(TEXT.back, voice);
+  const back = say(TEXT.back, voice);
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
     answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut }, voice, input.text, turnsOf(input.history), used);
@@ -254,7 +246,7 @@ async function settle(t: TenantContext, actor: Actor, held: { id: Types.ObjectId
     else await moveCoins(t.shopId, 'refund', held.coins, `Back: AI question — ${how.error ?? 'not about the shop'}`, actor.name, String(held.id), session);
   });
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
-  return { balance: w?.balance ?? 0, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) };
+  return { balance: w?.balance ?? 0 };
 }
 
 /** Questions left "running" by a restart give their coin or free question back (scheduler). */

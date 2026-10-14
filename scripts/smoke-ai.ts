@@ -120,7 +120,7 @@ async function main() {
   check('0 coins → 422', (await acc.post(`/admin/shops/${shopId}/coins`, { coins: 0, reason: 'trial coins for the demo' })).status === 422);
   const gift = await acc.post(`/admin/shops/${shopId}/coins`, { coins: 10, reason: 'trial coins for the demo' });
   check('accounts gives 10 coins → balance 10', gift.status === 200 && (await balance()) === 10, code(gift));
-  check('…in the shop’s ledger and both audit logs', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'grant', coins: 10, balance: 10 })) && Boolean(await AdminAuditModel.exists({ action: 'coins', shopId: shop })) && Boolean(await AuditLogModel.exists({ shopId: shop, text: { $regex: 'gave 10 AI coins' } })));
+  check('…in the shop’s ledger and both audit logs', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'grant', coins: 10, balance: 10 })) && Boolean(await AdminAuditModel.exists({ action: 'coins', shopId: shop })) && Boolean(await AuditLogModel.exists({ shopId: shop, text: { $regex: 'gave 10 AI tokens' } })));
   check('taking back more than the shop has → 409, balance stays 10', (await acc.post(`/admin/shops/${shopId}/coins`, { coins: -50, reason: 'given by mistake' })).status === 409 && (await balance()) === 10);
   const ord = await owner.post('/ai/coins/order', { packCode: 'c25' });
   const o = data<{ orderId: string; amount: number }>(ord);
@@ -129,7 +129,7 @@ async function main() {
   check('cashier can’t buy coins → 403', (await cashier.post('/ai/coins/order', { packCode: 'c25' })).status === 403);
   const paid = await owner.post('/ai/coins/test-pay', { orderId: o.orderId });
   const paidOut = data<{ coins: number; balance: number; invoiceNumber: string; id: string }>(paid);
-  check('paid → 25 coins added, balance 35, a tax invoice number', paid.status === 200 && paidOut.balance === 35 && /^MS-\d{4}-\d{2}-\d{5}$/.test(paidOut.invoiceNumber), code(paid));
+  check('paid → 25 tokens added, balance 35, a tax invoice number', paid.status === 200 && paidOut.balance === 35 && /^MS-\d{4}-\d{2}-\d{5}$/.test(paidOut.invoiceNumber), code(paid));
   const twice = await owner.post('/ai/coins/test-pay', { orderId: o.orderId });
   check('the same payment again → replayed, still 35', data<{ replayed: boolean }>(twice).replayed && (await balance()) === 35);
   const pdfInv = await owner.raw('GET', `/ai/coins/${paidOut.id}/invoice`);
@@ -185,13 +185,13 @@ async function main() {
   const ledgerBefore = await CoinEntryModel.countDocuments({ shopId: shop });
   fake.queue.push({ status: 500, type: 'api_error' }, { status: 500, type: 'api_error' }, { status: 500, type: 'api_error' });
   const down = await photo();
-  check('Anthropic down (after 2 retries) → 503 that says the coins are back, balance 125', down.status === 503 && /coins are back/.test(down.json.error?.message ?? '') && (await balance()) === 125, code(down));
+  check('Anthropic down (after 2 retries) → 503 that says the tokens are back, balance 125', down.status === 503 && /tokens are back/.test(down.json.error?.message ?? '') && (await balance()) === 125, code(down));
   const failedRead = await AiReadModel.findOne({ shopId: shop, status: 'failed' }).sort({ createdAt: -1 }).lean();
   check('…the read is recorded failed and refunded; ledger: −2 then +2', failedRead?.refunded === true && (await CoinEntryModel.countDocuments({ shopId: shop })) === ledgerBefore + 2 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'refund', coins: 2, ref: String(failedRead._id) })));
   check('…and the admin alert counter moved', ((await SignalModel.find({ kind: 'ai_fail' }).lean()).reduce((a, s) => a + s.n, 0)) >= 1);
   fake.queue.push({ text: 'Sorry, I cannot help with that.' });
   const garbage = await photo();
-  check('an answer that is not the JSON → 422, coins back', garbage.status === 422 && /coins are back/.test(garbage.json.error?.message ?? '') && (await balance()) === 125, code(garbage));
+  check('an answer that is not the JSON → 422, tokens back', garbage.status === 422 && /tokens are back/.test(garbage.json.error?.message ?? '') && (await balance()) === 125, code(garbage));
   fake.queue.push({ stop: 'refusal' });
   check('a refusal → 422, coins back', (await photo()).status === 422 && (await balance()) === 125);
   fake.queue.push({ stop: 'max_tokens' });

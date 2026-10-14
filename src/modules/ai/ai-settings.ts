@@ -46,7 +46,6 @@ export const chatSettingsSchema = z
     enabled: z.boolean(),
     model: z.enum(AI_MODEL_IDS),
     coinsPerQuestion: z.number().int().min(1).max(20),
-    freeQuestions: z.number().int().min(0).max(500),
     capIn: z.number().int().min(6000).max(100_000),
     capOut: z.number().int().min(200).max(4000),
     perShopDay: z.number().int().min(1).max(1000),
@@ -55,7 +54,7 @@ export const chatSettingsSchema = z
   .strict();
 export type ChatSettingsInput = z.infer<typeof chatSettingsSchema>;
 
-export const CHAT_DEFAULTS: ChatSettingsInput = { enabled: false, model: 'claude-haiku-5-5', coinsPerQuestion: 1, freeQuestions: 20, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50 };
+export const CHAT_DEFAULTS: ChatSettingsInput = { enabled: false, model: 'claude-haiku-5-5', coinsPerQuestion: 1, capIn: 8000, capOut: 500, perShopDay: 30, budgetUsd: 50 };
 
 /** List price unless the admin set one; cache reads at a tenth, cache writes at 1.25× input (Anthropic's rule; Gemini never writes). */
 export interface Price {

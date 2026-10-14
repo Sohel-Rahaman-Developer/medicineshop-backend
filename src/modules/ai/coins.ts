@@ -26,7 +26,7 @@ export async function moveCoins(shopId: Types.ObjectId, kind: CoinKind, coins: n
       : await CoinWalletModel.findOneAndUpdate({ shopId }, { $inc: { balance: coins } }, { upsert: true, returnDocument: 'after', session }).lean();
   if (!w) {
     const have = (await CoinWalletModel.findOne({ shopId }).session(session).lean())?.balance ?? 0;
-    throw AppError.conflict(`Not enough coins — this needs ${String(-coins)}, the shop has ${String(have)}`, { reason: NOT_ENOUGH, need: -coins, have });
+    throw AppError.conflict(`Not enough AI tokens — this needs ${String(-coins)}, the shop has ${String(have)}`, { reason: NOT_ENOUGH, need: -coins, have });
   }
   await CoinEntryModel.create([{ shopId, kind, coins, balance: w.balance, text, ref, byName }], { session });
   return w.balance;
@@ -80,7 +80,7 @@ export async function wallet(t: TenantContext) {
     ...offer,
     balance: w?.balance ?? 0,
     payments: (await gateway()).mode,
-    ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion, freeLeft: Math.max(0, s.chat.freeQuestions - (w?.askFree ?? 0)) },
+    ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion },
     questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
     reads: reads.map(shapeRead),
@@ -93,13 +93,13 @@ export async function orderCoins(t: TenantContext, actor: Actor, packCode: strin
   const g = await gateway();
   const offer = await aiOffer();
   if (!offer.enabled) throw AppError.forbidden('AI bill reading is off');
-  if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add coins');
+  if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add tokens');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
   const orderId = await createOrder(pack.price, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
   await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount: pack.price, gst: pack.price - rhu(pack.price * 100, 118), razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount: pack.price, currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} coins`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
+  return { orderId, amount: pack.price, currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} tokens`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 /** Checkout's verify and the webhook both land here: coins once per order, a second call is a no-op. */
@@ -121,7 +121,7 @@ export async function coinsPaid(orderId: string, paymentId: string, amount: numb
     await o.save({ session });
     const who = by ?? { id: String(o.createdBy), name: o.createdByName };
     const balance = await moveCoins(o.shopId, 'purchase', o.coins, `Bought ${o.packName} — ${inr(o.amount)} (${invoiceNumber})`, who.name, String(o._id), session);
-    await audit({ shopId: o.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(o._id), entityName: invoiceNumber, text: `${who.name} bought ${String(o.coins)} AI coins for ${inr(o.amount)} (${invoiceNumber})` }, session);
+    await audit({ shopId: o.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(o._id), entityName: invoiceNumber, text: `${who.name} bought ${String(o.coins)} AI tokens for ${inr(o.amount)} (${invoiceNumber})` }, session);
     return { order: o, replayed: false, balance };
   });
 }
@@ -164,12 +164,12 @@ export async function coinInvoicePdf(t: TenantContext, id: string) {
     stamp: 'PAID',
     issuer: issuerOf(from, support),
     logo: true,
-    parties: [billedTo(to), { label: 'AI coins', lines: [`${o.packName} · ${String(o.coins)} coins`, 'For reading supplier bills with AI', how] }],
+    parties: [billedTo(to), { label: 'AI tokens', lines: [`${o.packName} · ${String(o.coins)} tokens`, 'For AI bill reading and AI answers', how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedBox24 AI bill reading — ${String(o.coins)} coins`, (await billingInfo()).sac, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
+    rows: [{ cells: ['1', `MedBox24 AI — ${String(o.coins)} tokens`, (await billingInfo()).sac, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
     totals: [{ label: 'Taxable value', value: rupees(o.amount - o.gst) }, ...gstLines(o.gst, from, to), { label: 'Total', value: rupees(o.amount), strong: true }],
     words: rupeesInWords(o.amount),
-    notes: ['Coins do not expire and are not refundable as cash.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
+    notes: ['Tokens do not expire and are not refundable as cash.', ...(support ? [`Questions about this invoice: ${support}`] : [])],
     footer: `Computer-generated invoice — no signature needed · ${from.name ?? 'MedBox24'}`,
   });
   return { buf, name: o.invoiceNumber };

@@ -94,7 +94,7 @@ export async function aiMoney(now = new Date()) {
     chat: { ...chat, model: s.chat.model, coinsPerJob: s.chat.coinsPerQuestion, tokensIn: s.chat.capIn, tokensOut: s.chat.capOut, price: { input: Math.max(pc.input, pc.cacheWrite), output: pc.output }, avgPaise: perQuestion, suggestCoins: need(perQuestion ?? worstQuestion(s)) },
     month: { costPaise: monthCost, salesPaise: monthSales, margin: monthCost ? Math.round((monthSales / monthCost) * 10) / 10 : null },
     coinFloorPaise: Math.ceil(floor * GST),
-    gifts: { welcomeCoins: s.welcomeCoins, freeQuestions: s.chat.freeQuestions, perShopPaise: (s.welcomeCoins + s.chat.freeQuestions * s.chat.coinsPerQuestion) * coin },
+    gifts: { welcomeCoins: s.welcomeCoins, perShopPaise: s.welcomeCoins * coin },
     shops,
   };
 }

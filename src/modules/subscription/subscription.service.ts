@@ -257,7 +257,7 @@ export async function webhook(raw: string, signature: string, eventId: string) {
         if (err instanceof AppError) return { error: err.message };
         throw err;
       });
-      result = 'error' in r ? `error: ${r.error}` : r.replayed ? 'already paid' : 'coins added';
+      result = 'error' in r ? `error: ${r.error}` : r.replayed ? 'already paid' : 'tokens added';
     }
   } else if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id && !(await SubscriptionPaymentModel.exists({ razorpayOrderId: e.order_id }))) {
     // Autopay charges carry Razorpay's own order ids; they are paid through subscription.charged.

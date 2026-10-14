@@ -13,7 +13,7 @@ export async function giveWelcome(shopId: Types.ObjectId, session?: ClientSessio
     await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0, askFree: 0 } }, { upsert: true, session: s });
     const claimed = await CoinWalletModel.updateOne({ shopId, welcomeAt: { $exists: false } }, { $set: { welcomeAt: new Date() } }, { session: s });
     if (!claimed.modifiedCount) return 0;
-    await moveCoins(shopId, 'welcome', n, `Welcome — ${String(n)} free AI coins from MedBox24`, 'MedBox24', 'welcome', s);
+    await moveCoins(shopId, 'welcome', n, `Welcome — ${String(n)} free AI tokens from MedBox24`, 'MedBox24', 'welcome', s);
     return n;
   };
   return session ? work(session) : inTransaction(work);

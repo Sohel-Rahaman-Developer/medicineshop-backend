@@ -10,6 +10,22 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.3',
+    date: '2026-10-14',
+    title: 'AI tokens, and Ask AI answers at once',
+    shop: [
+      'AI coins are now AI tokens — one balance for AI bill reading and AI answers. Every shop starts with 100 free AI tokens.',
+      'Ask AI no longer asks “Ask AI?” first: anything the ready answers don’t cover goes straight to the AI for 1 token, given back if it fails or isn’t about your shop.',
+      'The AI also talks about growing your shop — more sales, stock, customers, staff — using your own figures.',
+      'Ask AI is more compact: the language, your tokens and Clear chat sit in the top bar.',
+    ],
+    admin: [
+      'Coins are called tokens everywhere (settings, packs, invoices, money and spend views); the AI’s own counts are now “AI words”.',
+      'The chat’s free questions are gone — the welcome tokens are the gift; old free questions still count in each shop’s allowance.',
+    ],
+    api: ['POST /ask answers with the AI at once (confirm is ignored); the needs_ai answer and freeLeft are gone; a shop without tokens gets the noCoins stop. Chat settings lose freeQuestions; money gifts lose freeQuestions.'],
+  },
+  {
     version: '1.22.2',
     date: '2026-10-14',
     title: 'AI settings that say why AI is off',

@@ -42,13 +42,13 @@ export function checks(s: AiSettings): Check[] {
 
 const rs = (p: number) => `₹${(p / 100).toFixed(2)}`;
 const WHAT = { read: 'A bill page', chat: 'A chat question' } as const;
-const FIX = { read: 'charge more coins a page or pick a cheaper model', chat: 'charge more coins a question, lower the caps or pick a cheaper model' } as const;
+const FIX = { read: 'charge more tokens a page or pick a cheaper model', chat: 'charge more tokens a question, lower the caps or pick a cheaper model' } as const;
 
 /** Refuses settings, prices or packs under which a feature that is on could cost more than it brings in. */
 export function assertNoLoss(s: AiSettings, field: string) {
   const bad = checks(s).filter((c) => c.on && !c.safe);
   if (!bad.length) return;
-  const text = bad.map((c) => `${WHAT[c.feature]} can cost up to ${rs(c.worstPaise)} but its coins bring in ${rs(c.chargePaise)} — ${FIX[c.feature]}`).join('; ');
+  const text = bad.map((c) => `${WHAT[c.feature]} can cost up to ${rs(c.worstPaise)} but its tokens bring in ${rs(c.chargePaise)} — ${FIX[c.feature]}`).join('; ');
   throw AppError.validation(`That would lose money. ${text}.`, [{ field, message: text }]);
 }
 

@@ -38,7 +38,6 @@ const chatSchema = new Schema(
     enabled: { type: Boolean, default: false },
     model: { type: String, enum: AI_MODEL_IDS, default: 'claude-haiku-5-5' },
     coinsPerQuestion: { type: Number, default: 1 },
-    freeQuestions: { type: Number, default: 20 },
     capIn: { type: Number, default: 8000 },
     capOut: { type: Number, default: 500 },
     perShopDay: { type: Number, default: 30 },
@@ -88,7 +87,7 @@ const walletSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, unique: true },
     balance: { type: Number, required: true, default: 0, min: 0 },
-    /** Free chat questions this shop has used (D81). */
+    /** Free chat questions used before v1.22.3 (when every answer became a token) — still counted as a gift (D97). */
     askFree: { type: Number, required: true, default: 0, min: 0 },
     /** When the welcome coins were given — once per shop. */
     welcomeAt: { type: Date },

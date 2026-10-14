@@ -137,7 +137,7 @@ async function main() {
   check('a chat question costs 20 coins at most → 422', (await flip({ feature: 'chat', on: true, coins: 21 })).status === 422);
 
   section('4. The shop chat on Gemini, with the shop’s tools');
-  const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, freeQuestions: 2, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'chat on Gemini Flash-Lite' };
+  const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'chat on Gemini Flash-Lite' };
   const freeTier = await root.put('/admin/ai/chat', chatOn);
   check('the chat on a free-tier Gemini key → 422 (Google may use what is sent; questions carry customers’ names)', freeTier.status === 422 && String(freeTier.json.error?.message).startsWith('Turn on billing for the Gemini key first'), code(freeTier));
   check('the chat set to Gemini but left off → saved (off needs no paid key)', (await root.put('/admin/ai/chat', { ...chatOn, chat: { ...chatOn.chat, enabled: false } })).status === 200);
@@ -175,7 +175,7 @@ async function main() {
   fake.queue.push({ status: 429 });
   const busy = await owner.post('/ask', { text: 'Dolo bachchon ko de sakte hain kya', confirm: true });
   const failedQ = await AskQuestionModel.findOne({ shopId: shop, status: 'failed' }).lean();
-  check('Gemini busy → the question fails, the free question comes back, the error says Gemini', data<{ route: string }>(busy).route === 'failed' && failedQ?.error === 'Gemini busy 429', `${code(busy)} ${JSON.stringify(busy.json.data)} ${JSON.stringify(failedQ)}`);
+  check('Gemini busy → the question fails, the token comes back, the error says Gemini', data<{ route: string }>(busy).route === 'failed' && failedQ?.error === 'Gemini busy 429', `${code(busy)} ${JSON.stringify(busy.json.data)} ${JSON.stringify(failedQ)}`);
 
   section('5. Removing the Gemini key turns off what runs on it');
   const removed = await root.del('/admin/ai/gemini-key', { reason: 'key leaked, rotating' });
@@ -193,7 +193,7 @@ async function main() {
   const fresh = await h.signIn('nisha@gem3.test');
   fresh.shopId = data<{ id: string }>(await fresh.post('/shops', shopBody('Nisha Pharmacy'))).id;
   const wal = data<{ balance: number; entries: { kind: string; coins: number; text: string }[] }>(await fresh.get('/ai/wallet'));
-  check('a new shop starts with 100 coins, one “welcome” line in its ledger', wal.balance === 100 && wal.entries.length === 1 && wal.entries[0]?.kind === 'welcome' && wal.entries[0].coins === 100 && wal.entries[0].text === 'Welcome — 100 free AI coins from MedBox24', JSON.stringify(wal));
+  check('a new shop starts with 100 tokens, one “welcome” line in its ledger', wal.balance === 100 && wal.entries.length === 1 && wal.entries[0]?.kind === 'welcome' && wal.entries[0].coins === 100 && wal.entries[0].text === 'Welcome — 100 free AI tokens from MedBox24', JSON.stringify(wal));
   const had = await balance();
   check('the scheduler gives the older shop its 100 (made while it was 0)', (await welcomeMissing()) === 1 && (await balance()) === had + 100);
   check('…and never twice', (await welcomeMissing()) === 0 && (await balance()) === had + 100 && (await CoinEntryModel.countDocuments({ shopId: shop, kind: 'welcome' })) === 1);

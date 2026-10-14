@@ -162,7 +162,7 @@ async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   }
 }
 
-const FAILED = (coins: number) => `${coins === 1 ? 'Your coin is' : `Your ${String(coins)} coins are`} back`;
+const FAILED = (coins: number) => `${coins === 1 ? 'Your token is' : `Your ${String(coins)} tokens are`} back`;
 
 /** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude or Gemini (D96), paid by the page in coins. */
 export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadInput) {
@@ -189,7 +189,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   // Too few coins is told as such (buy coins) by the charge below.
   if (!safeNow(s, 'read') || ((await balanceOf(t.shopId)) >= coins && !(await fits(t.shopId, s, pages * worstPage(s))))) {
     await signal('ai_paused');
-    throw AppError.conflict('AI bill reading is paused for your shop — MedBox24 has been told and will sort it out. No coins were taken.', { reason: AI_PAUSED });
+    throw AppError.conflict('AI bill reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.', { reason: AI_PAUSED });
   }
 
   const read = await inTransaction(async (session) => {

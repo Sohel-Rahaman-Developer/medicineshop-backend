@@ -36,10 +36,10 @@ aiRouter.post(
   validate({ body: verifySchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const r = await verifyCoins(tenantOf(req), await actorOf(req), req.body as { orderId: string; paymentId: string; signature: string });
-    sent(res, r, r.confirming ? 'Payment received — confirming with the bank' : `${String(r.coins)} coins added`);
+    sent(res, r, r.confirming ? 'Payment received — confirming with the bank' : `${String(r.coins)} tokens added`);
   }),
 );
-aiRouter.post('/coins/test-pay', edit, notInDemo, validate({ body: z.object({ orderId: z.string().trim().min(6).max(60) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await testPayCoins(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId); sent(res, r, `${String(r.coins)} coins added`); }));
+aiRouter.post('/coins/test-pay', edit, notInDemo, validate({ body: z.object({ orderId: z.string().trim().min(6).max(60) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const r = await testPayCoins(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId); sent(res, r, `${String(r.coins)} tokens added`); }));
 aiRouter.get(
   '/coins/:id/invoice',
   view,
