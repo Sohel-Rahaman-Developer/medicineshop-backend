@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.22.6",
+  "version": "1.22.7",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {

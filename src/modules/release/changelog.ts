@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.7',
+    date: '2026-10-23',
+    title: 'The picked filter card stands out',
+    shop: ['A filter card you tapped (Products, Expiry centre, Sales and the rest) now shows clearly: a coloured card, a strong edge and a tick before its name. Tap it again to show everything. The same for the picked adjustment type, rack and appointment kind.'],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.6',
     date: '2026-10-23',
     title: 'A cleaner top bar on the phone',
