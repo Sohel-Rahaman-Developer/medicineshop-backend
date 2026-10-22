@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.6',
+    date: '2026-10-23',
+    title: 'A cleaner top bar on the phone',
+    shop: [
+      'On a phone the top bar keeps three icons, like a phone app: Search, Ask AI and alerts (on New bill and other task screens: Search, Help and alerts).',
+      'Help for this screen and your plan are in More; a Pro shop shows a small crown on the More tab.',
+      'On a tablet, the website shows Open app in its top bar once you are signed in.',
+    ],
+    admin: [],
+    api: ['Security update: ip-address 10.7.4 under the rate limiter (a long address could stall the server).'],
+  },
+  {
     version: '1.22.5',
     date: '2026-10-22',
     title: 'Security update, and the website knows you are signed in',
