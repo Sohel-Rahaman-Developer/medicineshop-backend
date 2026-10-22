@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.4',
+    date: '2026-10-22',
+    title: 'Your plan in the top bar, paid shows as paid, Sign out asks first',
+    shop: [
+      'Plan & billing: the plan you have paid for says “Paid · valid till …” instead of another Pay button; it opens for renewal in its last 7 days. Another plan shows that your days left stay and its days are added after the end.',
+      'Shop settings is one tap from your profile — in the account menu at the top and next to Sign out in the side menu.',
+      'Settings pages use more of a wide screen, and plans sit side by side.',
+      'The top bar shows your plan — Pro, Basic or the trial’s days left (on a phone, at the top of the More menu); tap it for Plan & billing.',
+      'Sign out asks “Sign out?” first, so a slip of the finger doesn’t log you out.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.3',
     date: '2026-10-14',
     title: 'AI tokens, and Ask AI answers at once',
