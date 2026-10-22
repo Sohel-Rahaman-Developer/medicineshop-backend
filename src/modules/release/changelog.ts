@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.5',
+    date: '2026-10-22',
+    title: 'Security update, and the website knows you are signed in',
+    shop: ['Signed in on this browser? The MedBox24 website shows “Open app” instead of Sign in and Start free trial.', 'Security update: Next.js 16.4.2 (fixes a critical image-optimisation flaw).'],
+    admin: ['Security update: Next.js 16.4.2 for the shop app and this console (critical image-optimisation flaw), and updated build tools.'],
+    api: ['Security update for a library used by the tests.'],
+  },
+  {
     version: '1.22.4',
     date: '2026-10-22',
     title: 'Your plan in the top bar, paid shows as paid, Sign out asks first',
