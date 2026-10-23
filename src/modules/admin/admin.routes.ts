@@ -29,6 +29,7 @@ import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import * as chat from '../ask/ask-admin';
 import * as categories from '../categories/categories.service';
+import * as field from '../field/field.service';
 import { ASK_ROUTES } from '../ask/ask.model';
 import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
 import * as brand from '../branding/branding.service';
@@ -46,6 +47,7 @@ const settingsSchema = z
   .object({
     trialDays: z.number().int().min(1).max(90),
     trialMaxUsers: z.number().int().min(1).max(50),
+    staffTrialDays: z.number().int().min(1).max(180).default(90),
     graceDays: z.number().int().min(0).max(30),
     supportEmail: z.union([z.literal(''), z.email()]),
     supportPhone: z.string().trim().max(20),
@@ -152,6 +154,16 @@ adminRouter.put('/gateway/billing', superOnly, validate({ body: billingBody }), 
 adminRouter.get('/referrals', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.referrals()); }));
 adminRouter.put('/referrals/settings', superOnly, validate({ body: z.object({ settings: referralSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: ReferralSettings; reason: string }; sent(res, await svc.saveReferral(adminOf(req), b.settings, b.reason, req.ip), 'Referral settings saved'); }));
 adminRouter.put('/shops/:id/referrer', shopsRole, validate({ params: idParams, body: z.object({ referrerShopId: objectId.nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { referrerShopId: string | null; reason: string }; await svc.setReferrer(adminOf(req), (req.params as { id: string }).id, b.referrerShopId, b.reason, req.ip); sent(res, await svc.shop((req.params as { id: string }).id), b.referrerShopId ? 'Referrer saved' : 'Referrer removed'); }));
+
+adminRouter.get('/field-staff', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await field.adminList()); }));
+adminRouter.post('/field-staff', superOnly, validate({ body: z.object({ email, code: z.string().trim().min(4, 'A code is 4 to 12 letters or digits').max(20), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; code: string; reason: string }; sent(res, await field.adminCreate(adminOf(req), b, b.reason, req.ip), `Added — ${b.email} gets an email with the sign-in link`, 201); }));
+adminRouter.post('/field-staff/:id', superOnly, validate({ params: idParams, body: z.object({ action: z.enum(['disable', 'enable', 'reset-password']), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { action: 'disable' | 'enable' | 'reset-password'; reason: string }; sent(res, await field.adminUpdate(adminOf(req), (req.params as { id: string }).id, b, b.reason, req.ip), 'Saved'); }));
+adminRouter.get('/shops/:id/staff-code', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await field.linkOf(new Types.ObjectId((req.params as { id: string }).id))); }));
+adminRouter.post('/shops/:id/staff-code', shopsRole, validate({ params: idParams, body: z.object({ code: z.string().trim().min(1, 'Type the code').max(20), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { code: string; reason: string };
+  const out = await field.adminApply(adminOf(req), new Types.ObjectId((req.params as { id: string }).id), b.code, b.reason, req.ip);
+  sent(res, out, out.trialGiven ? `Code ${out.code} added — the trial now ends later` : `Code ${out.code} added — ${out.why}`);
+}));
 
 adminRouter.get('/category-requests', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await categories.adminList()); }));
 adminRouter.post('/category-requests/:id', superOnly, validate({ params: idParams, body: z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(200).default('') }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { decision: 'approve' | 'reject'; reason: string }; const a = adminOf(req); const out = await categories.decide(new Types.ObjectId((req.params as { id: string }).id), { id: a.id, name: a.name }, b.decision, b.reason, 'console', req.ip); sent(res, out, b.decision === 'approve' ? `“${out.name}” added for every shop` : `“${out.name}” turned down`); }));

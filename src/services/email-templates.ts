@@ -217,6 +217,65 @@ export function aiCreditEmail(items: { name: string; leftUsd: number; alertUsd: 
   };
 }
 
+/** D100: a field staff member's sign-in code — no authenticator after it. */
+export function fieldOtpEmail(otp: string, expiryMinutes: number) {
+  const t = THEMES.shop;
+  return {
+    subject: `${otp} is your ${BRAND} staff code`,
+    html: shell({
+      theme: t,
+      preheader: `Staff sign-in code ${otp}`,
+      eyebrow: 'Field staff',
+      title: 'Your sign-in code',
+      body: `${codeBox(otp, t, expiryMinutes)}${note('<b>Didn’t ask for this?</b> Ignore this email — nobody can sign in without the code.')}`,
+    }),
+    text: `Your ${BRAND} staff code: ${otp}
+
+It works for ${String(expiryMinutes)} minutes. Didn't ask for it? Ignore this email.`,
+  };
+}
+
+/** D100: a new field staff member: their code, what it gives a shop, and where to sign in. */
+export function fieldWelcomeEmail(r: { name: string; code: string; trialDays: number; link: string }) {
+  const t = THEMES.shop;
+  return {
+    subject: `Your ${BRAND} staff code: ${r.code}`,
+    html: shell({
+      theme: t,
+      preheader: `A shop that joins with ${r.code} gets a ${String(r.trialDays)}-day free trial.`,
+      eyebrow: 'Field staff',
+      title: `Welcome, ${r.name}`,
+      intro: `A shop that joins with your code gets a ${String(r.trialDays)}-day free trial, and you see every shop that joined with it.`,
+      body: `${rows([['Your code', r.code], ['Free trial with it', `${String(r.trialDays)} days`]])}${button(r.link, 'Sign in', t)}${note('Sign in with an email code the first time, then set a password if you like — either works after that, and you stay signed in for 7 days.')}`,
+    }),
+    text: `Welcome, ${r.name}
+
+Your code: ${r.code} — a shop that joins with it gets a ${String(r.trialDays)}-day free trial.
+Sign in: ${r.link}`,
+  };
+}
+
+/** D100: field staff filled a shop's details; the owner signs in, checks them and accepts the Terms. */
+export function ownerDraftEmail(r: { ownerName: string; shopName: string; staffName: string; trialDays: number; link: string; days: number }) {
+  const t = THEMES.shop;
+  return {
+    subject: `${r.shopName} is ready to start on ${BRAND}`.slice(0, 160),
+    html: shell({
+      theme: t,
+      preheader: `${r.staffName} filled in your shop's details — check them and start your ${String(r.trialDays)}-day free trial.`,
+      eyebrow: 'Your shop is ready',
+      title: `Namaste ${r.ownerName}`,
+      intro: `${esc(r.staffName)} from ${BRAND} has filled in your shop's details. Sign in with this email, check them, accept the Terms and your ${String(r.trialDays)}-day free trial starts.`,
+      body: `${rows([['Shop', r.shopName], ['Filled by', `${r.staffName}, ${BRAND}`], ['Free trial', `${String(r.trialDays)} days`]])}${button(r.link, 'Check and start', t)}${note(`Nothing starts until you agree. The details wait for ${String(r.days)} days.`)}`,
+    }),
+    text: `Namaste ${r.ownerName}
+
+${r.staffName} from ${BRAND} has filled in the details of ${r.shopName}. Sign in with this email, check them, accept the Terms and your ${String(r.trialDays)}-day free trial starts: ${r.link}
+
+Nothing starts until you agree. The details wait for ${String(r.days)} days.`,
+  };
+}
+
 /** A shop asked for a new product category: one tap opens the page to approve it for every shop. */
 export function categoryRequestEmail(r: { name: string; shopName: string; userName: string; link: string; days: number }) {
   const t = THEMES.admin;

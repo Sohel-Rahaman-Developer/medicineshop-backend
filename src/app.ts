@@ -22,6 +22,7 @@ import { stockRouter } from './modules/stock/stock.routes';
 import { demandsRouter } from './modules/demands/demands.routes';
 import { purchasesRouter, returnsRouter } from './modules/purchases/purchases.routes';
 import { customersRouter, doctorsRouter } from './modules/customers/customers.routes';
+import { fieldRouter } from './modules/field/field.routes';
 import { dayCloseRouter } from './modules/dayclose/dayclose.routes';
 import { auditRouter } from './modules/audit/audit.routes';
 import { loyaltyRouter } from './modules/loyalty/loyalty.routes';
@@ -154,6 +155,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/ai`, aiRouter);
   app.use(`${env.API_PREFIX}/ask`, askRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
+  app.use(`${env.API_PREFIX}/field`, fieldRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
   app.use(`${env.API_PREFIX}/brand`, brandRouter);
   app.use(`${env.API_PREFIX}/public`, publicRouter);

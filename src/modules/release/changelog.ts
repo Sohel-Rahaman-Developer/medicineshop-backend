@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.14',
+    date: '2026-10-23',
+    title: 'Field staff codes: a 90-day free trial',
+    shop: [
+      'Signing up with a code from MedBox24 staff gives a 90-day free trial; the code box says whose code it is.',
+      'Forgot the code? Settings → Plan → MedBox24 staff code, while on the free trial.',
+      'MedBox24 staff can fill your shop’s details: sign in with your email, check them, accept the Terms and start.',
+    ],
+    admin: [
+      'Field staff: add one with just an email and a code; they get the sign-in link by email. Turn off, turn on, clear a password.',
+      'Staff portal at /field: sign in with a password or an email code (no authenticator), 7 days signed in; their code, shops joined, paying, and “Add a shop” for an owner to confirm.',
+      'Shop detail → Staff code: add a code the owner forgot (a longer trial while the shop has not paid).',
+      'Platform settings: the trial length with a staff code (90 days).',
+    ],
+    api: ['/field/* for the staff portal (own cookie). POST /shops takes a staff code in referralCode. GET /shops/draft, GET|POST /shop/staff-code. /admin/field-staff, /admin/shops/:id/staff-code.'],
+  },
+  {
     version: '1.22.13',
     date: '2026-10-23',
     title: 'Screens open at once after a quiet spell',

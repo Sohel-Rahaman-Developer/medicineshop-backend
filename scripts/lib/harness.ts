@@ -176,7 +176,7 @@ export interface Harness {
   base: string;
   signIn: (email: string) => Promise<Client>;
   close: () => Promise<void>;
-  seedOtp: (email: string, code: string, audience?: 'shop' | 'admin') => Promise<void>;
+  seedOtp: (email: string, code: string, audience?: 'shop' | 'admin' | 'field') => Promise<void>;
   client: (opts?: ClientOptions) => Client;
 }
 
@@ -230,7 +230,7 @@ export async function startHarness(opts: { port?: number; dbPath?: string; welco
   const port = typeof address === 'object' && address ? address.port : 0;
   const base = `http://127.0.0.1:${port}/api/v1`;
 
-  const seed = async (email: string, code: string, audience: 'shop' | 'admin' = 'shop') => {
+  const seed = async (email: string, code: string, audience: 'shop' | 'admin' | 'field' = 'shop') => {
     await OtpTokenModel.updateMany({ audience, email, consumedAt: null }, { $set: { consumedAt: new Date() } });
     await OtpTokenModel.create({ audience, email, otpHash: await hashOtp(code), maxAttempts: 5, expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
   };

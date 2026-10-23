@@ -256,7 +256,7 @@ export async function setPlans(a: AdminActor, list: { code: string; name: string
 
 export async function settings() {
   const s = await PlatformSettingsModel.findById('platform').lean();
-  return { trialDays: s?.trialDays ?? env.TRIAL_DAYS, trialMaxUsers: s?.trialMaxUsers ?? env.TRIAL_MAX_USERS, graceDays: s?.graceDays ?? 7, supportEmail: s?.supportEmail ?? '', supportPhone: s?.supportPhone ?? '', legalName: s?.legalName ?? '', address: s?.address ?? '', grievanceOfficer: s?.grievanceOfficer ?? '', maintenance: { on: s?.maintenance?.on ?? false, message: s?.maintenance?.message ?? '' } };
+  return { trialDays: s?.trialDays ?? env.TRIAL_DAYS, trialMaxUsers: s?.trialMaxUsers ?? env.TRIAL_MAX_USERS, staffTrialDays: s?.staffTrialDays ?? 90, graceDays: s?.graceDays ?? 7, supportEmail: s?.supportEmail ?? '', supportPhone: s?.supportPhone ?? '', legalName: s?.legalName ?? '', address: s?.address ?? '', grievanceOfficer: s?.grievanceOfficer ?? '', maintenance: { on: s?.maintenance?.on ?? false, message: s?.maintenance?.message ?? '' } };
 }
 
 export async function saveSettings(a: AdminActor, input: Awaited<ReturnType<typeof settings>>, reason: string, ip?: string) {

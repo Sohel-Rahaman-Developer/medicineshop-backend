@@ -13,6 +13,7 @@ import { RoleModel } from '../roles/role.model';
 import { SubscriptionModel } from '../subscription/subscription.model';
 import { UserModel } from '../user/user.model';
 import { ShopModel } from './shop.model';
+import { finishDraft, linkAtSignup as linkStaff, staffByCode } from '../field/field.service';
 import { linkAtSignup, referralSettings } from '../referral/referral.service';
 import type { CreateShopInput, UpdateShopInput } from './shops.validation';
 import { TERMS_POINTS } from './terms.content';
@@ -45,6 +46,9 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
   }
   const uid = new Types.ObjectId(userId);
   const { shop: s, owner } = input;
+  // D100: a field staff code gives the longer trial; any other code is a shop's referral code.
+  const staff = input.referralCode ? await staffByCode(input.referralCode) : null;
+  const trialDays = staff ? trial.staffTrialDays : trial.trialDays;
   const session = await mongoose.startSession();
   try {
     return await session.withTransaction(async () => {
@@ -97,11 +101,13 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
         { session },
       );
       await SubscriptionModel.create(
-        [{ shopId, planCode: 'trial', status: 'trial', startDate: now, endDate: new Date(now.getTime() + trial.trialDays * DAY), maxUsers: trial.trialMaxUsers }],
+        [{ shopId, planCode: 'trial', status: 'trial', startDate: now, endDate: new Date(now.getTime() + trialDays * DAY), maxUsers: trial.trialMaxUsers }],
         { session },
       );
       await seedSystemCategories(shopId, session);
-      if (input.referralCode) await linkAtSignup(shopId, uid, input.referralCode, owner.name, now, session);
+      const drafted = await finishDraft(user.email, shopId, session);
+      if (staff) await linkStaff(shopId, staff, owner.name, Boolean(drafted?.equals(staff._id)), session);
+      else if (input.referralCode) await linkAtSignup(shopId, uid, input.referralCode, owner.name, now, session);
       await giveWelcome(shopId, session);
       await TermsAcceptanceModel.create(
         [{ shopId, version: env.TERMS_VERSION, userId: uid, userName: owner.name, ip: ctx.ip, userAgent: ctx.userAgent }],

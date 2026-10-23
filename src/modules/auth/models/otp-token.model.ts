@@ -6,7 +6,7 @@ const otpTokenSchema = new Schema(
     email: { type: String, required: true, lowercase: true, trim: true },
     otpHash: { type: String, required: true },
     /** Shop app and admin app codes never mix (PLAN §21.2). */
-    audience: { type: String, enum: ['shop', 'admin'], default: 'shop', required: true },
+    audience: { type: String, enum: ['shop', 'admin', 'field'], default: 'shop', required: true },
 
     attempts: { type: Number, default: 0 },
     maxAttempts: { type: Number, default: 5 },

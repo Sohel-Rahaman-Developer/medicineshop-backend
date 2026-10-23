@@ -53,16 +53,22 @@ const gstinMatchesState = (s: { gstin?: string; address: { state: string } }) =>
   !s.gstin || STATES.find((x) => x.name === s.address.state)?.code === s.gstin.slice(0, 2);
 const gstinMessage = { message: 'The GSTIN belongs to a different state than the address', path: ['gstin'] };
 
+export const ownerSchema = z.object({ name: text('Your name', 80), phone: mobile('Your phone') }).strict();
+const shopObject = z.object({ ...shopFields, pricingMode: z.enum(['MRP_INCLUSIVE', 'EXCLUSIVE']).default('MRP_INCLUSIVE') });
+
+/** D100: what field staff fill for an owner — the same checks, the licence month kept as typed for the owner's form. */
+export const draftShopSchema = shopObject
+  .extend({ drugLicenseExpiry: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use month and year, like 08/2027').refine((v) => monthEnd.parse(v).getTime() > Date.now(), 'This licence has already expired') })
+  .strict()
+  .refine(gstinMatchesState, gstinMessage);
+
 export const createShopSchema = z
   .object({
-    owner: z.object({ name: text('Your name', 80), phone: mobile('Your phone') }).strict(),
-    shop: z
-      .object({ ...shopFields, pricingMode: z.enum(['MRP_INCLUSIVE', 'EXCLUSIVE']).default('MRP_INCLUSIVE') })
-      .strict()
-      .refine(gstinMatchesState, gstinMessage),
+    owner: ownerSchema,
+    shop: shopObject.strict().refine(gstinMatchesState, gstinMessage),
     termsVersion: z.string().min(1),
     agree: z.literal(true, 'Please agree to the Terms to start'),
-    /** D80: optional; empty = none. */
+    /** D80 shop referral or D100 field staff code; optional, empty = none. */
     referralCode: z.string().trim().max(20).optional(),
   })
   .strict();

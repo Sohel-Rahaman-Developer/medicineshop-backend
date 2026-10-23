@@ -74,6 +74,8 @@ const platformSchema = new Schema(
     _id: { type: String, default: 'platform' },
     trialDays: { type: Number, required: true, default: 30 },
     trialMaxUsers: { type: Number, required: true, default: 3 },
+    /** A shop that joins with a field staff member's code gets this long a trial. */
+    staffTrialDays: { type: Number, required: true, default: 90 },
     graceDays: { type: Number, required: true, default: 7 },
     supportEmail: { type: String, default: '' },
     supportPhone: { type: String, default: '' },

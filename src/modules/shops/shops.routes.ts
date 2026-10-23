@@ -7,6 +7,8 @@ import { created, fetched, sent } from '../../core/response';
 import { MembershipModel } from '../memberships/membership.model';
 import { RoleModel } from '../roles/role.model';
 import { actorOf } from '../user/actor';
+import * as field from '../field/field.service';
+import { UserModel } from '../user/user.model';
 import * as svc from './shops.service';
 import { logoPathOf, removeShopLogo, setShopLogo } from './shop-logo';
 import { Types } from 'mongoose';
@@ -26,6 +28,11 @@ export const shopRouter = Router();
 const ctxOf = (req: Request) => ({ ip: req.ip, userAgent: req.get('user-agent') ?? undefined });
 
 shopsRouter.get('/onboarding', requireAuth, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.onboardingMeta()); }));
+// D100: details field staff filled for this email, to fill the onboarding form; the owner still checks and agrees.
+shopsRouter.get('/draft', requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const user = await UserModel.findById(req.auth?.userId).select('email').lean();
+  fetched(res, user ? await field.draftFor(user.email) : null);
+}));
 
 shopsRouter.post(
   '/',
@@ -38,6 +45,16 @@ shopsRouter.post(
 );
 
 shopRouter.use(shopAuth);
+
+// D100: the owner forgot the staff code at signup — it can still be added while the shop has not paid.
+shopRouter.get('/staff-code', requirePermission('subscription', 'view'), asyncHandler(async (req: Request, res: Response) => { fetched(res, await field.linkOf(tenantOf(req).shopId)); }));
+shopRouter.post('/staff-code', requirePermission('subscription', 'edit'), validate({ body: z.object({ code: z.string().trim().min(1, 'Type the code').max(20) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const t = tenantOf(req);
+  const actor = await actorOf(req);
+  const out = await field.applyLater(t.shopId, (req.body as { code: string }).code, actor.name, 'owner');
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'subscription', entityId: String(t.shopId), entityName: out.code, text: `${actor.name} added the MedBox24 staff code ${out.code}${out.trialGiven ? ' — the free trial now runs longer' : ''}`, ip: req.ip });
+  sent(res, out, out.trialGiven ? `Code ${out.code} added — your free trial is longer now` : `Code ${out.code} added`);
+}));
 
 shopRouter.get(
   '/context',
