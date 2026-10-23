@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.9',
+    date: '2026-10-23',
+    title: 'Split payments give change, and staff see only what they can do',
+    shop: [
+      'Split payment: type the note the customer gave for the cash part and the app shows the change to give back — and stops a slip like an extra zero.',
+      'Every money box (expense, udhaar limit, collection, day close, line price, discount, supplier payment, order advance) takes only numbers.',
+      'A cashier or accountant without return rights sees “You can’t make returns” instead of a form that fails on save.',
+      'The accountant sees the doctors list on the Doctors screen.',
+    ],
+    admin: [],
+    api: ['GET /doctors is open to customers: view as well as pos: view.'],
+  },
+  {
     version: '1.22.8',
     date: '2026-10-23',
     title: 'Bills above ₹1 lakh, and safer cash entry',

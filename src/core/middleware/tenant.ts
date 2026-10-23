@@ -115,6 +115,14 @@ export const requirePermission =
     next();
   };
 
+export const requireAnyPermission =
+  (...needs: [Module, Action][]): RequestHandler =>
+  (req, _res, next) => {
+    if (!req.tenant) return next(AppError.internal());
+    const t = req.tenant;
+    next(needs.some(([m, a]) => can(t.permissions, m, a)) ? undefined : AppError.forbidden());
+  };
+
 /** D87: a module the shop's plan does not open answers PLAN_UPGRADE. */
 export const needFeature =
   (feature: Feature): RequestHandler =>

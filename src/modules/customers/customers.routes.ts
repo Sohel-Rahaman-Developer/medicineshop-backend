@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { requireAnyPermission, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -97,7 +97,7 @@ doctorsRouter.use(shopAuth);
 // The counter picks a doctor on an H1 bill, so POS users read the list too.
 doctorsRouter.get(
   '/',
-  requirePermission('pos', 'view'),
+  requireAnyPermission(['pos', 'view'], ['customers', 'view']),
   validate({ query: z.object({ q: z.string().trim().max(60).optional() }).strict() }),
   asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.doctors(tenantOf(req), (req.query as { q?: string }).q)); }),
 );

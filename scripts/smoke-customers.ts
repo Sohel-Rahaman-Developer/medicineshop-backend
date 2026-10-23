@@ -127,6 +127,7 @@ async function main() {
   const doc = data<{ id: string }>(d1);
   check('add a doctor · the same name again → 422', d1.status === 201 && (await owner.post('/doctors', { name: 'dr. s. banerjee' })).status === 422);
   check('cashier reads the list at the counter', data<unknown[]>(await cashier.get('/doctors')).length === 1);
+  check('accountant (customers: view) reads the Doctors screen too', data<unknown[]>(await accountant.get('/doctors')).length === 1);
   const h1 = await owner.post('/sales', bill([{ productId: alprax, quantity: 1, unit: 'STRIP' }], { payments: [{ mode: 'CASH', amount: 4500 }], rx: { doctorId: doc.id, patientName: 'Amit Das' } }));
   check('H1 bill with a listed doctor → the doctor’s name on the bill', h1.status === 201 && data<Sale>(await owner.get(`/sales/${data<{ id: string }>(h1).id}`)).doctorName === 'Dr. S. Banerjee', code(h1));
   const fresh = data<Cust>(await owner.get(`/customers/${amit.id}`));
