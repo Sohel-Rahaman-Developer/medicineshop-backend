@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.20',
+    date: '2026-10-23',
+    title: 'Small QR codes read better, a clear message when a code won’t read, and scan again any time',
+    shop: [
+      'The scanner also looks at the middle square enlarged, so a small QR on a strip reads from the live camera and from a photo.',
+      'When nothing reads for a few seconds, a message says why: the code needs to be big and clear — bring it closer, or take a photo.',
+      'Scanner: “Scan again” starts the camera afresh and “Cancel” closes it — no need to go back.',
+      'Add product: “Undo the scan” puts back what the boxes had, and “Scan again” opens the scanner from the form.',
+      'Fixed: on a phone, a long product name under “Already in your shop?” pushed the form wider than the screen.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.19',
     date: '2026-10-23',
     title: 'The camera scanner always starts, says what it read, and asks for the camera again',
