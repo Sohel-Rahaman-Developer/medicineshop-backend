@@ -9,6 +9,13 @@ export const UNITS: Record<UnitType, readonly string[]> = {
 };
 export const ALL_UNITS = [...UNITS.COUNT, ...UNITS.VOLUME, ...UNITS.WEIGHT];
 
+/** A unit inside a sentence: "1 strip", "2 boxes", "200 ml". */
+export function unitWords(n: number, unit: string): string {
+  const w = unit.toLowerCase();
+  if (n === 1 || w === 'ml' || w === 'gm' || w === 'kg') return `${String(n)} ${w}`;
+  return `${String(n)} ${w === 'box' ? 'boxes' : `${w}s`}`;
+}
+
 export interface Units {
   type: UnitType;
   base: string;

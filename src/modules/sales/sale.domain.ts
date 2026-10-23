@@ -1,5 +1,6 @@
 // Pure billing maths (PLAN §14, D56, D57), ported from sandbox domain.js D.price. Integer paise only.
 import { amountFor, distribute, gstInclusive, rhu, roundRupee } from '../../utils/money';
+import { unitWords } from '../../utils/units';
 
 /** pct is a percent with up to 2 decimals; flat is paise. */
 export interface Discount {
@@ -100,6 +101,12 @@ export function returnShare(l: { quantityInBase: number; totalAmount: number; cg
 }
 
 /** "2 STRIP + 3 TABLET" from base units, as printed on the bill. */
+/** The same in words for a sentence: "1 strip + 3 tablets". */
+export function packWords(base: number, pack: number, sale: string, baseUnit: string) {
+  if (pack <= 1) return unitWords(base, sale);
+  return [Math.floor(base / pack) ? unitWords(Math.floor(base / pack), sale) : '', base % pack ? unitWords(base % pack, baseUnit) : ''].filter(Boolean).join(' + ');
+}
+
 export function packLabel(base: number, pack: number, sale: string, baseUnit: string) {
   if (pack <= 1) return `${String(base)} ${sale}`;
   const full = Math.floor(base / pack);

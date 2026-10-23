@@ -18,7 +18,7 @@ import { ProductModel, SCHEDULE_TYPES } from './product.model';
 import { ratesOf } from '../tax/tax.service';
 import { saltKeyOf, searchKeyOf } from './products.service';
 
-const cell = z.union([z.string().max(200), z.number()]).optional().transform((v) => (v === undefined ? '' : String(v).trim()));
+const cell = z.union([z.string().max(200), z.number()]).optional().transform((v) => (v === undefined ? '' : String(v).trim().replace(/\s+/g, ' ')));
 
 const rowSchema = z
   .object({
@@ -35,7 +35,7 @@ export type ImportInput = z.infer<typeof importSchema>;
 type Row = z.infer<typeof rowSchema>;
 
 const CATEGORY_BY_BASE: Record<string, string> = { TABLET: 'Tablet', CAPSULE: 'Capsule', BOTTLE: 'Syrup', VIAL: 'Injection', TUBE: 'Ointment', GM: 'Ayurvedic' };
-const MAX_PAISE = 10_000_000;
+const MAX_PAISE = 1_000_000_000;
 const MAX_QTY = 10_000_000;
 
 /** "12/26", "12/2026", "12-2026" or "2026-12" → month end IST. */

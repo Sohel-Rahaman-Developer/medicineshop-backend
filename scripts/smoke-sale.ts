@@ -155,6 +155,13 @@ async function main() {
   check('cash received under the cash part → 422', (await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: cash(9200), cashReceived: 5000 }))).status === 422);
   const split = await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: [{ mode: 'CASH', amount: 5000 }, { mode: 'CARD', amount: 4200 }] }));
   check('split cash + card → SPLIT', split.status === 201 && data<Sale>(await owner.get(`/sales/${data<Saved>(split).id}`)).paymentMode === 'SPLIT', code(split));
+  // Black box, 23 Oct: a cancer vial costs more than ₹1 lakh, and the POS always sends the total it showed.
+  const onco = await mk('Onco Inj 60k', { type: 'COUNT', base: 'VIAL', sale: 'VIAL', salePack: 1, purchase: 'VIAL', purchasePack: 1, allowLooseSale: false }, { categoryId: cat('Injection'), hsnCode: '30049099' });
+  await open({ productId: onco, batchNumber: 'ON1', expiry: '2028-06', quantity: 3, mrp: 6_000_000, purchaseRate: 4_500_000 });
+  const bigBill = await owner.post('/sales', bill([{ productId: onco, quantity: 2, unit: 'VIAL' }], { payments: cash(12_000_000), expectedTotal: 12_000_000 }));
+  check('₹1.2 lakh bill, one cash payment, with the total the POS showed → 201', bigBill.status === 201, code(bigBill));
+  const tooMany = await owner.post('/sales', bill([{ productId: onco, quantity: 2, unit: 'VIAL' }], { payments: cash(12_000_000) }));
+  check('short stock says it in words: “Only 1 vial of …”', tooMany.status === 409 && tooMany.json.error?.message?.startsWith('Only 1 vial of Onco Inj 60k') === true, code(tooMany));
 
   section('4. Typed price (D56), lowest price (D57), discounts (D43)');
   const above = await owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP', price: 10_000 }], { payments: cash(10_000) }));

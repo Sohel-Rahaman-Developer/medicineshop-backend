@@ -31,7 +31,9 @@ export const openingSchema = z
   })
   .strict()
   .refine((v) => !v.mfg || !v.expiry || v.mfg <= v.expiry, { message: 'Made after it expires?', path: ['mfg'] })
-  .refine((v) => !v.mfg || v.mfg.getTime() <= Date.now() + 31 * 24 * 60 * 60 * 1000, { message: 'Manufacturing month is in the future', path: ['mfg'] });
+  .refine((v) => !v.mfg || v.mfg.getTime() <= Date.now() + 31 * 24 * 60 * 60 * 1000, { message: 'Manufacturing month is in the future', path: ['mfg'] })
+  // Both are per sale unit here, so a rate above the MRP is a typo, never a real batch.
+  .refine((v) => v.purchaseRate <= v.mrp, { message: 'The purchase rate is more than the MRP — check both', path: ['purchaseRate'] });
 
 const lines = <T extends z.ZodType>(line: T) =>
   z

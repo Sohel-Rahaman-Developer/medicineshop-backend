@@ -16,7 +16,7 @@ import { BatchModel } from '../stock/batch.model';
 import { daysLeftOut, hasExpiry } from '../stock/stock.domain';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
-import { packLabel, returnShare } from './sale.domain';
+import { packWords, returnShare } from './sale.domain';
 import { SaleModel } from './sale.model';
 import { SaleReturnModel } from './sale-return.model';
 import type { ReturnListQuery, SaleReturnInput } from './sales.validation';
@@ -52,7 +52,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       const l = s.lines[it.line];
       if (!l) throw itemError(i, 'This line is not on the bill');
       const left = l.quantityInBase - l.returnedQuantity;
-      if (it.quantity > left) throw itemError(i, left ? `Only ${packLabel(left, l.salePack, l.unit, l.baseUnit)} of ${l.productName} is left to return` : `${l.productName} is already returned`);
+      if (it.quantity > left) throw itemError(i, left ? `Only ${packWords(left, l.salePack, l.unit, l.baseUnit)} of ${l.productName} is left to return` : `${l.productName} is already returned`);
       taken.set(it.line, it.quantity);
       const share = returnShare(l, l.returnedQuantity, it.quantity);
       const dl = daysLeftOut(l.expiryDate, now);

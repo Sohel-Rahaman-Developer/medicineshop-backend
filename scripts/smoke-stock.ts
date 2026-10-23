@@ -66,6 +66,8 @@ async function main() {
   const dolo = data<{ id: string }>(made).id;
   const dup = await owner.post('/products', product({ name: 'DOLO 650 tablet', barcode: '' }));
   check('same name, other case → 422 on name', dup.status === 422 && JSON.stringify(dup.json).includes('body.name'), code(dup));
+  const spaced = await owner.post('/products', product({ name: '  Dolo   650  Tablet ', barcode: '' }));
+  check('same name with extra spaces → 422 on name (no second Dolo)', spaced.status === 422 && JSON.stringify(spaced.json).includes('body.name'), code(spaced));
   const dupCode = await owner.post('/products', product({ name: 'Crocin 650' }));
   check('same barcode → 422 on barcode', dupCode.status === 422 && JSON.stringify(dupCode.json).includes('body.barcode'), code(dupCode));
   const racks = data<{ code: string; storageType: string }[]>(await owner.get('/racks'));
@@ -137,6 +139,7 @@ async function main() {
   check('month 13 → 422', (await v({ expiry: '2026-13' })) === 422);
   check('made after expiry → 422', (await v({ mfg: '2027-01' })) === 422);
   check('quantity as a string → 422', (await v({ quantity: '10' })) === 422);
+  check('purchase rate above the MRP → 422 (a typo)', (await v({ mrp: 3000, purchaseRate: 30000 })) === 422);
 
   section('6. Concurrency + idempotency');
   const raceBody = opening({ batchNumber: 'RACE1', quantity: 10 });

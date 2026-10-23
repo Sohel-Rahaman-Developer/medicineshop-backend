@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.8',
+    date: '2026-10-23',
+    title: 'Bills above ₹1 lakh, and safer cash entry',
+    shop: [
+      'A bill, an MRP, an expense or an udhaar amount can now go up to ₹1 crore — costly injections and big bills no longer stop at ₹1 lakh.',
+      'Payment: the cash box takes only numbers, says how much is short, and stops a slip like an extra zero instead of showing a huge change.',
+      '“Pan  40” with extra spaces is the same product as “Pan 40” — no more doubles, in the form or the Excel import.',
+      'Opening stock warns when a batch has already expired, and a purchase rate above the MRP is caught as a typo.',
+      'Stock messages read naturally: “Only 2 strips of Dolo 650 in stock”.',
+    ],
+    admin: [],
+    api: ['Money fields accept up to ₹1 crore (was ₹1 lakh). Opening stock refuses a purchase rate above the MRP (422 on purchaseRate). Product names collapse repeated spaces.'],
+  },
+  {
     version: '1.22.7',
     date: '2026-10-23',
     title: 'The picked filter card stands out',

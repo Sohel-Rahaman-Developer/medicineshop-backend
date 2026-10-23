@@ -7,7 +7,7 @@ import { inTransaction } from '../../core/transaction';
 import { istMonth, istYmd, monthEndIST, monthLabel } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
 import { amountFor, inr, rhu } from '../../utils/money';
-import { fromBase, salePack, type Units } from '../../utils/units';
+import { fromBase, salePack, unitWords, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
@@ -269,7 +269,7 @@ export async function adjust(t: TenantContext, actor: Actor, input: AdjustmentIn
         diff = l.counted - b.quantity;
         if (diff) await applyMove(t.shopId, b._id, diff, meta(diff > 0 ? 'ADJUST_IN' : 'ADJUST_OUT'), session);
       } else {
-        if (l.quantity > b.quantity) throw AppError.conflict(`Only ${b.quantity} ${p?.units.base ?? 'units'} left in ${b.batchNumber}`);
+        if (l.quantity > b.quantity) throw AppError.conflict(`Only ${unitWords(b.quantity, p?.units.base ?? 'unit')} left in batch ${b.batchNumber}`);
         diff = -l.quantity;
         await applyMove(t.shopId, b._id, diff, meta(OUT_TYPE[input.type as keyof typeof OUT_TYPE]), session);
       }

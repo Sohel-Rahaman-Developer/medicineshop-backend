@@ -32,7 +32,8 @@ export const unitsSchema = z
   });
 
 const fields = {
-  name: z.string().trim().min(2, 'Give the product a name').max(120),
+  // "Pan  40" is "Pan 40": extra spaces never make a second product.
+  name: z.string().trim().min(2, 'Give the product a name').max(120).transform((v) => v.replace(/\s+/g, ' ')),
   company: optional(80),
   salt: optional(120),
   strength: optional(40),

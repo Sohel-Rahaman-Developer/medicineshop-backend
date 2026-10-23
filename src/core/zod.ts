@@ -16,7 +16,8 @@ export const monthEnd = z
 /** Client-made UUID that makes a stock or money POST safe to retry (PLAN §26). */
 export const clientRequestId = z.uuid('Missing request id');
 
-export const paise = (label: string, max = 10_000_000) =>
+// ₹1 crore: a cancer vial, a big bill or a year's rent fits; a typo of extra zeros does not.
+export const paise = (label: string, max = 1_000_000_000) =>
   z.number(`${label} must be a number`).int(`${label} must be in whole paise`).min(0, `${label} can’t be negative`).max(max, `${label} is too large`);
 
 export const LIMIT = z.coerce.number().int().min(1).max(100).default(30);

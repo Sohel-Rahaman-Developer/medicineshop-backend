@@ -6,7 +6,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
-import { conv, salePack, type Units } from '../../utils/units';
+import { conv, salePack, unitWords, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import * as customers from '../customers/customers.service';
 import * as loyalty from '../loyalty/loyalty.service';
@@ -152,7 +152,7 @@ async function buildParts(t: TenantContext, input: SaleInput, now: Date, session
     const al = allocate(left, qtyBase, now, it.batchId);
     if (al.short > 0) {
       const have = qtyBase - al.short;
-      throw AppError.conflict(`Only ${String(have)} ${u.base.toLowerCase()} of ${p.name} left to sell`, { reason: 'SHORT', index: i, available: have });
+      throw AppError.conflict(`Only ${unitWords(have, u.base)} of ${p.name} left to sell`, { reason: 'SHORT', index: i, available: have });
     }
     const pack = salePack(u);
     const split = splitLine(al.parts.map((x) => ({ mrp: x.batch.mrp, qtyBase: x.qty })), pack, it.price ?? null, it.discount ?? null);
