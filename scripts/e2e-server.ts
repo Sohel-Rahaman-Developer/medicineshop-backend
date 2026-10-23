@@ -122,7 +122,7 @@ async function main() {
     if (!b.email || !b.code) throw new Error('email and code');
     const s = await FieldStaffModel.findOneAndUpdate({ email: b.email }, { $setOnInsert: { email: b.email, code: b.code, name: b.name ?? '', createdBy: 'e2e' } }, { upsert: true, new: true });
     if (b.draftFor) {
-      const actor = { id: String(s._id), name: s.name || 'Field staff', email: s.email, code: s.code, sessionId: '', method: 'otp' as const };
+      const actor = { id: String(s._id), name: s.name || 'Partner', email: s.email, code: s.code, sessionId: '', method: 'otp' as const };
       await field.createDraft(actor, { email: b.draftFor, owner: { name: 'Mita Das', phone: '+919830066666' }, shop: { name: b.shopName ?? 'Das Medical', address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' } });
     }
   };

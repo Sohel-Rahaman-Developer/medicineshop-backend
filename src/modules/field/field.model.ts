@@ -11,6 +11,12 @@ const staffSchema = new Schema(
     phone: { type: String, default: '' },
     /** Upper-case letters and digits, as typed in the onboarding code box. */
     code: { type: String, required: true, unique: true },
+    /** Free trial with the main code; unset → Platform settings. */
+    trialDays: { type: Number },
+    /** More codes, each with its own trial; codes are unique across partners and shops (checked on save). */
+    moreCodes: { type: [{ _id: false, code: { type: String, required: true }, trialDays: { type: Number } }], default: [] },
+    /** The partner's agreed share, shown to them; unset → not shown. */
+    sharePct: { type: Number },
     status: { type: String, enum: ['active', 'disabled'], required: true, default: 'active' },
     passwordHash: { type: String },
     failedLogins: { type: Number, required: true, default: 0 },
@@ -20,6 +26,7 @@ const staffSchema = new Schema(
   },
   { timestamps: true, versionKey: false },
 );
+staffSchema.index({ 'moreCodes.code': 1 });
 export const FieldStaffModel = model('FieldStaff', staffSchema);
 
 const sessionSchema = new Schema(

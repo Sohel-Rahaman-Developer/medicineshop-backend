@@ -1,5 +1,6 @@
-// D100 checks: field staff — added by a super admin with email + code, sign in by password or email code (no
-// authenticator, 7-day session), the code gives a new shop the staff trial, drafts the owner confirms, a code added later.
+// D100 checks: partners (field staff) — added by a super admin with email + code, sign in by password or email code (no
+// authenticator, 7-day session), the code gives a new shop the partner trial, drafts the owner confirms, a code added
+// later; each code its own trial, a share, more codes, removed for good.
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -120,6 +121,46 @@ async function main() {
   check('his session ends → 401', (await f.get('/field/shops')).status === 401);
   const o6 = await h.signIn('owner6@fld.test');
   check('his code no longer gives a trial → 422 at signup', (await o6.post('/shops', signup('Late Pharmacy', 'RAHUL90'))).status === 422);
+
+  section('7. Partners: each code its own trial, a share, more codes, removed for good');
+  type Row = { id: string; email: string; codes: { code: string; trialDays: number | null; gives: number }[]; sharePct: number | null };
+  const bad1 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 0, reason: 'new partner' });
+  const bad2 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 400, reason: 'new partner' });
+  const bad3 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', sharePct: 101, reason: 'new partner' });
+  const bad4 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', sharePct: 12.345, reason: 'new partner' });
+  check('trial 0 / 400 days, share 101% / 12.345% → 422', [bad1, bad2, bad3, bad4].every((r) => r.status === 422), [bad1, bad2, bad3, bad4].map(code).join(' | '));
+  const pa = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 120, sharePct: 12.5, reason: 'new partner' });
+  const priya = data<Row[]>(pa).find((x) => x.email === 'priya@fld.test');
+  check('added: PRIYA120 gives 120 days, share 12.5%', pa.status === 201 && priya?.codes[0]?.gives === 120 && priya.codes[0].trialDays === 120 && priya.sharePct === 12.5, code(pa));
+  const pw2 = await EmailJobModel.findOne({ kind: 'field_welcome', to: 'priya@fld.test' }).lean();
+  check('welcome: a partner, 120-day trial, her 12.5% share', Boolean(pw2?.text.includes('partner. Every shop you bring is counted as yours') && pw2.text.includes('120-day free trial') && pw2.text.includes('Your partner share: 12.5%')), pw2?.text);
+  const pid = priya?.id ?? '';
+  const o7 = await h.signIn('owner7@fld.test');
+  check('onboarding check: PRIYA120 → 120 days', data<{ trialDays: number }>(await o7.get('/referral/check?code=PRIYA120')).trialDays === 120);
+  const s7 = data<{ id: string }>(await o7.post('/shops', signup('Priya One Pharmacy', 'PRIYA120'))).id;
+  check('signup with PRIYA120 → trial ends in 120 days', days((await subOf(s7))?.endDate ?? 0) === 120);
+  check('support can’t change codes or remove → 403', (await help.post(`/admin/field-staff/${pid}/codes`, { code: 'PRIYA60', trialDays: 60, reason: 'two month offer' })).status === 403 && (await help.post(`/admin/field-staff/${pid}/remove`, { confirm: 'PRIYA120', reason: 'left us' })).status === 403);
+  check('another partner’s code / a shop’s code as a new code → 422', (await root.post(`/admin/field-staff/${pid}/codes`, { code: 'RAHUL90', trialDays: 60, reason: 'two month offer' })).status === 422 && (await root.post(`/admin/field-staff/${pid}/codes`, { code: shopCode, reason: 'two month offer' })).status === 422);
+  const more = await root.post(`/admin/field-staff/${pid}/codes`, { code: 'priya 60', trialDays: 60, reason: 'two month offer' });
+  check('a second code PRIYA60 with 60 days', more.status === 200 && data<Row[]>(more).find((x) => x.id === pid)?.codes[1]?.gives === 60, code(more));
+  check('…and an email to her with it', Boolean((await EmailJobModel.findOne({ kind: 'field_code', to: 'priya@fld.test' }).lean())?.text.includes('PRIYA60 — shops that join with it get a 60-day free trial')));
+  const o8 = await h.signIn('owner8@fld.test');
+  const s8 = data<{ id: string }>(await o8.post('/shops', signup('Priya Two Pharmacy', 'PRIYA60'))).id;
+  check('signup with PRIYA60 → 60 days, counted for Priya with that code', days((await subOf(s8))?.endDate ?? 0) === 60 && data<{ code: string; staffName: string }>(await help.get(`/admin/shops/${s8}/staff-code`)).code === 'PRIYA60');
+  const reset = await root.post(`/admin/field-staff/${pid}/codes`, { code: 'PRIYA120', trialDays: null, sharePct: null, reason: 'back to the standard offer' });
+  const after = data<Row[]>(reset).find((x) => x.id === pid);
+  check('main code back to Platform settings (90), share cleared', after?.codes[0]?.trialDays === null && after.codes[0].gives === 90 && after.sharePct === null && data<{ trialDays: number }>(await o8.get('/referral/check?code=PRIYA120')).trialDays === 90, code(reset));
+  check('the main code can’t be removed → 422', (await root.post(`/admin/field-staff/${pid}/codes`, { remove: 'PRIYA120', reason: 'clean up codes' })).status === 422);
+  check('PRIYA60 removed → no longer a partner code at signup', (await root.post(`/admin/field-staff/${pid}/codes`, { remove: 'PRIYA60', reason: 'offer over' })).status === 200 && (await (await h.signIn('owner9@fld.test')).post('/shops', signup('Late Offer Pharmacy', 'PRIYA60'))).status === 422);
+  await h.seedOtp('priya@fld.test', '864200', 'field');
+  const pf = h.client(ADMIN);
+  check('Priya signs in', (await pf.post('/field/auth/verify', { email: 'priya@fld.test', otp: '864200' })).status === 200);
+  check('the wrong code typed to confirm → 422', (await root.post(`/admin/field-staff/${pid}/remove`, { confirm: 'PRIYA60', reason: 'left the partnership' })).status === 422);
+  const rm = await root.post(`/admin/field-staff/${pid}/remove`, { confirm: 'priya120', reason: 'left the partnership' });
+  check('removed for good → gone from the list, her session ends', rm.status === 200 && !data<Row[]>(rm).some((x) => x.id === pid) && !(await FieldStaffModel.exists({ email: 'priya@fld.test' })) && (await pf.get('/field/shops')).status === 401, code(rm));
+  check('her shops keep their trial; no code shown for them', days((await subOf(s7))?.endDate ?? 0) === 120 && data<unknown>(await help.get(`/admin/shops/${s7}/staff-code`)) === null);
+  check('audit has it', Boolean(await AdminAuditModel.exists({ action: 'field_staff_remove' })));
+  check('PRIYA120 is free to give again → 201', (await root.post('/admin/field-staff', { email: 'meera@fld.test', code: 'PRIYA120', reason: 'new partner' })).status === 201);
 
   await h.close();
   finish();

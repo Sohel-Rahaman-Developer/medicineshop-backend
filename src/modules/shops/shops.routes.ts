@@ -52,7 +52,7 @@ shopRouter.post('/staff-code', requirePermission('subscription', 'edit'), valida
   const t = tenantOf(req);
   const actor = await actorOf(req);
   const out = await field.applyLater(t.shopId, (req.body as { code: string }).code, actor.name, 'owner');
-  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'subscription', entityId: String(t.shopId), entityName: out.code, text: `${actor.name} added the MedBox24 staff code ${out.code}${out.trialGiven ? ' — the free trial now runs longer' : ''}`, ip: req.ip });
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'subscription', entityId: String(t.shopId), entityName: out.code, text: `${actor.name} added the MedBox24 partner code ${out.code}${out.trialGiven ? ' — the free trial now runs longer' : ''}`, ip: req.ip });
   sent(res, out, out.trialGiven ? `Code ${out.code} added — your free trial is longer now` : `Code ${out.code} added`);
 }));
 

@@ -10,6 +10,22 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.21',
+    date: '2026-10-23',
+    title: 'MedBox24 partners: each code its own free trial, a partner share, removed for good',
+    shop: [
+      'Signup and Settings → Plan say “MedBox24 partner code”; the free trial is the one that code gives (1 month, 4 months — whatever was set for it).',
+    ],
+    admin: [
+      'Field staff is now Partners — the menu, the page, a shop’s partner code and Platform settings → Trial with a partner code.',
+      'Add a partner with the code’s own free trial (type days or tap 1–4 months; blank = Platform settings) and an optional partner share %.',
+      'Codes & share: more codes for one partner, each with its own trial; change a trial, take a code off, set or clear the share. A new code is emailed to the partner.',
+      'Remove for good: sign-in, codes and the shops counted for them are deleted (type the code to confirm); the shops themselves keep their trial and data, and the codes are free to give again.',
+      'Partners get a welcome email written to a business partner — their code, the trial it gives, their share — and their partner desk shows every code and the share.',
+    ],
+    api: ['POST /admin/field-staff takes trialDays and sharePct; POST /admin/field-staff/:id/codes (add / change trial / remove a code, share); POST /admin/field-staff/:id/remove.'],
+  },
+  {
     version: '1.22.20',
     date: '2026-10-23',
     title: 'Small QR codes read better, a clear message when a code won’t read, and scan again any time',

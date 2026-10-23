@@ -17,7 +17,7 @@ const email = z.email('Enter a valid email address').trim().toLowerCase();
 const password = z.string().min(8, 'At least 8 characters').max(72, 'At most 72 characters');
 
 fieldRouter.post('/auth/code', otpRequestByIpLimiter, otpRequestByEmailLimiter, validate({ body: z.object({ email }).strict() }), asyncHandler(async (req: Request, res: Response) => {
-  sent(res, await requestCode((req.body as { email: string }).email, req.ip), 'If this email is MedBox24 staff, a code is on its way');
+  sent(res, await requestCode((req.body as { email: string }).email, req.ip), 'If this email is a MedBox24 partner, a code is on its way');
 }));
 fieldRouter.post('/auth/verify', otpVerifyLimiter, validate({ body: z.object({ email, otp: z.string().regex(/^\d{4,8}$/) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   const b = req.body as { email: string; otp: string };

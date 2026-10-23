@@ -48,7 +48,7 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
   const { shop: s, owner } = input;
   // D100: a field staff code gives the longer trial; any other code is a shop's referral code.
   const staff = input.referralCode ? await staffByCode(input.referralCode) : null;
-  const trialDays = staff ? trial.staffTrialDays : trial.trialDays;
+  const trialDays = staff ? (staff.trialDays ?? trial.staffTrialDays) : trial.trialDays;
   const session = await mongoose.startSession();
   try {
     return await session.withTransaction(async () => {

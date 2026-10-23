@@ -45,7 +45,7 @@ export async function codeOf(shopId: Types.ObjectId): Promise<string> {
   for (let i = 0; i < 8; i++) {
     const code = stem + Array.from({ length: i < 4 ? 3 : 5 }, () => DIGITS[randomInt(DIGITS.length)]).join('');
     // A field staff code (D100) is typed in the same box; never hand a shop the same one.
-    if (await FieldStaffModel.exists({ code })) continue;
+    if (await FieldStaffModel.exists({ $or: [{ code }, { 'moreCodes.code': code }] })) continue;
     try {
       if ((await ShopModel.updateOne({ _id: shopId, referralCode: { $exists: false } }, { $set: { referralCode: code } })).modifiedCount === 1) return code;
       const won = await ShopModel.findById(shopId).select('referralCode').lean();
