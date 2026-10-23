@@ -15,8 +15,6 @@ const staffSchema = new Schema(
     trialDays: { type: Number },
     /** More codes, each with its own trial; codes are unique across partners and shops (checked on save). */
     moreCodes: { type: [{ _id: false, code: { type: String, required: true }, trialDays: { type: Number } }], default: [] },
-    /** The partner's agreed share, shown to them; unset → not shown. */
-    sharePct: { type: Number },
     status: { type: String, enum: ['active', 'disabled'], required: true, default: 'active' },
     passwordHash: { type: String },
     failedLogins: { type: Number, required: true, default: 0 },

@@ -39,7 +39,10 @@ export async function staffByCode(code: string, session?: ClientSession) {
   return { _id: s._id, name: s.name, email: s.email, code: c, trialDays: hit?.trialDays ?? null };
 }
 
-/** The free trial a code gives: its own, else the partner trial in Platform settings. */
+/** "120-day free trial", or "no free trial" for a 0-day code. */
+export const trialWords = (days: number) => (days > 0 ? `${String(days)}-day free trial` : 'no free trial');
+
+/** The free trial a code gives: its own (0 = none), else the partner trial in Platform settings. */
 const trialOf = (c: { trialDays: number | null }, p: { staffTrialDays: number }) => c.trialDays ?? p.staffTrialDays;
 
 /** Onboarding: what this code gives. */
@@ -70,13 +73,13 @@ export async function applyLater(shopId: Types.ObjectId, code: string, by: strin
   const trial = !paid && sub.planCode === 'trial' && sub.status !== 'cancelled' && until > now;
   await ShopStaffLinkModel.create({ shopId, staffId: staff._id, code: staff.code, source, by, trialGiven: trial, reason });
   if (trial && until > sub.endDate) await SubscriptionModel.updateOne({ shopId, planCode: 'trial' }, { $set: { endDate: until, status: 'trial' } });
-  return { code: staff.code, staffName: nameOf(staff), trialGiven: trial, trialEnds: trial ? (until > sub.endDate ? until : sub.endDate) : null, why: trial ? '' : paid || sub.planCode !== 'trial' ? 'The shop has already paid — the code counts for the staff member, the trial does not change.' : `${String(days)} days from signup have passed — the code counts, the trial does not change.` };
+  return { code: staff.code, staffName: nameOf(staff), trialGiven: trial, trialEnds: trial ? (until > sub.endDate ? until : sub.endDate) : null, why: trial ? '' : paid || sub.planCode !== 'trial' ? 'The shop has already paid — the code counts for the staff member, the trial does not change.' : days > 0 ? `${String(days)} days from signup have passed — the code counts, the trial does not change.` : 'This code gives no free trial — it counts for the partner, the trial does not change.' };
 }
 
 /** The staff member's own shops: joined with the code, and the ones waiting for their owner. */
 export async function myShops(f: FieldActor, now = new Date()) {
   const staffId = new Types.ObjectId(f.id);
-  const [links, drafts, p, me] = await Promise.all([ShopStaffLinkModel.find({ staffId }).sort({ createdAt: -1 }).limit(500).lean(), ShopDraftModel.find({ staffId, status: { $in: ['waiting', 'done'] } }).sort({ createdAt: -1 }).limit(200).lean(), platform(), FieldStaffModel.findById(staffId).select('code trialDays moreCodes sharePct').lean()]);
+  const [links, drafts, p, me] = await Promise.all([ShopStaffLinkModel.find({ staffId }).sort({ createdAt: -1 }).limit(500).lean(), ShopDraftModel.find({ staffId, status: { $in: ['waiting', 'done'] } }).sort({ createdAt: -1 }).limit(200).lean(), platform(), FieldStaffModel.findById(staffId).select('code trialDays moreCodes').lean()]);
   const codes = codesOf(me ?? { code: f.code }).map((c) => ({ code: c.code, trialDays: trialOf(c, p), link: `${env.SHOP_APP_URL}/login?ref=${c.code}` }));
   const ids = links.map((l) => l.shopId);
   const [shops, subs, paid] = await Promise.all([
@@ -97,7 +100,6 @@ export async function myShops(f: FieldActor, now = new Date()) {
     link: `${env.SHOP_APP_URL}/login?ref=${f.code}`,
     trialDays: codes[0]?.trialDays ?? p.staffTrialDays,
     codes,
-    sharePct: me?.sharePct ?? null,
     totals: { joined: rows.length, last30: rows.filter((r) => r.joinedAt >= month).length, onTrial: rows.filter((r) => r.status === 'trial').length, paying: rows.filter((r) => r.paid).length },
     shops: rows,
     drafts: drafts.map((d) => ({ id: String(d._id), shopName: d.shopName, email: d.email, status: d.status === 'waiting' && d.expiresAt < now ? 'expired' : d.status, at: d.createdAt, expiresAt: d.expiresAt })),
@@ -152,7 +154,6 @@ export async function adminList() {
     return {
       id: String(s._id), name: nameOf(s), email: s.email, phone: s.phone, code: s.code, status: s.status, hasPassword: Boolean(s.passwordHash), lastLoginAt: s.lastLoginAt ?? null,
       codes: codesOf(s).map((x) => ({ code: x.code, trialDays: x.trialDays, gives: trialOf(x, p) })),
-      sharePct: s.sharePct ?? null,
       joined: c?.n ?? 0, paying: c?.shops.filter((x) => paid.has(String(x))).length ?? 0, at: s.createdAt,
     };
   });
@@ -169,22 +170,17 @@ async function freeCode(raw: string) {
   return code;
 }
 
-export interface PartnerTerms {
-  trialDays?: number | null;
-  sharePct?: number | null;
-}
-
-/** The admin gives the email and a code (its trial and the partner's share optional); the partner adds their name inside. */
-export async function adminCreate(a: AdminActor, input: { email: string; code: string } & PartnerTerms, reason: string, ip?: string) {
+/** The admin gives the email and a code (its free trial optional); the partner adds their name inside. */
+export async function adminCreate(a: AdminActor, input: { email: string; code: string; trialDays?: number | null }, reason: string, ip?: string) {
   if (await FieldStaffModel.exists({ email: input.email })) throw AppError.conflict('This email is already a partner', { field: 'email' });
   const code = await freeCode(input.code);
-  const s = await FieldStaffModel.create({ name: '', email: input.email, code, createdBy: a.name, ...(input.trialDays ? { trialDays: input.trialDays } : {}), ...(input.sharePct != null ? { sharePct: input.sharePct } : {}) }).catch((err: unknown) => {
+  const s = await FieldStaffModel.create({ name: '', email: input.email, code, createdBy: a.name, ...(input.trialDays != null ? { trialDays: input.trialDays } : {}) }).catch((err: unknown) => {
     if ((err as { code?: number }).code === 11000) throw AppError.conflict('This email or code was just taken');
     throw err;
   });
   const p = await platform();
-  await queueMail({ kind: 'field_welcome', to: s.email, ...fieldWelcomeEmail({ name: nameOf(s), code, trialDays: trialOf({ trialDays: s.trialDays ?? null }, p), sharePct: s.sharePct ?? null, link: `${env.ADMIN_APP_URL}/field` }) });
-  await log(a, 'field_staff_add', reason, `added partner ${s.email} with code ${code}${s.trialDays ? ` (${String(s.trialDays)}-day trial)` : ''}${s.sharePct != null ? `, share ${String(s.sharePct)}%` : ''}`, undefined, undefined, ip);
+  await queueMail({ kind: 'field_welcome', to: s.email, ...fieldWelcomeEmail({ name: nameOf(s), code, trialDays: trialOf({ trialDays: s.trialDays ?? null }, p), link: `${env.ADMIN_APP_URL}/field` }) });
+  await log(a, 'field_staff_add', reason, `added partner ${s.email} with code ${code}${s.trialDays != null ? ` (${trialWords(s.trialDays)})` : ''}`, undefined, undefined, ip);
   return adminList();
 }
 
@@ -201,10 +197,10 @@ export async function adminUpdate(a: AdminActor, id: string, input: { action: 'd
 }
 
 /**
- * A partner's codes and share. `code` that is already theirs changes its trial (null → Platform settings); a new one is
+ * A partner's codes. `code` that is already theirs changes its trial (null → Platform settings); a new one is
  * added with its trial and emailed to them; `remove` takes an extra code off (shops that joined with it stay counted).
  */
-export async function adminCodes(a: AdminActor, id: string, input: { code?: string; trialDays?: number | null; remove?: string; sharePct?: number | null }, reason: string, ip?: string) {
+export async function adminCodes(a: AdminActor, id: string, input: { code?: string; trialDays?: number | null; remove?: string }, reason: string, ip?: string) {
   const s = await FieldStaffModel.findById(id);
   if (!s) throw AppError.notFound('Partner not found');
   const p = await platform();
@@ -219,21 +215,17 @@ export async function adminCodes(a: AdminActor, id: string, input: { code?: stri
     const c = normCode(input.code);
     const days = input.trialDays ?? null;
     if (c === s.code) {
-      await FieldStaffModel.updateOne({ _id: s._id }, days ? { $set: { trialDays: days } } : { $unset: { trialDays: '' } });
-      said = `code ${c}: ${days ? `${String(days)}-day trial` : 'trial from Platform settings'}`;
+      await FieldStaffModel.updateOne({ _id: s._id }, days != null ? { $set: { trialDays: days } } : { $unset: { trialDays: '' } });
+      said = `code ${c}: ${days != null ? trialWords(days) : 'trial from Platform settings'}`;
     } else if (s.moreCodes.some((x) => x.code === c)) {
-      await FieldStaffModel.updateOne({ _id: s._id, 'moreCodes.code': c }, days ? { $set: { 'moreCodes.$.trialDays': days } } : { $unset: { 'moreCodes.$.trialDays': '' } });
-      said = `code ${c}: ${days ? `${String(days)}-day trial` : 'trial from Platform settings'}`;
+      await FieldStaffModel.updateOne({ _id: s._id, 'moreCodes.code': c }, days != null ? { $set: { 'moreCodes.$.trialDays': days } } : { $unset: { 'moreCodes.$.trialDays': '' } });
+      said = `code ${c}: ${days != null ? trialWords(days) : 'trial from Platform settings'}`;
     } else {
       const code = await freeCode(c);
-      await FieldStaffModel.updateOne({ _id: s._id }, { $push: { moreCodes: { code, ...(days ? { trialDays: days } : {}) } } });
+      await FieldStaffModel.updateOne({ _id: s._id }, { $push: { moreCodes: { code, ...(days != null ? { trialDays: days } : {}) } } });
       await queueMail({ kind: 'field_code', to: s.email, ...fieldCodeEmail({ name: nameOf(s), code, trialDays: trialOf({ trialDays: days }, p), link: `${env.ADMIN_APP_URL}/field` }) });
-      said = `added code ${code}${days ? ` (${String(days)}-day trial)` : ''}`;
+      said = `added code ${code}${days != null ? ` (${trialWords(days)})` : ''}`;
     }
-  }
-  if (input.sharePct !== undefined) {
-    await FieldStaffModel.updateOne({ _id: s._id }, input.sharePct == null ? { $unset: { sharePct: '' } } : { $set: { sharePct: input.sharePct } });
-    said = [said, input.sharePct == null ? 'share cleared' : `share ${String(input.sharePct)}%`].filter(Boolean).join(', ');
   }
   if (!said) throw AppError.validation('Nothing to change');
   await log(a, 'field_staff_codes', reason, `partner ${s.email}: ${said}`, undefined, undefined, ip);

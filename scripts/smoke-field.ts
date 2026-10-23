@@ -1,6 +1,6 @@
 // D100 checks: partners (field staff) — added by a super admin with email + code, sign in by password or email code (no
 // authenticator, 7-day session), the code gives a new shop the partner trial, drafts the owner confirms, a code added
-// later; each code its own trial, a share, more codes, removed for good.
+// later; each code its own trial, more codes, removed for good.
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -122,18 +122,17 @@ async function main() {
   const o6 = await h.signIn('owner6@fld.test');
   check('his code no longer gives a trial → 422 at signup', (await o6.post('/shops', signup('Late Pharmacy', 'RAHUL90'))).status === 422);
 
-  section('7. Partners: each code its own trial, a share, more codes, removed for good');
-  type Row = { id: string; email: string; codes: { code: string; trialDays: number | null; gives: number }[]; sharePct: number | null };
-  const bad1 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 0, reason: 'new partner' });
-  const bad2 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 400, reason: 'new partner' });
-  const bad3 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', sharePct: 101, reason: 'new partner' });
-  const bad4 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', sharePct: 12.345, reason: 'new partner' });
-  check('trial 0 / 400 days, share 101% / 12.345% → 422', [bad1, bad2, bad3, bad4].every((r) => r.status === 422), [bad1, bad2, bad3, bad4].map(code).join(' | '));
-  const pa = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 120, sharePct: 12.5, reason: 'new partner' });
+  section('7. Partners: each code its own trial, more codes, removed for good');
+  type Row = { id: string; email: string; codes: { code: string; trialDays: number | null; gives: number }[]; sharePct?: unknown };
+  const bad1 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: -1, reason: 'new partner' });
+  const bad2 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 2.5, reason: 'new partner' });
+  const bad3 = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', sharePct: 20, reason: 'new partner' });
+  check('trial -1 / 2.5 days → 422; no share field at all → 422', [bad1, bad2, bad3].every((r) => r.status === 422), [bad1, bad2, bad3].map(code).join(' | '));
+  const pa = await root.post('/admin/field-staff', { email: 'priya@fld.test', code: 'PRIYA120', trialDays: 120, reason: 'new partner' });
   const priya = data<Row[]>(pa).find((x) => x.email === 'priya@fld.test');
-  check('added: PRIYA120 gives 120 days, share 12.5%', pa.status === 201 && priya?.codes[0]?.gives === 120 && priya.codes[0].trialDays === 120 && priya.sharePct === 12.5, code(pa));
+  check('added: PRIYA120 gives 120 days, nothing about a share', pa.status === 201 && priya?.codes[0]?.gives === 120 && priya.codes[0].trialDays === 120 && priya.sharePct === undefined, code(pa));
   const pw2 = await EmailJobModel.findOne({ kind: 'field_welcome', to: 'priya@fld.test' }).lean();
-  check('welcome: a partner, 120-day trial, her 12.5% share', Boolean(pw2?.text.includes('partner. Every shop you bring is counted as yours') && pw2.text.includes('120-day free trial') && pw2.text.includes('Your partner share: 12.5%')), pw2?.text);
+  check('welcome: a partner, 120-day trial, no share', Boolean(pw2?.text.includes('partner. Every shop you bring is counted as yours') && pw2.text.includes('120-day free trial') && !/share/i.test(pw2.text) && !/share/i.test(pw2.html)), pw2?.text);
   const pid = priya?.id ?? '';
   const o7 = await h.signIn('owner7@fld.test');
   check('onboarding check: PRIYA120 → 120 days', data<{ trialDays: number }>(await o7.get('/referral/check?code=PRIYA120')).trialDays === 120);
@@ -147,9 +146,16 @@ async function main() {
   const o8 = await h.signIn('owner8@fld.test');
   const s8 = data<{ id: string }>(await o8.post('/shops', signup('Priya Two Pharmacy', 'PRIYA60'))).id;
   check('signup with PRIYA60 → 60 days, counted for Priya with that code', days((await subOf(s8))?.endDate ?? 0) === 60 && data<{ code: string; staffName: string }>(await help.get(`/admin/shops/${s8}/staff-code`)).code === 'PRIYA60');
-  const reset = await root.post(`/admin/field-staff/${pid}/codes`, { code: 'PRIYA120', trialDays: null, sharePct: null, reason: 'back to the standard offer' });
+  const zero = await root.post(`/admin/field-staff/${pid}/codes`, { code: 'PRIYA0', trialDays: 0, reason: 'counts only, no trial' });
+  check('a 0-day code: no free trial', zero.status === 200 && data<Row[]>(zero).find((x) => x.id === pid)?.codes[2]?.gives === 0 && data<{ trialDays: number }>(await o8.get('/referral/check?code=PRIYA0')).trialDays === 0, code(zero));
+  check('…its email says “no free trial”', Boolean((await EmailJobModel.findOne({ kind: 'field_code', to: 'priya@fld.test', subject: /PRIYA0$/ }).lean())?.text.includes('PRIYA0 — shops that join with it get no free trial')));
+  const o10 = await h.signIn('owner10@fld.test');
+  const s10 = data<{ id: string }>(await o10.post('/shops', signup('Priya Zero Pharmacy', 'PRIYA0'))).id;
+  const z10 = await subOf(s10);
+  check('signup with PRIYA0 → the trial ends at signup (grace, then pay), counted for Priya', Boolean(z10) && Math.abs((z10?.endDate.getTime() ?? 0) - (z10?.startDate.getTime() ?? 1)) < 1000 && data<{ code: string }>(await help.get(`/admin/shops/${s10}/staff-code`)).code === 'PRIYA0');
+  const reset = await root.post(`/admin/field-staff/${pid}/codes`, { code: 'PRIYA120', trialDays: null, reason: 'back to the standard offer' });
   const after = data<Row[]>(reset).find((x) => x.id === pid);
-  check('main code back to Platform settings (90), share cleared', after?.codes[0]?.trialDays === null && after.codes[0].gives === 90 && after.sharePct === null && data<{ trialDays: number }>(await o8.get('/referral/check?code=PRIYA120')).trialDays === 90, code(reset));
+  check('main code back to Platform settings (90)', after?.codes[0]?.trialDays === null && after.codes[0].gives === 90 && data<{ trialDays: number }>(await o8.get('/referral/check?code=PRIYA120')).trialDays === 90, code(reset));
   check('the main code can’t be removed → 422', (await root.post(`/admin/field-staff/${pid}/codes`, { remove: 'PRIYA120', reason: 'clean up codes' })).status === 422);
   check('PRIYA60 removed → no longer a partner code at signup', (await root.post(`/admin/field-staff/${pid}/codes`, { remove: 'PRIYA60', reason: 'offer over' })).status === 200 && (await (await h.signIn('owner9@fld.test')).post('/shops', signup('Late Offer Pharmacy', 'PRIYA60'))).status === 422);
   await h.seedOtp('priya@fld.test', '864200', 'field');

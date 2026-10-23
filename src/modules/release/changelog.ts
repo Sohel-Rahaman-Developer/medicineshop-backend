@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.22',
+    date: '2026-10-23',
+    title: 'A partner code gives only a free trial — picked from a list',
+    shop: [
+      'A partner code with no free trial says so at signup, and the button reads “Start my shop”.',
+    ],
+    admin: [
+      'Partner share is gone: nothing about a share when adding a partner, under Codes, or in the partner’s emails and partner desk. A code gives a free trial and counts the shop for its partner — nothing more.',
+      'The trial a code gives is picked from a list: 30, 90 or 120 days, 0 days (no free trial), or Custom — type any number of days.',
+    ],
+    api: ['POST /admin/field-staff and /admin/field-staff/:id/codes no longer take sharePct; trialDays may be 0 (no free trial).'],
+  },
+  {
     version: '1.22.21',
     date: '2026-10-23',
     title: 'MedBox24 partners: each code its own free trial, a partner share, removed for good',
