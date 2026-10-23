@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.18',
+    date: '2026-10-23',
+    title: 'Camera scanning that reads small codes',
+    shop: [
+      'Scanning uses the phone’s own barcode reader where it has one (Android Chrome) — small QR codes, DataMatrix and barcodes read far better.',
+      'The camera starts at 2× zoom where the phone allows it, so the pack can sit further back and stay sharp; tap the zoom button to change it.',
+      '“Take a photo instead”: the phone camera’s own photo is read — the surest way for a small QR on a box.',
+      'Scan the pack shows a square to fill with the QR.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.17',
     date: '2026-10-23',
     title: 'Smarter, faster products',
