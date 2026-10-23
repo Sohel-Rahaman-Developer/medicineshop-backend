@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.17',
+    date: '2026-10-23',
+    title: 'Smarter, faster products',
+    shop: [
+      'Add product → “Scan the pack”: the QR or barcode on the box fills what it carries — name, salt, maker, barcode, batch, expiry — no AI. Check them against the box.',
+      'A new product starts like your last one in its category: GST, HSN and pack. Every box stays yours to change.',
+      'Typing a name or scanning a barcode you already have shows “Already in your shop?” with the product, one tap to open it.',
+      'Products open faster: the list reads a page with its stock in one go, a product page loads its batches beside it, and hovering a row starts loading it.',
+      'Month end, when many batches expire at once, no longer slows the first products load.',
+    ],
+    admin: [],
+    api: ['GET /products/defaults: per category, how the shop set up its newest product. GET /products takes limit.'],
+  },
+  {
     version: '1.22.16',
     date: '2026-10-23',
     title: 'Announced AI price rises, counted on their day',

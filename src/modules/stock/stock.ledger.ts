@@ -77,14 +77,39 @@ export async function refreshRollups(shopId: Types.ObjectId, productIds: Types.O
   }
 }
 
+const staleIds = async (shopId: Types.ObjectId, now: Date) => (await ProductModel.find({ shopId, 'stock.validUntil': { $lt: now } }).select('_id').limit(500).lean()).map((p) => p._id);
+
+/** Many stale rollups in three round trips (products, their batches, one bulk write) — month end can make hundreds stale. */
+async function refreshIds(shopId: Types.ObjectId, ids: Types.ObjectId[], now: Date) {
+  if (!ids.length) return;
+  const [products, batches] = await Promise.all([
+    ProductModel.find({ shopId, _id: { $in: ids } }).select('reorderLevel units stock.rev').lean(),
+    BatchModel.find({ shopId, productId: { $in: ids }, status: { $ne: 'returned' } }).select('productId quantity status expiryDate receivedAt costPerBaseUnit mrp').lean<(BatchLike & { productId: Types.ObjectId })[]>(),
+  ]);
+  const byProduct = new Map<string, BatchLike[]>();
+  for (const b of batches) byProduct.set(String(b.productId), [...(byProduct.get(String(b.productId)) ?? []), b]);
+  await ProductModel.bulkWrite(
+    products.map((p) => ({
+      updateOne: {
+        filter: { shopId, _id: p._id, 'stock.rev': p.stock.rev },
+        update: { $set: { stock: { ...rollup(byProduct.get(String(p._id)) ?? [], { reorderLevel: p.reorderLevel, salePack: salePack(p.units as Units) }, now), rev: p.stock.rev + 1 } } },
+      },
+    })),
+    { ordered: false },
+  );
+}
+
 /** Expiry only happens at month end, so a rollup goes stale only when its next sellable batch expires. */
 export async function refreshStale(shopId: Types.ObjectId, now = new Date()) {
-  const stale = await ProductModel.find({ shopId, 'stock.validUntil': { $lt: now } }).select('_id').limit(500).lean();
-  for (const p of stale) {
-    const r = await rollupFor(shopId, p._id, now);
-    if (!r) continue;
-    await ProductModel.updateOne({ shopId, _id: p._id, 'stock.rev': r.rev }, { $set: { stock: { ...r.stock, rev: r.rev + 1 } } });
-  }
+  await refreshIds(shopId, await staleIds(shopId, now), now);
+}
+
+/** Reads beside the stale check; only when a rollup went stale does it refresh and read again — one round trip most days. */
+export async function freshRead<T>(shopId: Types.ObjectId, read: () => Promise<T>, now = new Date()): Promise<T> {
+  const [stale, first] = await Promise.all([staleIds(shopId, now), read()]);
+  if (!stale.length) return first;
+  await refreshIds(shopId, stale, now);
+  return read();
 }
 
 /** Rack codes are free text (PLAN §11); an unknown one joins the rack master so it autocompletes next time. */

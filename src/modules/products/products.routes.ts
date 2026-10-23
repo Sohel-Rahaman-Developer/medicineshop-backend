@@ -47,6 +47,14 @@ productsRouter.get(
 );
 
 productsRouter.get(
+  '/defaults',
+  requirePermission('products', 'create'),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await svc.categoryDefaults(tenantOf(req)));
+  }),
+);
+
+productsRouter.get(
   '/companies',
   view,
   asyncHandler(async (req: Request, res: Response) => {

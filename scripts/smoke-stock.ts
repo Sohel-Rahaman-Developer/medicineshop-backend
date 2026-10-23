@@ -437,6 +437,31 @@ async function main() {
   check('cashier → 403', (await cashier.post('/products', azikem({}, { name: 'Cashier Pill' }))).status === 403);
   check('stock keeper can add with stock', (await keeper.post('/products', azikem({}, { name: 'Keeper Pill' }))).status === 201);
 
+  section('19. Fast product screens, and a new product set up like the last one');
+  const queries = (r: Res) => Number(/db;dur=[\d.]+;desc="(\d+) queries"/.exec(r.headers.get('server-timing') ?? '')?.[1] ?? 999);
+  const bulk = Array.from({ length: 40 }, (_, i) => ({ name: `Speed Tab ${String(i + 1)}`, saleUnit: 'STRIP', baseUnit: 'TABLET', pack: '10', category: 'Tablet', gst: '5', batch: `SP${String(i)}`, expiry: '08/29', quantity: '5', mrp: '40', rate: '30' }));
+  check('40 products with stock imported', (await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows: bulk })).status === 200);
+  // Month end: every rollup stale and wrong at once.
+  await ProductModel.updateMany({ shopId: shop1, name: /^Speed Tab / }, { $set: { 'stock.validUntil': new Date(Date.now() - 60_000), 'stock.status': 'out', 'stock.sellable': 0 } });
+  const first40 = await owner.raw('GET', '/products?q=speed%20tab&limit=100');
+  const rows40 = data<Product[]>(first40);
+  check('all 40 stale rollups put right in one load', rows40.length === 40 && rows40.every((p) => p.stock.status === 'ok' && p.stock.sellable === 50), JSON.stringify(rows40.slice(0, 2).map((p) => p.stock)));
+  check(`…in a few queries, not 3 a product (${String(queries(first40))})`, queries(first40) <= 14);
+  check('nothing stale is left', (await ProductModel.countDocuments({ shopId: shop1, 'stock.validUntil': { $lt: new Date() } })) === 0);
+  const again40 = await owner.raw('GET', '/products?q=speed%20tab&limit=100');
+  check(`the next load: the page with its batches in one query (${String(queries(again40))} in all)`, queries(again40) <= 8 && data<Product[]>(again40).length === 40);
+  const one = rows40[0]?.id ?? '';
+  const detail = await owner.raw('GET', `/products/${one}`);
+  check(`a product page reads in one go (${String(queries(detail))})`, detail.status === 200 && queries(detail) <= 8);
+  const bts = await owner.raw('GET', `/products/${one}/batches`);
+  check(`its batches beside it (${String(queries(bts))})`, bts.status === 200 && data<Batch[]>(bts).length === 1 && queries(bts) <= 7);
+  check('an unknown product still → 404', (await owner.get('/products/000000000000000000000000/batches')).status === 404 && (await owner.get('/products/000000000000000000000000/received')).status === 404);
+  const defaults = data<{ categoryId: string; from: string; gstRate: number; hsnCode: string; units: { sale: string; salePack: number } }[]>(await owner.get('/products/defaults'));
+  const tabDefault = defaults.find((d) => d.categoryId === tablet);
+  check('defaults: a Tablet starts like the newest Tablet (GST, HSN, strip of 10)', tabDefault?.from.startsWith('Speed Tab') === true && tabDefault.gstRate === 5 && tabDefault.units.sale === 'STRIP' && tabDefault.units.salePack === 10, JSON.stringify(tabDefault));
+  check('one row per category', new Set(defaults.map((d) => d.categoryId)).size === defaults.length);
+  check('cashier (can’t add products) → 403', (await cashier.get('/products/defaults')).status === 403);
+
   await h.close();
   finish();
 }

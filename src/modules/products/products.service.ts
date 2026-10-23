@@ -14,7 +14,7 @@ import { PurchaseModel } from '../purchases/purchase.model';
 import { BatchModel } from '../stock/batch.model';
 import { MovementModel } from '../stock/movement.model';
 import { type BatchLike, bucketOf, daysLeftOut, fefo } from '../stock/stock.domain';
-import { ensureRack, refreshRollups, refreshStale } from '../stock/stock.ledger';
+import { ensureRack, freshRead, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { photoUrl, processPhoto } from './photo';
 import { ProductModel, type Product } from './product.model';
@@ -95,7 +95,6 @@ const SORTS: Record<ListQuery['sort'], SortSpec> = {
 
 export async function list(t: TenantContext, q: ListQuery) {
   const now = new Date();
-  await refreshStale(t.shopId, now);
   const cost = seesCost(t);
   const sort = SORTS[q.sort === 'value' && !cost ? 'name' : q.sort];
   const filter: Record<string, unknown> = { shopId: t.shopId, isActive: q.status !== 'inactive' };
@@ -120,21 +119,17 @@ export async function list(t: TenantContext, q: ListQuery) {
   if (Object.keys(after).length) and.push(after);
   if (and.length) filter.$and = and;
 
-  const rows = await ProductModel.find(filter).sort(sortOf(sort)).limit(q.limit + 1).lean<Lean[]>();
-  const { items, meta } = page(rows, q.limit, (r) => (sort.field === 'nameLower' ? r.nameLower : sort.field === 'stock.value' ? r.stock.value : r.stock.expirySort));
-
-  const [names, batches] = await Promise.all([
+  // The page and its sellable batches in one query, beside the category names and the stale check.
+  const sellableOf = { $lookup: { from: BatchModel.collection.name, let: { pid: '$_id' }, pipeline: [{ $match: { shopId: t.shopId, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now }, $expr: { $eq: ['$productId', '$$pid'] } } }, { $project: { mrp: 1, rack: 1, expiryDate: 1, receivedAt: 1, quantity: 1, status: 1, costPerBaseUnit: 1 } }], as: 'sellable' } };
+  const [names, rows] = await Promise.all([
     categoryNames(t.shopId),
-    BatchModel.find({ shopId: t.shopId, productId: { $in: items.map((p) => p._id) }, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now } })
-      .select('productId mrp rack expiryDate receivedAt quantity status costPerBaseUnit')
-      .lean(),
+    freshRead(t.shopId, () => ProductModel.aggregate<Lean & { sellable: (BatchLike & { rack: string })[] }>([{ $match: filter }, { $sort: sortOf(sort) }, { $limit: q.limit + 1 }, sellableOf]), now),
   ]);
-  const byProduct = new Map<string, typeof batches>();
-  for (const b of batches) byProduct.set(String(b.productId), [...(byProduct.get(String(b.productId)) ?? []), b]);
+  const { items, meta } = page(rows, q.limit, (r) => (sort.field === 'nameLower' ? r.nameLower : sort.field === 'stock.value' ? r.stock.value : r.stock.expirySort));
 
   return {
     items: items.map((p) => {
-      const sellable = fefo((byProduct.get(String(p._id)) ?? []) as (BatchLike & { rack: string })[], now);
+      const sellable = fefo(p.sellable, now);
       const mrps = sellable.map((b) => b.mrp);
       const u = p.units as Units;
       return {
@@ -158,8 +153,7 @@ export async function list(t: TenantContext, q: ListQuery) {
 }
 
 export async function summary(t: TenantContext) {
-  await refreshStale(t.shopId);
-  const [s] = await ProductModel.aggregate<Record<string, number>>([
+  const [s] = await freshRead(t.shopId, () => ProductModel.aggregate<Record<string, number>>([
     { $match: { shopId: t.shopId, isActive: true } },
     {
       $group: {
@@ -174,7 +168,7 @@ export async function summary(t: TenantContext) {
         mrpValue: { $sum: '$stock.mrpValue' },
       },
     },
-  ]);
+  ]));
   const n = (k: string) => s?.[k] ?? 0;
   return {
     products: n('products'),
@@ -186,6 +180,16 @@ export async function summary(t: TenantContext) {
     mrpValue: n('mrpValue'),
     ...(seesCost(t) ? { value: n('value') } : {}),
   };
+}
+
+/** Per category, how this shop set up its newest product there — a new product starts from it; every box stays editable. */
+export async function categoryDefaults(t: TenantContext) {
+  const rows = await ProductModel.aggregate<{ _id: Types.ObjectId; name: string; gstRate: number; hsnCode: string; scheduleType: string; storageType: string; units: Units; noExpiry: boolean }>([
+    { $match: { shopId: t.shopId, isActive: true } },
+    { $sort: { createdAt: -1, _id: -1 } },
+    { $group: { _id: '$categoryId', name: { $first: '$name' }, gstRate: { $first: '$gstRate' }, hsnCode: { $first: '$hsnCode' }, scheduleType: { $first: '$scheduleType' }, storageType: { $first: '$storageType' }, units: { $first: '$units' }, noExpiry: { $first: '$noExpiry' } } },
+  ]);
+  return rows.map((r) => ({ categoryId: String(r._id), from: r.name, gstRate: r.gstRate, hsnCode: r.hsnCode, scheduleType: r.scheduleType, storageType: r.storageType, units: unitsOut(r.units), noExpiry: r.noExpiry }));
 }
 
 export async function companies(t: TenantContext) {
@@ -200,18 +204,15 @@ async function load(t: TenantContext, id: string) {
 }
 
 export async function get(t: TenantContext, id: string) {
-  await refreshStale(t.shopId);
-  const p = await load(t, id);
-  const names = await categoryNames(t.shopId);
+  const [p, names] = await Promise.all([freshRead(t.shopId, () => load(t, id)), categoryNames(t.shopId)]);
   return detailShape(p, names.get(String(p.categoryId)) ?? '', seesCost(t));
 }
 
 export async function batchesOf(t: TenantContext, id: string) {
-  const p = await load(t, id);
   const now = new Date();
   const cost = seesCost(t);
+  const [p, batches] = await Promise.all([load(t, id), BatchModel.find({ shopId: t.shopId, productId: new Types.ObjectId(id), status: { $ne: 'returned' }, quantity: { $gt: 0 } }).lean()]);
   const pack = salePack(p.units as Units);
-  const batches = await BatchModel.find({ shopId: t.shopId, productId: p._id, status: { $ne: 'returned' }, quantity: { $gt: 0 } }).lean();
   const order = fefo(batches, now);
   const next = order[0] ? String(order[0]._id) : null;
   const rank = (b: (typeof batches)[number]) => {
@@ -241,9 +242,8 @@ export async function batchesOf(t: TenantContext, id: string) {
 
 /** Every receipt, newest first, from the ledger — a purchase merged into an older batch still shows up. */
 export async function received(t: TenantContext, id: string) {
-  const p = await load(t, id);
   const cost = seesCost(t);
-  const moves = await MovementModel.find({ shopId: t.shopId, productId: p._id, type: { $in: ['OPENING', 'PURCHASE'] } }).sort({ at: -1, _id: -1 }).limit(100).lean();
+  const [, moves] = await Promise.all([load(t, id), MovementModel.find({ shopId: t.shopId, productId: new Types.ObjectId(id), type: { $in: ['OPENING', 'PURCHASE'] } }).sort({ at: -1, _id: -1 }).limit(100).lean()]);
   const [batches, purchases] = await Promise.all([
     BatchModel.find({ shopId: t.shopId, _id: { $in: moves.map((m) => m.batchId) } }).select('batchNumber expiryDate mrp purchaseRate purchaseUnit').lean(),
     PurchaseModel.find({ shopId: t.shopId, _id: { $in: moves.flatMap((m) => (m.type === 'PURCHASE' && m.refId ? [m.refId] : [])) } }).select('purchaseNumber invoiceNumber supplierName status lines').lean(),
