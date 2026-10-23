@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.23',
+    date: '2026-10-23',
+    title: 'The partner desk looks and works like a phone app',
+    shop: [],
+    admin: [
+      'Partner desk (/field) on a phone: a slim top bar with the partner’s initials, and a bottom tab bar — My shops, Add a shop, Profile.',
+      'Home opens on a card with “Namaste” and each code in large letters with its trial, and Copy code, Copy link and WhatsApp buttons; then four totals with icons and the shops as a clean list.',
+      'Add a shop in two steps (Owner, Shop) with “Send to the owner” held at the bottom of the screen on a phone; Profile and sign-in redesigned to match.',
+    ],
+    api: [],
+  },
+  {
     version: '1.22.22',
     date: '2026-10-23',
     title: 'A partner code gives only a free trial — picked from a list',
