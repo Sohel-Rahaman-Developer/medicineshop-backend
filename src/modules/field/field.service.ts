@@ -61,7 +61,7 @@ export async function linkAtSignup(shopId: Types.ObjectId, staff: { _id: Types.O
  */
 export async function applyLater(shopId: Types.ObjectId, code: string, by: string, source: 'admin' | 'owner', reason = '') {
   const staff = await staffByCode(code);
-  if (!staff) throw AppError.validation('No MedBox24 partner has this code — check it', [{ field: 'body.code', message: 'No MedBox24 partner has this code — check it' }]);
+  if (!staff) throw AppError.validation('This code doesn’t work — check it', [{ field: 'body.code', message: 'This code doesn’t work — check it' }]);
   const had = await ShopStaffLinkModel.findOne({ shopId }).lean();
   if (had) throw AppError.conflict(`This shop already has the code ${had.code}`);
   if (await ReferralModel.exists({ refereeShopId: shopId })) throw AppError.conflict('This shop joined with another shop’s referral code — one code per shop');
@@ -73,7 +73,7 @@ export async function applyLater(shopId: Types.ObjectId, code: string, by: strin
   const trial = !paid && sub.planCode === 'trial' && sub.status !== 'cancelled' && until > now;
   await ShopStaffLinkModel.create({ shopId, staffId: staff._id, code: staff.code, source, by, trialGiven: trial, reason });
   if (trial && until > sub.endDate) await SubscriptionModel.updateOne({ shopId, planCode: 'trial' }, { $set: { endDate: until, status: 'trial' } });
-  return { code: staff.code, staffName: nameOf(staff), trialGiven: trial, trialEnds: trial ? (until > sub.endDate ? until : sub.endDate) : null, why: trial ? '' : paid || sub.planCode !== 'trial' ? 'The shop has already paid — the code counts for the staff member, the trial does not change.' : days > 0 ? `${String(days)} days from signup have passed — the code counts, the trial does not change.` : 'This code gives no free trial — it counts for the partner, the trial does not change.' };
+  return { code: staff.code, staffName: nameOf(staff), trialGiven: trial, trialEnds: trial ? (until > sub.endDate ? until : sub.endDate) : null, why: trial ? '' : paid || sub.planCode !== 'trial' ? 'The shop has already paid — the code counts for the staff member, the trial does not change.' : days > 0 ? `${String(days)} days from signup have passed — the code counts, the trial does not change.` : 'This code gives no free trial — it is saved, the trial does not change.' };
 }
 
 /** The staff member's own shops: joined with the code, and the ones waiting for their owner. */

@@ -257,15 +257,15 @@ export function aiPriceEmail(items: PriceRise[]) {
 export function fieldOtpEmail(otp: string, expiryMinutes: number) {
   const t = THEMES.shop;
   return {
-    subject: `${otp} is your ${BRAND} partner sign-in code`,
+    subject: `${otp} is your ${BRAND} sign-in code`,
     html: shell({
       theme: t,
-      preheader: `Partner sign-in code ${otp}`,
-      eyebrow: 'MedBox24 partner',
+      preheader: `Sign-in code ${otp}`,
+      eyebrow: 'Sign in',
       title: 'Your sign-in code',
       body: `${codeBox(otp, t, expiryMinutes)}${note('<b>Didn’t ask for this?</b> Ignore this email — nobody can sign in without the code.')}`,
     }),
-    text: `Your ${BRAND} partner sign-in code: ${otp}
+    text: `Your ${BRAND} sign-in code: ${otp}
 
 It works for ${String(expiryMinutes)} minutes. Didn't ask for it? Ignore this email.`,
   };
@@ -277,20 +277,20 @@ const trialWords = (days: number) => (days > 0 ? `a ${String(days)}-day free tri
 export function fieldWelcomeEmail(r: { name: string; code: string; trialDays: number; link: string }) {
   const t = THEMES.shop;
   return {
-    subject: `Welcome aboard, partner — your ${BRAND} code is ${r.code}`,
+    subject: `Welcome aboard — your ${BRAND} code is ${r.code}`,
     html: shell({
       theme: t,
-      preheader: `You are now a ${BRAND} partner. Shops that join with ${r.code} get ${trialWords(r.trialDays)}.`,
-      eyebrow: `${BRAND} partner`,
+      preheader: `Shops that join with ${r.code} get ${trialWords(r.trialDays)}.`,
+      eyebrow: 'Welcome',
       title: `Welcome aboard, ${r.name}`,
-      intro: `You are now a ${BRAND} partner — this is your business as much as ours. Every medicine shop you bring to ${BRAND} is counted as yours, and you see how each one grows.`,
-      body: `${rows([['Your partner code', r.code], ['Free trial for your shops', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Open your partner desk', t)}${note(`Your partner desk shows your shops — on trial, paying — and lets you set up a shop with its owner. Sign in with an email code the first time, then set a password if you like.`)}`,
+      intro: `You are now with ${BRAND} — this is your business as much as ours. Every medicine shop you bring to ${BRAND} is counted as yours, and you see how each one grows.`,
+      body: `${rows([['Your code', r.code], ['Free trial for your shops', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Open your desk', t)}${note(`Your desk shows your shops — on trial, paying — and lets you set up a shop with its owner. Sign in with an email code the first time, then set a password if you like.`)}`,
     }),
     text: `Welcome aboard, ${r.name}
 
-You are now a ${BRAND} partner. Every shop you bring is counted as yours.
-Your partner code: ${r.code} — shops that join with it get ${trialWords(r.trialDays)}.
-Your partner desk: ${r.link}`,
+You are now with ${BRAND}. Every shop you bring is counted as yours.
+Your code: ${r.code} — shops that join with it get ${trialWords(r.trialDays)}.
+Your desk: ${r.link}`,
   };
 }
 
@@ -298,19 +298,19 @@ Your partner desk: ${r.link}`,
 export function fieldCodeEmail(r: { name: string; code: string; trialDays: number; link: string }) {
   const t = THEMES.shop;
   return {
-    subject: `Your new ${BRAND} partner code: ${r.code}`,
+    subject: `Your new ${BRAND} code: ${r.code}`,
     html: shell({
       theme: t,
       preheader: `Shops that join with ${r.code} get ${trialWords(r.trialDays)}.`,
-      eyebrow: `${BRAND} partner`,
+      eyebrow: 'New code',
       title: `A new code for you, ${r.name}`,
       intro: `Shops that join with this code get ${trialWords(r.trialDays)}, and every one of them is counted as yours. Your other codes keep working.`,
-      body: `${rows([['New code', r.code], ['Free trial with it', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Open your partner desk', t)}`,
+      body: `${rows([['New code', r.code], ['Free trial with it', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Open your desk', t)}`,
     }),
     text: `A new code for you, ${r.name}
 
 ${r.code} — shops that join with it get ${trialWords(r.trialDays)}. Your other codes keep working.
-Your partner desk: ${r.link}`,
+Your desk: ${r.link}`,
   };
 }
 
@@ -324,12 +324,12 @@ export function ownerDraftEmail(r: { ownerName: string; shopName: string; staffN
       preheader: `${r.staffName} filled in your shop's details — check them and start${r.trialDays > 0 ? ` your ${String(r.trialDays)}-day free trial` : ''}.`,
       eyebrow: 'Your shop is ready',
       title: `Namaste ${r.ownerName}`,
-      intro: `${esc(r.staffName)}, a ${BRAND} partner, has filled in your shop's details. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}.`,
-      body: `${rows([['Shop', r.shopName], ['Filled by', `${r.staffName}, ${BRAND} partner`], ['Free trial', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Check and start', t)}${note(`Nothing starts until you agree. The details wait for ${String(r.days)} days.`)}`,
+      intro: `${esc(r.staffName)} from ${BRAND} has filled in your shop's details. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}.`,
+      body: `${rows([['Shop', r.shopName], ['Filled by', `${r.staffName}, ${BRAND}`], ['Free trial', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Check and start', t)}${note(`Nothing starts until you agree. The details wait for ${String(r.days)} days.`)}`,
     }),
     text: `Namaste ${r.ownerName}
 
-${r.staffName}, a ${BRAND} partner, has filled in the details of ${r.shopName}. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}: ${r.link}
+${r.staffName} from ${BRAND} has filled in the details of ${r.shopName}. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}: ${r.link}
 
 Nothing starts until you agree. The details wait for ${String(r.days)} days.`,
   };

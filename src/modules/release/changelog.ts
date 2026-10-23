@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.24',
+    date: '2026-10-23',
+    title: 'Fewer “partner” words, plainer text',
+    shop: [
+      'Signup says “Code from Rahul — your free trial is 90 days”; Settings → Plan calls it “Sign-up code”.',
+    ],
+    admin: [
+      '“Partner” now shows only beside the MedBox24 logo on the desk and in the console menu. The desk says “Your code” and “Sign in”; the emails say “Your code”, “Your desk” and “Rahul from MedBox24”.',
+      'The desk greets with a name only once one is set — never the first part of the email.',
+    ],
+    api: [],
+  },
+  {
     version: '1.22.23',
     date: '2026-10-23',
     title: 'The partner desk looks and works like a phone app',

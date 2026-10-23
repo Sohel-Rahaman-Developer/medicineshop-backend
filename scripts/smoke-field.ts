@@ -132,7 +132,7 @@ async function main() {
   const priya = data<Row[]>(pa).find((x) => x.email === 'priya@fld.test');
   check('added: PRIYA120 gives 120 days, nothing about a share', pa.status === 201 && priya?.codes[0]?.gives === 120 && priya.codes[0].trialDays === 120 && priya.sharePct === undefined, code(pa));
   const pw2 = await EmailJobModel.findOne({ kind: 'field_welcome', to: 'priya@fld.test' }).lean();
-  check('welcome: a partner, 120-day trial, no share', Boolean(pw2?.text.includes('partner. Every shop you bring is counted as yours') && pw2.text.includes('120-day free trial') && !/share/i.test(pw2.text) && !/share/i.test(pw2.html)), pw2?.text);
+  check('welcome: a partner, 120-day trial, no share', Boolean(pw2?.text.includes('Every shop you bring is counted as yours') && pw2.text.includes('120-day free trial') && !/share/i.test(pw2.text) && !/share/i.test(pw2.html)), pw2?.text);
   const pid = priya?.id ?? '';
   const o7 = await h.signIn('owner7@fld.test');
   check('onboarding check: PRIYA120 → 120 days', data<{ trialDays: number }>(await o7.get('/referral/check?code=PRIYA120')).trialDays === 120);
