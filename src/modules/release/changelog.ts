@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.15',
+    date: '2026-10-23',
+    title: 'Help on every AI price box',
+    shop: [],
+    admin: ['AI bill reading and Shop chat: an ⓘ beside every key, price and token box says what it is, what to enter and a worked example, in Bengali or English.'],
+    api: [],
+  },
+  {
     version: '1.22.14',
     date: '2026-10-23',
     title: 'Field staff codes: a 90-day free trial',
