@@ -21,13 +21,22 @@ categoriesRouter.get(
   }),
 );
 
+categoriesRouter.get(
+  '/requests',
+  requirePermission('products', 'view'),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await svc.requests(tenantOf(req)));
+  }),
+);
+
 categoriesRouter.post(
   '/',
   requirePermission('settings', 'edit'),
   validate({ body: createSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const out = await svc.create(tenantOf(req), await actorOf(req), (req.body as z.infer<typeof createSchema>).name, req.ip);
-    created(res, out, `Category “${out.name}” added`);
+    if (out.status === 'added') created(res, out, `Category “${out.category.name}” added`);
+    else sent(res, out, out.already ? `“${out.name}” is already asked for — MedBox24 is checking it` : `Sent to MedBox24 — “${out.name}” comes to every shop once approved`, 202);
   }),
 );
 

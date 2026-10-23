@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.11',
+    date: '2026-10-23',
+    title: 'New categories are checked once, then every shop gets them',
+    shop: [
+      'Settings → Inventory → Ask for a category: MedBox24 checks the name, then adds it for every shop. Until then it shows as “Waiting for MedBox24” and the nearest category is used.',
+      'A turned-down category shows the reason; you are told in Notifications either way.',
+    ],
+    admin: [
+      'Category requests: every ask in one list; approve for every shop or turn down with a reason (super admin).',
+      'Each super admin gets an email with an own link: it opens the ask and the existing categories, and one tap approves or rejects. The link works once and for 7 days.',
+    ],
+    api: ['POST /categories now answers 202 { status: "pending" } for a new name. GET /categories/requests lists this shop’s asks. Category links live under /public/category-requests/:token.'],
+  },
+  {
     version: '1.22.10',
     date: '2026-10-23',
     title: 'Phone keyboard no longer hides the box you type in',

@@ -28,6 +28,7 @@ import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, ty
 import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import * as chat from '../ask/ask-admin';
+import * as categories from '../categories/categories.service';
 import { ASK_ROUTES } from '../ask/ask.model';
 import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
 import * as brand from '../branding/branding.service';
@@ -150,6 +151,9 @@ adminRouter.put('/gateway/billing', superOnly, validate({ body: billingBody }), 
 adminRouter.get('/referrals', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.referrals()); }));
 adminRouter.put('/referrals/settings', superOnly, validate({ body: z.object({ settings: referralSettingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: ReferralSettings; reason: string }; sent(res, await svc.saveReferral(adminOf(req), b.settings, b.reason, req.ip), 'Referral settings saved'); }));
 adminRouter.put('/shops/:id/referrer', shopsRole, validate({ params: idParams, body: z.object({ referrerShopId: objectId.nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { referrerShopId: string | null; reason: string }; await svc.setReferrer(adminOf(req), (req.params as { id: string }).id, b.referrerShopId, b.reason, req.ip); sent(res, await svc.shop((req.params as { id: string }).id), b.referrerShopId ? 'Referrer saved' : 'Referrer removed'); }));
+
+adminRouter.get('/category-requests', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await categories.adminList()); }));
+adminRouter.post('/category-requests/:id', superOnly, validate({ params: idParams, body: z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(200).default('') }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { decision: 'approve' | 'reject'; reason: string }; const a = adminOf(req); const out = await categories.decide(new Types.ObjectId((req.params as { id: string }).id), { id: a.id, name: a.name }, b.decision, b.reason, 'console', req.ip); sent(res, out, b.decision === 'approve' ? `“${out.name}” added for every shop` : `“${out.name}” turned down`); }));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));
 adminRouter.post('/team', superOnly, validate({ body: z.object({ email, name: z.string().trim().min(2).max(80), role: z.enum(ADMIN_ROLES), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; name: string; role: (typeof ADMIN_ROLES)[number]; reason: string }; sent(res, await svc.invite(adminOf(req), b, b.reason, req.ip), `${b.name} added`); }));

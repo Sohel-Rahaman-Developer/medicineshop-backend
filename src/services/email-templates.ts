@@ -217,6 +217,29 @@ export function aiCreditEmail(items: { name: string; leftUsd: number; alertUsd: 
   };
 }
 
+/** A shop asked for a new product category: one tap opens the page to approve it for every shop. */
+export function categoryRequestEmail(r: { name: string; shopName: string; userName: string; link: string; days: number }) {
+  const t = THEMES.admin;
+  return {
+    subject: `${BRAND} — new category asked: ${r.name}`.slice(0, 160),
+    html: shell({
+      theme: t,
+      preheader: `${r.shopName} asked for “${r.name}”`.slice(0, 140),
+      eyebrow: 'Category request',
+      title: 'A shop wants a new category',
+      intro: 'It is not in the category list yet. Approve it once and every shop gets it; until then nobody can use it.',
+      body: `${rows([['Category', r.name], ['Shop', r.shopName], ['Asked by', r.userName]])}${button(r.link, 'Open to approve', t)}${note(`The button opens a page with Approve and Reject — nothing changes until you tap one. The link is yours alone, works once and for ${String(r.days)} days; after that use Category requests in the admin console.`)}`,
+    }),
+    text: `${BRAND} — new category asked
+
+Category: ${r.name}
+Shop: ${r.shopName}
+Asked by: ${r.userName}
+
+Open to approve or reject (works once, ${String(r.days)} days): ${r.link}`,
+  };
+}
+
 /** Ops alert to the super admins: what crossed its limit, and where to look. */
 export function monitorAlertEmail(items: { label: string; n: number; limit: number }[], windowMin: number) {
   const t = THEMES.admin;

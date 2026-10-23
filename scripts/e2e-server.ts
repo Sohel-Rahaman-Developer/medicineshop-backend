@@ -105,16 +105,35 @@ async function main() {
     forgetPlanFeatures();
   };
 
+  const { EmailJobModel } = await import('../src/services/mail-queue.js');
+  /** Console suite: the newest email queued to an address, as the admin would read it. */
+  const categories = await import('../src/modules/categories/categories.service.js');
+  /** Console suite: the named shop asks for a category, as its owner would in Settings → Inventory. */
+  const seedCategory = async (b: { shopName?: string; name?: string }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop || !b.name) throw new Error('shop or name missing');
+    const t = { shopId: shop._id } as Parameters<typeof categories.create>[0];
+    await categories.create(t, { id: String(shop.ownerUserId), name: 'Shop Owner', email: 'owner@e2e.test' }, b.name);
+  };
+  const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
+
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean };
-      (req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string };
+      if (req.url === '/mail') {
+        lastMail(body).then(
+          (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),
+          (err: unknown) => res.writeHead(500).end(String(err)),
+        );
+        return;
+      }
+      (req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

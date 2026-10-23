@@ -44,10 +44,15 @@ async function main() {
   const cats = data<Category[]>(await owner.get('/categories'));
   check('16 built-in categories on a new shop (medicines and everyday items, D59)', cats.length === 16 && cats.every((c) => c.isSystem));
   const tablet = cats.find((c) => c.name === 'Tablet')?.id ?? '';
-  const eye = await owner.post('/categories', { name: 'Eye drops' });
-  check('add “Eye drops” → 201', eye.status === 201, code(eye));
-  const clash = await owner.post('/categories', { name: ' EYE-DROP ' });
-  check('“EYE-DROP” clashes with “Eye drops” → 409', clash.status === 409 && clash.json.error?.message?.includes('Eye drops') === true, code(clash));
+  const ask = await owner.post('/categories', { name: 'Eye drops' });
+  check('a new category is asked for: “Eye drops” → 202 pending', ask.status === 202 && data<{ status: string }>(ask).status === 'pending', code(ask));
+  check('…not in the list until MedBox24 approves it', !data<Category[]>(await owner.get('/categories')).some((c) => c.name === 'Eye drops'));
+  const clash = await owner.post('/categories', { name: ' TABLETS ' });
+  check('“TABLETS” clashes with “Tablet” → 409', clash.status === 409 && clash.json.error?.message?.includes('Tablet') === true, code(clash));
+  // A shop's own category from before v1.22.11 stays its own.
+  const { CategoryModel } = await import('../src/modules/categories/category.model.js');
+  const { Types: T } = await import('mongoose');
+  const eye = await CategoryModel.create({ shopId: new T.ObjectId(shop1), name: 'Old eye drops', key: 'oldeyedrop', isSystem: false });
   check('built-in category can’t be removed → 403', (await owner.del(`/categories/${tablet}`)).status === 403);
 
   const product = (over: Record<string, unknown> = {}) => ({
@@ -324,7 +329,7 @@ async function main() {
   check('its batches by id → empty list', data<unknown[]>(await other.get(`/stock/batches?ids=${dl2401?.id ?? ''}`)).length === 0);
   check('its batch history → 404', (await other.get(`/stock/batches/${dl2401?.id ?? ''}/why`)).status === 404);
   check('rename its rack → 404', (await other.put(`/racks/${rack1}`, { code: 'X-1', name: '', storageType: 'NORMAL' })).status === 404);
-  check('remove its category → 404', (await other.del(`/categories/${eye.json.data ? (eye.json.data as { id: string }).id : ''}`)).status === 404);
+  check('remove its category → 404', (await other.del(`/categories/${String(eye._id)}`)).status === 404);
   check('shop 1 category on a shop 2 product → 422', (await other.post('/products', product({ name: 'Foreign', barcode: '' }))).status === 422);
   check('shop 2 sees an empty product list', data<unknown[]>(await other.get('/products')).length === 0);
   check('shop 2 movements are empty', data<unknown[]>(await other.get('/stock/movements')).length === 0);
@@ -406,7 +411,7 @@ async function main() {
   check('deactivate → 200', (await owner.post(`/products/${dolo}/active`, { isActive: false, version: pd.version })).status === 200);
   check('no opening stock into a deactivated product → 409', (await owner.post('/stock/opening', opening({ batchNumber: 'X9' }))).status === 409);
   check('gone from the normal list, in “inactive”', !ids(await owner.get('/products')).includes('Dolo 650 Tablet') && ids(await owner.get('/products?status=inactive')).includes('Dolo 650 Tablet'));
-  const tab = data<Category[]>(await owner.get('/categories')).find((c) => c.name === 'Eye drops');
+  const tab = data<Category[]>(await owner.get('/categories')).find((c) => c.name === 'Old eye drops');
   check('unused custom category can be removed', (await owner.del(`/categories/${tab?.id ?? ''}`)).status === 200);
   const movers = data<{ type: string }[]>(await owner.get(`/stock/movements?productId=${dolo}&type=OPENING`));
   check('movements filter by product + type', movers.length > 0 && movers.every((m) => m.type === 'OPENING'));

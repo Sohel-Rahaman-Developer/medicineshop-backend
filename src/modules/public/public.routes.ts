@@ -4,10 +4,11 @@ import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { AppError } from '../../core/errors';
 import { validate } from '../../core/middleware/validate';
-import { fetched } from '../../core/response';
+import { fetched, sent } from '../../core/response';
 import { TOKEN, publicPoints, publicShop } from '../loyalty/points-link';
 import { ShopModel } from '../shops/shop.model';
 import { logoBytes } from '../shops/shop-logo';
+import * as categories from '../categories/categories.service';
 
 /** D92: pages a customer opens without signing in — a shop's loyalty QR page and their own points link. */
 export const publicRouter = Router();
@@ -25,6 +26,17 @@ publicRouter.use(
 );
 
 const code = z.object({ code: z.string().regex(/^[a-z2-9]{8}$/) }).strict();
+const linkToken = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{32}$/) }).strict();
+
+/** The category link from a super admin's email: see the ask, then one tap to approve or reject. */
+publicRouter.get('/category-requests/:token', validate({ params: linkToken }), asyncHandler(async (req: Request, res: Response) => {
+  fetched(res, await categories.byLink((req.params as { token: string }).token));
+}));
+publicRouter.post('/category-requests/:token', validate({ params: linkToken, body: z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(200).default('') }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { decision: 'approve' | 'reject'; reason: string };
+  const out = await categories.decideByLink((req.params as { token: string }).token, b.decision, b.reason, req.ip);
+  sent(res, out, b.decision === 'approve' ? `“${out.name}” added for every shop` : `“${out.name}” turned down`);
+}));
 
 publicRouter.get('/points/:token', validate({ params: z.object({ token: z.string().regex(TOKEN) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   res.set('X-Robots-Tag', 'noindex');

@@ -122,7 +122,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
       }
       const catName = r.category || CATEGORY_BY_BASE[base] || 'FMCG';
       const cat = catByKey.get(categoryKey(catName));
-      if (!cat) errors.push(`Category “${r.category}” doesn’t exist — add it in Settings or leave it blank`);
+      if (!cat) errors.push(`Category “${r.category}” doesn’t exist — ask for it in Settings → Inventory (MedBox24 adds it for every shop) or leave it blank`);
       const schedule = (r.schedule.toUpperCase().replace(/^SCHEDULE\s*/, '').replace(/[\s-]/g, '_') || 'OTC') as (typeof SCHEDULE_TYPES)[number];
       if (!SCHEDULE_TYPES.includes(schedule)) errors.push('Schedule is OTC, H, H1, X or NON_DRUG');
       scheduleOf = schedule;

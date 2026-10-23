@@ -31,6 +31,7 @@ export const TYPES = {
   DL_EXPIRY: { label: 'Drug licence', group: 'system', channels: ['inapp', 'email'] },
   SUBSCRIPTION_EXPIRING: { label: 'Plan ending', group: 'system', channels: ['inapp', 'email'] },
   SUBSCRIPTION_EXPIRED: { label: 'Plan ended', group: 'system', channels: ['inapp', 'email'], locked: true },
+  CATEGORY_DECIDED: { label: 'New category approved or not', group: 'system', channels: ['inapp'] },
   // The owner must see a support request; it can't be switched off (D15).
   SUPPORT_ACCESS: { label: 'MedBox24 support access', group: 'system', channels: ['inapp'], locked: true },
 } as const satisfies Record<string, TypeInfo>;
