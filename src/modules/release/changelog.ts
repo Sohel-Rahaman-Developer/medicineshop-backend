@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.10',
+    date: '2026-10-23',
+    title: 'Phone keyboard no longer hides the box you type in',
+    shop: [
+      'Phone: a pop-up sheet (lowest price, expense, customer, payment and every other) now rises above the keyboard, so the box you type in stays in sight.',
+      'Website footer: Terms, Privacy, Refund & Cancellation, Contact and Delete account now have their own “Legal” column.',
+      'The website and sign-in screen say “Pharmacy software for medical stores”.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.9',
     date: '2026-10-23',
     title: 'Split payments give change, and staff see only what they can do',
