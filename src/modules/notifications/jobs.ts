@@ -23,7 +23,9 @@ import { settleStuckQuestions } from '../ask/ask.service';
 import { demoTick } from '../demo/demo.service';
 import { welcomeMissing } from '../ai/welcome';
 import { lowCredits } from '../ai/credits';
-import { aiCreditEmail } from '../../services/email-templates';
+import { aiSettings } from '../ai/ai-settings';
+import { noticesDue } from '../ai/price-changes';
+import { aiCreditEmail, aiPriceEmail } from '../../services/email-templates';
 import { gateway } from '../subscription/gateway';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -166,6 +168,19 @@ export async function tick(now = new Date()) {
       const mail = aiCreditEmail(fresh);
       for (const a of await AdminUserModel.find({ role: 'super', status: 'active' }).select('email').lean()) await queueMail({ kind: 'ai_credit', to: a.email, ...mail }, now);
       ran.push(`aicredit:${fresh.map((c) => c.provider).join(',')}`);
+    }
+    // An announced price rise for a model in use → the super admins, once, a week before.
+    const rises = await aiSettings(now).then((s) => noticesDue(s, now)).catch(async (err: unknown) => {
+      logger.error({ err }, 'AI price notice failed');
+      await signal('job_fail', now);
+      return [];
+    });
+    const told = [];
+    for (const c of rises) if (await claim(`aiprice:${c.model}:${c.from.toISOString()}`, now)) told.push(c);
+    if (told.length) {
+      const mail = aiPriceEmail(told);
+      for (const a of await AdminUserModel.find({ role: 'super', status: 'active' }).select('email').lean()) await queueMail({ kind: 'ai_price', to: a.email, ...mail }, now);
+      ran.push(`aiprice:${told.map((c) => c.model).join(',')}`);
     }
   }
   // The demo shop's bills keep up with the clock, and it starts afresh each night; it runs beside the tick.

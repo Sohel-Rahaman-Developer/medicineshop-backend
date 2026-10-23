@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.16',
+    date: '2026-10-23',
+    title: 'Announced AI price rises, counted on their day',
+    shop: [],
+    admin: [
+      'Price changes ahead: Gemini 4 Argon goes to $4 / $20 from 1 Dec 2026, Gemini 3.8 and 3.6 Flash to $1.50 / $7.50 from 1 Jan 2027 — with what each does to bill reading and the chat, and the tokens that keep them safe.',
+      'From that day every call is counted at the new price on its own; a price you save on or after the day stands.',
+      'A week before, the super admins get an email if a model in use goes up.',
+    ],
+    api: ['GET /admin/ai returns priceChanges.'],
+  },
+  {
     version: '1.22.15',
     date: '2026-10-23',
     title: 'Help on every AI price box',

@@ -12,6 +12,7 @@ import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, saveAiSetti
 import type { AiModelId, AiProvider } from './ai.model';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
 import { moveCoins } from './coins';
+import { upcomingPrices } from './price-changes';
 import { aiStatus, type Feature } from './status';
 import { updateChat } from '../ask/ask-admin';
 
@@ -21,7 +22,7 @@ const DAY = 86_400_000;
 export async function aiOverview(now = new Date()) {
   const since = new Date(now.getTime() - 30 * DAY);
   const [settings, reads, month, sold, soldMonth, held] = await Promise.all([
-    aiSettings(),
+    aiSettings(now),
     AiReadModel.aggregate<{ _id: string; n: number; pages: number; coins: number; cost: number }>([{ $group: { _id: '$status', n: { $sum: 1 }, pages: { $sum: '$pages' }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, cost: { $sum: '$costPaise' } } }]),
     AiReadModel.aggregate<{ n: number; coins: number; cost: number }>([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: null, n: { $sum: 1 }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, cost: { $sum: '$costPaise' } } }]),
     CoinOrderModel.aggregate<{ amount: number; gst: number; coins: number; n: number }>([{ $match: { status: 'paid' } }, { $group: { _id: null, amount: { $sum: '$amount' }, gst: { $sum: '$gst' }, coins: { $sum: '$coins' }, n: { $sum: 1 } } }]),
@@ -36,6 +37,7 @@ export async function aiOverview(now = new Date()) {
     sold: { orders: sold[0]?.n ?? 0, coins: sold[0]?.coins ?? 0, amountPaise: sold[0]?.amount ?? 0, netPaise: (sold[0]?.amount ?? 0) - (sold[0]?.gst ?? 0) },
     held: { coins: held[0]?.coins ?? 0, shops: held[0]?.shops ?? 0 },
     status: await aiStatus(settings),
+    priceChanges: upcomingPrices(settings, now),
   };
 }
 

@@ -217,6 +217,42 @@ export function aiCreditEmail(items: { name: string; leftUsd: number; alertUsd: 
   };
 }
 
+interface PriceRise {
+  name: string;
+  from: Date;
+  now: { input: number; output: number };
+  next: { input: number; output: number };
+  uses: { feature: 'read' | 'chat'; worstPaise: number; chargePaise: number; safe: boolean; needCoins: number }[];
+}
+
+/** An announced AI price rise a week ahead: what it does to bill reading and the chat, and the tokens that keep them safe. */
+export function aiPriceEmail(items: PriceRise[]) {
+  const t = THEMES.admin;
+  const day = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const usd = (n: number) => `$${n.toFixed(2)}`;
+  const rs = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
+  const what = { read: ['Bill reading', 'a page'], chat: ['The chat', 'a question'] } as const;
+  const effect = (u: PriceRise['uses'][number]) =>
+    `${what[u.feature][1]} can cost up to ${rs(u.worstPaise)}, its tokens bring ${rs(u.chargePaise)} — ${u.safe ? 'still safe' : `it pauses then; charge ${String(u.needCoins)} tokens ${what[u.feature][1]} before that day`}`;
+  const lines = items.flatMap((i) => [
+    [`${i.name} from ${day(i.from)}`, `${usd(i.now.input)} / ${usd(i.now.output)} → ${usd(i.next.input)} / ${usd(i.next.output)} per million (in / out)`] as [string, string],
+    ...i.uses.map((u) => [what[u.feature][0], effect(u)] as [string, string]),
+  ]);
+  const head = items.map((i) => `${i.name} from ${day(i.from)}`).join(' · ');
+  return {
+    subject: `${BRAND} — AI price rise: ${head}`.slice(0, 160),
+    html: shell({
+      theme: t,
+      preheader: head.slice(0, 140),
+      eyebrow: 'AI prices',
+      title: 'An AI price goes up soon',
+      intro: 'A higher price has been announced for a model MedBox24 uses. From that day MedBox24 counts every call at the new price on its own.',
+      body: `${rows(lines)}${button(`${env.ADMIN_APP_URL}/ai`, 'Open AI bill reading', t)}${note('A price that could lose money pauses that AI for every shop. Raise the tokens or pick another model before the day, under AI → Settings or Shop chat → Chat settings.', 'warn')}`,
+    }),
+    text: `${BRAND} — AI price rise\n\n${lines.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\nCheck the tokens before the day: ${env.ADMIN_APP_URL}/ai`,
+  };
+}
+
 /** D100: a field staff member's sign-in code — no authenticator after it. */
 export function fieldOtpEmail(otp: string, expiryMinutes: number) {
   const t = THEMES.shop;

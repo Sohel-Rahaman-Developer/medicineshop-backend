@@ -3,7 +3,7 @@ import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { open, seal } from '../../utils/totp';
 import { assertNoLoss, safeNow } from './guard';
-import { AI_EFFORTS, AI_MODEL_IDS, AI_MODELS, AiSettingsModel, DEFAULT_PACKS, type AiModelId, type AiProvider } from './ai.model';
+import { AI_EFFORTS, AI_MODEL_IDS, AI_MODELS, AI_PRICE_CHANGES, AiSettingsModel, DEFAULT_PACKS, type AiModelId, type AiProvider } from './ai.model';
 
 // Its own key from the admin secret, so a TOTP secret and an API key never share one.
 const sealKey = (p: AiProvider) => `${env.ADMIN_TOTP_KEY ?? env.JWT_ACCESS_SECRET}|${p === 'anthropic' ? 'anthropic' : 'gemini'}-api-key`;
@@ -69,7 +69,18 @@ export function listPrice(model: AiModelId): Price {
   return { model, input: m.input, output: m.output, cacheRead: m.input / 10, cacheWrite: m.input * 1.25 };
 }
 
-export async function aiSettings() {
+/** An announced price is in force from IST midnight of its day. */
+export const changeStart = (from: string) => new Date(`${from}T00:00:00+05:30`);
+
+/** A due rise lifts the price to at least the announced one, unless the admin saved prices on or after its day. */
+function withChanges(p: Price, setAt: Date | null, now: Date): Price {
+  return AI_PRICE_CHANGES.filter((c) => c.model === p.model && changeStart(c.from) <= now && !(setAt && setAt >= changeStart(c.from))).reduce(
+    (a, c) => ({ model: a.model, input: Math.max(a.input, c.input), output: Math.max(a.output, c.output), cacheRead: Math.max(a.cacheRead, c.input / 10), cacheWrite: Math.max(a.cacheWrite, c.input * 1.25) }),
+    p,
+  );
+}
+
+export async function aiSettings(now = new Date()) {
   const s = await AiSettingsModel.findById('ai').lean();
   return {
     enabled: s?.enabled ?? false,
@@ -89,7 +100,7 @@ export async function aiSettings() {
     models: AI_MODEL_IDS.map((id) => ({ id, ...AI_MODELS[id] })),
     prices: AI_MODEL_IDS.map((id) => {
       const p = s?.prices?.find((x) => x.model === id);
-      return p ? { model: id, input: p.input ?? 0, output: p.output ?? 0, cacheRead: p.cacheRead ?? 0, cacheWrite: p.cacheWrite ?? 0 } : listPrice(id);
+      return withChanges(p ? { model: id, input: p.input ?? 0, output: p.output ?? 0, cacheRead: p.cacheRead ?? 0, cacheWrite: p.cacheWrite ?? 0 } : listPrice(id), s?.pricesSetAt ?? null, now);
     }),
     chat: chatOf(stripNull(s?.chat)),
   };
@@ -129,7 +140,7 @@ export async function saveAiSettings(input: AiSettingsInput, by: string) {
 export async function savePrices(input: PricesInput, by: string) {
   const s = await aiSettings();
   assertNoLoss({ ...s, prices: AI_MODEL_IDS.map((id) => input.find((p) => p.model === id) ?? listPrice(id)) }, 'body.prices');
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { prices: input, updatedBy: by } }, { upsert: true });
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { prices: input, pricesSetAt: new Date(), updatedBy: by } }, { upsert: true });
   return aiSettings();
 }
 

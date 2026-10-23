@@ -8,7 +8,7 @@ const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error
 const DAY = 86_400_000;
 const shop = (name: string) => ({ name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' });
 const signup = (name: string, referralCode?: string) => ({ owner: { name: 'Rohit Agarwal', phone: '98300 41122' }, shop: shop(name), termsVersion: '2026-10', agree: true, ...(referralCode ? { referralCode } : {}) });
-const days = (end: string | Date, start = Date.now()) => Math.round((new Date(end).getTime() - start) / DAY);
+const days = (end: string | Date | number, start = Date.now()) => Math.round((new Date(end).getTime() - start) / DAY);
 type Mine = { code: string; trialDays: number; totals: { joined: number; onTrial: number; paying: number }; shops: { shopName: string; source: string; status: string }[]; drafts: { shopName: string; status: string }[] };
 
 async function main() {

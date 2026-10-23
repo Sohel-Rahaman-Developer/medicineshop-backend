@@ -212,6 +212,34 @@ async function main() {
   late.shopId = data<{ id: string }>(await late.post('/shops', shopBody('Omar Medicos'))).id;
   check('set to 0: a new shop gets none, the scheduler gives none', data<{ balance: number }>(await late.get('/ai/wallet')).balance === 0 && (await welcomeMissing()) === 0);
 
+  section('Announced price rises: in force on their day, a week’s notice');
+  const { aiSettings, priceOf } = await import('../src/modules/ai/ai-settings.js');
+  const { upcomingPrices, noticesDue } = await import('../src/modules/ai/price-changes.js');
+  const { safeNow } = await import('../src/modules/ai/guard.js');
+  const { tick } = await import('../src/modules/notifications/jobs.js');
+  const { EmailJobModel } = await import('../src/services/mail-queue.js');
+  const ist = (s: string) => new Date(`${s}+05:30`);
+  check('Argon on 1 token a page (₹10.13 a token, a page up to ₹7.92) → saved', (await root.put('/admin/ai/settings', read({ enabled: false, model: 'gemini-4-argon', coinsPerPage: 1 }))).status === 200);
+  const nov20 = await aiSettings(ist('2026-11-20T10:00:00'));
+  const argon = upcomingPrices(nov20, ist('2026-11-20T10:00:00')).find((c) => c.model === 'gemini-4-argon');
+  check('20 Nov: Argon still $2 / $10', priceOf(nov20, 'gemini-4-argon').input === 2 && priceOf(nov20, 'gemini-4-argon').output === 10);
+  check('ahead: Argon from 1 Dec IST, $2 / $10 → $4 / $20, in 11 days', argon?.from.toISOString() === '2026-11-30T18:30:00.000Z' && argon.now.input === 2 && argon.next.input === 4 && argon.next.output === 20 && argon.days === 11, JSON.stringify(argon));
+  check('…bill reading on Argon: a page up to ₹15.84, 1 token brings ₹10.13 → pauses, 2 tokens needed', argon?.uses.length === 1 && argon.uses[0]?.feature === 'read' && argon.uses[0].worstPaise === 1584 && argon.uses[0].chargePaise === 1013 && !argon.uses[0].safe && argon.uses[0].needCoins === 2, JSON.stringify(argon?.uses));
+  check('3.8 / 3.6 Flash from 1 Jan 2027, not in use → nothing to do', upcomingPrices(nov20, ist('2026-11-20T10:00:00')).filter((c) => c.model !== 'gemini-4-argon').every((c) => c.uses.length === 0 && c.next.input === 1.5 && c.next.output === 7.5));
+  check('20 Nov: no notice yet (11 days out)', noticesDue(nov20, ist('2026-11-20T10:00:00')).length === 0);
+  check('25 Nov: the notice is due (6 days out)', noticesDue(nov20, ist('2026-11-25T12:00:00')).map((c) => c.model).join() === 'gemini-4-argon');
+  await tick(ist('2026-11-25T12:00:00'));
+  await tick(ist('2026-11-25T12:20:00'));
+  const notices = await EmailJobModel.find({ kind: 'ai_price' }).lean();
+  check('the scheduler emails the super admin once, the fix in it', notices.length === 1 && notices[0]?.to === 'root@gem.test' && notices[0].text.includes('charge 2 tokens a page'), JSON.stringify(notices.map((n) => [n.to, n.subject])));
+  const dec2 = await aiSettings(ist('2026-12-02T09:00:00'));
+  check('2 Dec: Argon counted at $4 / $20 on its own (cache write $5) — bill reading pauses', priceOf(dec2, 'gemini-4-argon').input === 4 && priceOf(dec2, 'gemini-4-argon').output === 20 && priceOf(dec2, 'gemini-4-argon').cacheWrite === 5 && !safeNow(dec2, 'read'));
+  check('prices saved before the day (today) → the rise still comes in', (await root.put('/admin/ai/prices', { prices: (await aiSettings()).prices, reason: 'prices as Google lists them' })).status === 200 && priceOf(await aiSettings(ist('2026-12-02T09:00:00')), 'gemini-4-argon').input === 4);
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { pricesSetAt: ist('2026-12-05T10:00:00'), prices: (await aiSettings()).prices.map((p) => (p.model === 'gemini-4-argon' ? { ...p, input: 3, output: 15, cacheWrite: 3.75 } : p)) } });
+  check('prices saved after the day → the admin’s price stands ($3 / $15)', priceOf(await aiSettings(ist('2026-12-10T09:00:00')), 'gemini-4-argon').input === 3);
+  const overview = data<{ priceChanges: { model: string; from: string }[] }>(await root.get('/admin/ai'));
+  check('the AI page lists the rises still ahead', Array.isArray(overview.priceChanges) && overview.priceChanges.every((c) => new Date(c.from) > new Date()));
+
   await fake.close();
   await h.close();
   finish();

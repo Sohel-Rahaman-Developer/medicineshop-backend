@@ -27,6 +27,13 @@ export const AI_MODELS = {
 } as const satisfies Record<string, { name: string; provider: AiProvider; input: number; output: number; effort: boolean; free: boolean }>;
 export type AiModelId = keyof typeof AI_MODELS;
 export const AI_MODEL_IDS = Object.keys(AI_MODELS) as [AiModelId, ...AiModelId[]];
+
+/** Rises the provider has announced (US$ per million, input / output): in force from that day, IST, unless the admin saves prices on or after it. */
+export const AI_PRICE_CHANGES: { model: AiModelId; from: string; input: number; output: number }[] = [
+  { model: 'gemini-4-argon', from: '2026-12-01', input: 4, output: 20 },
+  { model: 'gemini-3.8-flash', from: '2027-01-01', input: 1.5, output: 7.5 },
+  { model: 'gemini-3.6-flash', from: '2027-01-01', input: 1.5, output: 7.5 },
+];
 export const AI_EFFORTS = ['low', 'medium', 'high'] as const;
 
 const packSchema = new Schema({ code: String, name: String, coins: Number, price: Number }, { _id: false });
@@ -70,6 +77,7 @@ const settingsSchema = new Schema(
     /** Paise, GST included. */
     packs: { type: [packSchema], default: undefined },
     prices: { type: [priceSchema], default: undefined },
+    pricesSetAt: { type: Date },
     chat: { type: chatSchema },
     updatedBy: { type: String },
   },
