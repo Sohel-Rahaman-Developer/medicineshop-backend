@@ -7,7 +7,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { signal } from '../../services/monitor';
 import { istDayStart, istMonth } from '../../utils/date';
-import { aiSettings, apiKey, priceOf, providerOf, readyFor, type AiSettings } from '../ai/ai-settings';
+import { aiSettings, apiKey, onFreeTier, priceOf, providerOf, readyFor, type AiSettings } from '../ai/ai-settings';
 import { GeminiError } from '../../services/gemini';
 import { fits, safeNow, worstQuestion } from '../ai/guard';
 import { outOfCredit } from '../ai/credits';
@@ -238,7 +238,7 @@ async function settle(t: TenantContext, actor: Actor, held: { id: Types.ObjectId
   await inTransaction(async (session) => {
     const claimed = await AskQuestionModel.updateOne(
       { _id: held.id, status: 'running' },
-      { $set: { status: how.status, ...(how.route ? { route: how.route } : {}), refunded: how.refund, error: how.error, tools: how.tools, inputTokens: used.input, outputTokens: used.output, cacheReadTokens: used.cacheRead, cacheWriteTokens: used.cacheWrite, costPaise: cost, ms: Date.now() - started } },
+      { $set: { status: how.status, ...(how.route ? { route: how.route } : {}), refunded: how.refund, error: how.error, tools: how.tools, inputTokens: used.input, outputTokens: used.output, cacheReadTokens: used.cacheRead, cacheWriteTokens: used.cacheWrite, costPaise: cost, freeTier: onFreeTier(s, s.chat.model), ms: Date.now() - started } },
       { session },
     );
     if (!claimed.modifiedCount || !how.refund) return;

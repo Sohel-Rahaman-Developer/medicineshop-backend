@@ -141,8 +141,10 @@ const readSchema = new Schema(
     error: { type: String },
     inputTokens: { type: Number, required: true, default: 0 },
     outputTokens: { type: Number, required: true, default: 0 },
-    /** What Anthropic charges for this read, in paise at the settings' dollar rate. */
+    /** What the provider charges for this read at list price, in paise at the settings' dollar rate. */
     costPaise: { type: Number, required: true, default: 0 },
+    /** Gemini's free tier: nothing was billed; costPaise is what billing would have charged. */
+    freeTier: { type: Boolean, required: true, default: false },
     lines: { type: Number, required: true, default: 0 },
     ms: { type: Number },
   },

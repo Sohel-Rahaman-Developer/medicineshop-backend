@@ -13,7 +13,7 @@ import { docxContent, readRows } from '../purchases/bill-read';
 import { previewRead } from '../purchases/bill-import';
 import { SupplierModel } from '../suppliers/supplier.model';
 import type { Actor } from '../user/actor';
-import { aiSettings, apiKey, listPrice, priceOf, providerOf, type Price } from './ai-settings';
+import { aiSettings, apiKey, listPrice, onFreeTier, priceOf, providerOf, type Price } from './ai-settings';
 import { AI_MODELS, AiReadModel } from './ai.model';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, MAX_OUT, PAGE_OUT, fits, safeNow, worstPage } from './guard';
@@ -203,7 +203,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   // Claims the read while it is still running, so the stuck-read sweep and this never both give the coins back.
   const giveBack = async (error: string, usage = { input: 0, output: 0 }) => {
     await inTransaction(async (session) => {
-      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, inputTokens: usage.input, outputTokens: usage.output, costPaise: costPaise(s.model, usage.input, usage.output, s.usdInr, priceOf(s, s.model)), ms: Date.now() - started } }, { session });
+      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, inputTokens: usage.input, outputTokens: usage.output, costPaise: costPaise(s.model, usage.input, usage.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started } }, { session });
       if (claimed.modifiedCount) await moveCoins(t.shopId, 'refund', coins, `Back: ${input.fileName} — ${error}`, actor.name, String(read._id), session);
     });
     return error;
@@ -233,7 +233,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
     if (!(err instanceof AppError)) throw err;
     throw new AppError(err.status, err.code, `${await giveBack(err.message, answer.usage)}. ${FAILED(coins)}`, err.details);
   }
-  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr, priceOf(s, s.model)), ms: Date.now() - started } });
+  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started } });
   const balance = await balanceOf(t.shopId);
   return { ...preview, ai: { readId: String(read._id), pages, coins, balance } };
 }

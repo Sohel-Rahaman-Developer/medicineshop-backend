@@ -34,7 +34,8 @@ export async function credits() {
       const since = topups.length ? topups.reduce((a, t) => (t.at < a ? t.at : a), topups[0]?.at ?? new Date()) : null;
       let spentPaise = 0;
       if (since) {
-        const match = { createdAt: { $gte: since }, model: { $in: modelsOf(p) } };
+        // Free-tier calls cost nothing, so they don't eat into the credit.
+        const match = { createdAt: { $gte: since }, model: { $in: modelsOf(p) }, freeTier: { $ne: true } };
         const [r, q] = await Promise.all([
           AiReadModel.aggregate<{ cost: number }>([{ $match: match }, { $group: { _id: null, cost: { $sum: '$costPaise' } } }]),
           AskQuestionModel.aggregate<{ cost: number }>([{ $match: match }, { $group: { _id: null, cost: { $sum: '$costPaise' } } }]),

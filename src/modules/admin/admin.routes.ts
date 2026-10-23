@@ -21,7 +21,7 @@ import { release } from '../release/release';
 import * as ai from '../ai/ai-admin';
 import * as gw from './gateway-admin';
 import { perfOverview } from '../perf/perf';
-import { aiMoney } from '../ai/ledger';
+import { aiBill, aiMoney } from '../ai/ledger';
 import * as credit from '../ai/credits';
 import { AI_MODEL_IDS, AI_PROVIDERS, type AiProvider } from '../ai/ai.model';
 import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
@@ -123,6 +123,7 @@ adminRouter.post('/ai/gemini-key/test', superOnly, asyncHandler(async (_req: Req
 const questionsQuery = z.object({ shopId: objectId.optional(), route: z.enum(ASK_ROUTES).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
 // D97: is every AI price safe, the real margin, and what each shop (and who in it) spends against what it paid.
 adminRouter.get('/ai/money', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await aiMoney()); }));
+adminRouter.get('/ai/bill', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await aiBill()); }));
 // D97: the admin writes down each top-up at Anthropic / Google; the estimate and the low-credit email follow from it.
 const providerParam = z.object({ provider: z.enum(AI_PROVIDERS) }).strict();
 adminRouter.get('/ai/credits', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await credit.credits()); }));

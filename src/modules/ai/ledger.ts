@@ -1,8 +1,9 @@
 import type { Types } from 'mongoose';
 import { AskQuestionModel } from '../ask/ask.model';
 import { ShopModel } from '../shops/shop.model';
-import { aiSettings, priceOf } from './ai-settings';
-import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
+import { istMonth } from '../../utils/date';
+import { PROVIDER_NAME, aiSettings, priceOf } from './ai-settings';
+import { AI_MODELS, AI_PROVIDERS, AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type AiProvider } from './ai.model';
 import { PAGE_IN, PAGE_OUT, checks, coinValue, worstPage, worstQuestion } from './guard';
 
 // D97: the admin's money view of AI — is every price safe, what margin it really makes, and which shop (and who in it)
@@ -97,4 +98,39 @@ export async function aiMoney(now = new Date()) {
     gifts: { welcomeCoins: s.welcomeCoins, perShopPaise: s.welcomeCoins * coin },
     shops,
   };
+}
+
+type BillRow = { _id: { model: string; free: boolean | null }; cost: number; n: number };
+// A read stored under a model no longer offered still counts, under no provider.
+const providerOfStored = (model: string) => (AI_MODELS as Record<string, { provider: AiProvider } | undefined>)[model]?.provider;
+
+/** What MedBox24 pays the AI providers: billed calls per provider, and free-tier calls at what billing would charge. */
+export async function aiBill(now = new Date()) {
+  const s = await aiSettings();
+  const [y = 0, m = 1] = istMonth(now).split('-').map(Number);
+  const windows = { month: new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3_600_000), last30: new Date(now.getTime() - 30 * DAY) };
+  const group = (since: Date, chat: boolean) => [
+    { $match: { createdAt: { $gte: since }, costPaise: { $gt: 0 }, ...(chat ? { route: AI_ROUTES } : {}) } },
+    { $group: { _id: { model: '$model', free: '$freeTier' }, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } },
+  ];
+  const shape = (bills: BillRow[], chat: BillRow[]) =>
+    AI_PROVIDERS.map((p) => {
+      const of = (rows: BillRow[], free: boolean) => rows.filter((r) => providerOfStored(r._id.model) === p && Boolean(r._id.free) === free);
+      const sum = (rows: BillRow[]) => rows.reduce((a, r) => a + r.cost, 0);
+      return {
+        provider: p,
+        name: PROVIDER_NAME[p],
+        billedPaise: sum(of(bills, false)) + sum(of(chat, false)),
+        freeTierPaise: sum(of(bills, true)) + sum(of(chat, true)),
+        bills: { paise: sum(of(bills, false)) + sum(of(bills, true)), calls: [...of(bills, false), ...of(bills, true)].reduce((a, r) => a + r.n, 0) },
+        chat: { paise: sum(of(chat, false)) + sum(of(chat, true)), calls: [...of(chat, false), ...of(chat, true)].reduce((a, r) => a + r.n, 0) },
+      };
+    });
+  const windowOf = async (since: Date) => {
+    const [bills, chat] = await Promise.all([AiReadModel.aggregate<BillRow>(group(since, false)), AskQuestionModel.aggregate<BillRow>(group(since, true))]);
+    const providers = shape(bills, chat);
+    return { since, providers, billedPaise: providers.reduce((a, p) => a + p.billedPaise, 0), freeTierPaise: providers.reduce((a, p) => a + p.freeTierPaise, 0) };
+  };
+  const [month, last30] = await Promise.all([windowOf(windows.month), windowOf(windows.last30)]);
+  return { usdInr: s.usdInr, geminiBilling: s.gemini.paid, month, last30 };
 }

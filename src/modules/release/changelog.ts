@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.12',
+    date: '2026-10-23',
+    title: 'The AI bill, with Gemini’s free tier priced as if billed',
+    shop: [],
+    admin: [
+      'AI bill reading → “What MedBox24 pays for AI”: this month and the last 30 days, per provider, split into bill reading and chat.',
+      'Gemini on the free tier shows ₹0 billed and what the same calls would cost with billing on — so the bill after the free tier is known in advance.',
+      'Overview: an “AI bill this month” tile.',
+      'Fix: the AI credit left at Google no longer goes down for free-tier calls (no more false top-up emails).',
+    ],
+    api: ['GET /admin/ai/bill. Bill reads and chat questions record freeTier.'],
+  },
+  {
     version: '1.22.11',
     date: '2026-10-23',
     title: 'New categories are checked once, then every shop gets them',

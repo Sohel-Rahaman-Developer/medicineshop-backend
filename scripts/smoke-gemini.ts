@@ -95,6 +95,15 @@ async function main() {
   const pdfPart = fake.seen.at(-1)?.body.contents?.[0]?.parts[0] as { inlineData?: { mimeType: string } } | undefined;
   check('a 3-page scan goes as a PDF → 6 coins', r2.status === 200 && pdfPart?.inlineData?.mimeType === 'application/pdf' && data<ReadOut>(r2).ai.coins === 6 && (await balance()) === 22, code(r2));
 
+  type Bill = { month: { billedPaise: number; freeTierPaise: number; providers: { provider: string; billedPaise: number; freeTierPaise: number; bills: { calls: number } }[] } };
+  const googleBill = async () => data<Bill>(await acc.get('/admin/ai/bill')).month.providers.find((x) => x.provider === 'google');
+  check('the key is on the free tier → the read is marked free tier', rec1?.freeTier === true);
+  const gb = await googleBill();
+  check('AI bill (accounts can see it): Google ₹0 billed, the free-tier reads priced as if billed', gb?.billedPaise === 0 && (gb.freeTierPaise) >= (rec1?.costPaise ?? 1) && gb.bills.calls === 2, JSON.stringify(gb));
+  await root.post('/admin/ai/credits/google', { usd: 10, reason: 'first Google top-up', note: '' });
+  const gc = data<{ provider: string; spentUsd: number; leftUsd: number }[]>(await root.get('/admin/ai/credits')).find((x) => x.provider === 'google');
+  check('free-tier reads don’t eat the Google credit: $10 left of $10', gc?.spentUsd === 0 && gc.leftUsd === 10, JSON.stringify(gc));
+
   section('3. Every failure gives the coins back');
   const failWith = async (reply: Parameters<typeof fake.queue.push>[0] | null, label: string, expect: number, text: string) => {
     if (reply) fake.queue.push(reply);
@@ -172,6 +181,7 @@ async function main() {
   const q = await AskQuestionModel.findOne({ shopId: shop, route: 'ai' }).lean();
   const usage = { input: 2400, output: 120, cacheRead: 0, cacheWrite: 0 };
   check('recorded: Gemini model, 2,400 in, 120 out (thinking counted), cost (2,400 × $0.30 + 120 × $2.50) / 1M × ₹88 = 9 paise', q?.model === 'gemini-3.5-flash-lite' && q.inputTokens === 2400 && q.outputTokens === 120 && q.costPaise === costOf(usage, listPrice('gemini-3.5-flash-lite'), 88) && q.costPaise === 9, JSON.stringify(q));
+  check('billing on → the question is not free tier, and the AI bill shows it billed', q?.freeTier === false && ((await googleBill())?.billedPaise ?? 0) >= (q.costPaise || 1));
   fake.queue.push({ status: 429 });
   const busy = await owner.post('/ask', { text: 'Dolo bachchon ko de sakte hain kya', confirm: true });
   const failedQ = await AskQuestionModel.findOne({ shopId: shop, status: 'failed' }).lean();

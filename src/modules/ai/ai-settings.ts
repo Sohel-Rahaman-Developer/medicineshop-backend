@@ -105,6 +105,8 @@ export const readyFor = (s: { hasKey: boolean; gemini: { hasKey: boolean } }, mo
 
 export const priceOf = (s: { prices: Price[] }, model: AiModelId): Price => s.prices.find((p) => p.model === model) ?? listPrice(model);
 export type AiSettings = Awaited<ReturnType<typeof aiSettings>>;
+/** Google bills nothing on the free tier; the call's cost is still worked out, as what billing would charge. */
+export const onFreeTier = (s: AiSettings, model: AiModelId) => providerOf(model) === 'google' && !s.gemini.paid && AI_MODELS[model].free;
 
 /** What the shop sees: on only when the admin turned it on and a key is set. */
 export async function aiOffer() {

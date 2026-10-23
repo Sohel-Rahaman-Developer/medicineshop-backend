@@ -31,6 +31,7 @@ const questionSchema = new Schema(
     cacheWriteTokens: { type: Number, required: true, default: 0 },
     /** What Anthropic charges for it, in paise at the settings' price and dollar rate. */
     costPaise: { type: Number, required: true, default: 0 },
+    freeTier: { type: Boolean, required: true, default: false },
     ms: { type: Number },
   },
   { timestamps: true, versionKey: false },
