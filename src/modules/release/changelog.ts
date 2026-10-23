@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.19',
+    date: '2026-10-23',
+    title: 'The camera scanner always starts, says what it read, and asks for the camera again',
+    shop: [
+      'Fixed: the scanner could stay on “Asking for the camera…” for good.',
+      'The camera shows at once; if the phone’s own reader is slow or fails, the other reader takes over by itself. A camera that drops its picture is started again.',
+      '“Take a photo instead” takes the picture inside MedBox24 (no camera app, no lost page) and says what happened: the code it read, “only the maker’s link”, or “no code found”.',
+      'Camera access: a green tick once allowed; otherwise “Allow camera” asks again — and if the browser blocked it, the steps to allow it are shown and the scanner starts by itself once allowed. Also in Settings → Barcode scanner.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.18',
     date: '2026-10-23',
     title: 'Camera scanning that reads small codes',
