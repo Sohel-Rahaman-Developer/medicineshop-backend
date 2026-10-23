@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.13',
+    date: '2026-10-23',
+    title: 'Screens open at once after a quiet spell',
+    shop: ['After the app sat unused for a while, the first screen could hang for minutes; it now opens at once.'],
+    admin: ['Fix: the first open of each console page after a quiet spell took up to 3 minutes — idle database connections that the network had silently dropped. They are now closed before that happens, and a stuck one fails within 45 s.'],
+    api: ['MongoDB pool: maxIdleTimeMS 30 s, socketTimeoutMS 45 s.'],
+  },
+  {
     version: '1.22.12',
     date: '2026-10-23',
     title: 'The AI bill, with Gemini’s free tier priced as if billed',

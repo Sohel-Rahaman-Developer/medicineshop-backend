@@ -4,6 +4,18 @@ import { logger } from './logger';
 
 let connected = false;
 
+/**
+ * Atlas sits behind NATs and firewalls that silently drop a TCP connection left idle for minutes; a query sent on one
+ * never gets an answer. Idle pool connections are closed first, and a stuck one fails fast so the read is retried.
+ */
+export const DB_OPTIONS = {
+  serverSelectionTimeoutMS: 10_000,
+  maxPoolSize: 20,
+  maxIdleTimeMS: 30_000,
+  // Under nginx's 60 s, so a stuck query errors and is retried instead of the page waiting minutes.
+  socketTimeoutMS: 45_000,
+} satisfies mongoose.ConnectOptions;
+
 export async function connectDb(): Promise<typeof mongoose> {
   if (connected) return mongoose;
 
@@ -20,10 +32,7 @@ export async function connectDb(): Promise<typeof mongoose> {
     logger.warn('MongoDB disconnected');
   });
 
-  await mongoose.connect(env.MONGODB_URI, {
-    serverSelectionTimeoutMS: 10_000,
-    maxPoolSize: 20,
-  });
+  await mongoose.connect(env.MONGODB_URI, DB_OPTIONS);
 
   connected = true;
   return mongoose;
