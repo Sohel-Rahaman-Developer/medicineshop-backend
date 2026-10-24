@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.29',
+    date: '2026-10-24',
+    title: 'Your language for every explanation — first part: Buy',
+    shop: [
+      'My account and Settings have a Language card: English, हिन्दी or বাংলা. Explanations, instructions, help and the ⓘ notes follow it; names, menus and buttons stay in English.',
+      'Purchases, Purchase from bill, purchase entry, purchase returns and the buy list now explain themselves in the chosen language. More screens follow.',
+      'Until someone chooses, everything is in English (help too).',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.28',
     date: '2026-10-24',
     title: 'Purchase from bill says why it can’t save, and spots the wrong supplier',
