@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.31',
+    date: '2026-10-24',
+    title: 'Your language for every explanation — third part: Stock',
+    shop: [
+      'Products, adding and editing a product (schedule, storage, units and prices explained), product details, Excel import, opening stock, photos, categories, adjustments, expiry centre, reorder, racks and stock movements now explain themselves in the language chosen in My account or Settings.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.30',
     date: '2026-10-24',
     title: 'Your language for every explanation — second part: Sell',
