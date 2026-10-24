@@ -106,3 +106,94 @@ export function makeBillPdf(top: string[], header: string[], rows: string[][], f
   doc.end();
   return done;
 }
+
+export interface InvoicePdf {
+  /** The supplier software's colour: the top band, table header and totals. */
+  accent: string;
+  seller: { name: string; lines: string[] };
+  title: string;
+  meta: [string, string][];
+  buyer: string[];
+  header: string[];
+  widths: number[];
+  /** Titles whose cells are left aligned; the rest are numbers, right aligned. */
+  left: string[];
+  rows: string[][];
+  totals: [string, string][];
+  words: string;
+  notes: string[];
+}
+
+/** A finished-looking supplier invoice (landscape A4) that the bill reader still reads line by line. */
+export function makeInvoicePdf(b: InvoicePdf): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 28, info: { Title: `${b.seller.name} ${b.meta[0]?.[1] ?? ''}`, Producer: b.seller.name } });
+  const parts: Buffer[] = [];
+  doc.on('data', (c: Buffer) => parts.push(c));
+  const done = new Promise<Buffer>((ok) => doc.on('end', () => ok(Buffer.concat(parts))));
+  const L = 28;
+  const R = doc.page.width - 28;
+  const W = R - L;
+  const ink = '#1d2433';
+  const soft = '#5b6474';
+  const line = '#d5dae2';
+
+  doc.rect(0, 0, doc.page.width, 6).fill(b.accent);
+  doc.fillColor(b.accent).font('Helvetica-Bold').fontSize(18).text(b.seller.name, L, 24, { lineBreak: false });
+  doc.fillColor(soft).font('Helvetica').fontSize(8.5);
+  b.seller.lines.forEach((t, i) => doc.text(t, L, 48 + i * 12, { lineBreak: false }));
+  doc.fillColor(ink).font('Helvetica-Bold').fontSize(13).text(b.title, R - 200, 24, { width: 200, align: 'right', lineBreak: false });
+  b.meta.forEach(([k, v], i) => {
+    doc.font('Helvetica').fontSize(9).fillColor(soft).text(`${k} :`, R - 200, 46 + i * 13, { width: 90, align: 'right', lineBreak: false });
+    doc.font('Helvetica-Bold').fillColor(ink).text(v, R - 104, 46 + i * 13, { width: 104, align: 'right', lineBreak: false });
+  });
+
+  const by = 92;
+  doc.roundedRect(L, by, W * 0.48, 56, 6).fill('#f4f6f9');
+  doc.fillColor(soft).font('Helvetica-Bold').fontSize(7.5).text('BILL TO', L + 10, by + 8, { lineBreak: false });
+  doc.fillColor(ink).font('Helvetica-Bold').fontSize(10).text(b.buyer[0] ?? '', L + 10, by + 19, { lineBreak: false });
+  doc.font('Helvetica').fontSize(8).fillColor(soft);
+  b.buyer.slice(1).forEach((t, i) => doc.text(t, L + 10, by + 32 + i * 10, { lineBreak: false }));
+
+  const xs: number[] = [];
+  let x = L;
+  const gap = (W - b.widths.reduce((s, w) => s + w, 0)) / (b.widths.length - 1);
+  for (const w of b.widths) {
+    xs.push(x);
+    x += w + gap;
+  }
+  const cell = (i: number, t: string, y: number) => {
+    const w = b.widths[i] ?? 40;
+    const left = b.left.includes(b.header[i] ?? '');
+    doc.text(t, left ? (xs[i] ?? 0) : (xs[i] ?? 0) + w - doc.widthOfString(t), y, { lineBreak: false });
+  };
+  let y = 156;
+  doc.rect(L - 4, y - 6, W + 8, 20).fill(b.accent);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7.5);
+  b.header.forEach((h, i) => { cell(i, h, y); });
+  y += 20;
+  doc.font('Helvetica').fontSize(8);
+  b.rows.forEach((r, n) => {
+    if (n % 2) doc.rect(L - 4, y - 5, W + 8, 18).fill('#f6f8fb');
+    doc.fillColor(ink);
+    r.forEach((c, i) => { if (c) cell(i, c, y); });
+    y += 18;
+  });
+  doc.moveTo(L - 4, y - 4).lineTo(R + 4, y - 4).lineWidth(0.8).strokeColor(line).stroke();
+
+  const ty = y + 8;
+  const tx = R - 210;
+  b.totals.forEach(([k, v], i) => {
+    const last = i === b.totals.length - 1;
+    const ry = ty + i * 15 + (last ? 6 : 0);
+    if (last) doc.roundedRect(tx - 10, ry - 6, R - tx + 14, 22, 5).fill(b.accent);
+    doc.fillColor(last ? '#ffffff' : soft).font(last ? 'Helvetica-Bold' : 'Helvetica').fontSize(last ? 10.5 : 8.5).text(k, tx, ry, { lineBreak: false });
+    doc.text(v, R - 104, ry, { width: 100, align: 'right', lineBreak: false });
+  });
+  doc.fillColor(ink).font('Helvetica-Bold').fontSize(8.5).text('Amount in words', L, ty, { lineBreak: false });
+  doc.font('Helvetica').fillColor(soft).text(b.words, L, ty + 12, { width: W * 0.55, lineBreak: false });
+  b.notes.forEach((t, i) => doc.fontSize(7.5).text(t, L, ty + 34 + i * 11, { lineBreak: false }));
+  doc.fillColor(soft).fontSize(7.5).text(`For ${b.seller.name}`, R - 200, ty + 120, { width: 200, align: 'right', lineBreak: false });
+  doc.text('Authorised signatory', R - 200, ty + 150, { width: 200, align: 'right', lineBreak: false });
+  doc.end();
+  return done;
+}

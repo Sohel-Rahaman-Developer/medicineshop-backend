@@ -1,4 +1,6 @@
 // The marketing demo shop: made by a super admin, 60 days of trading, a sign-in code no email carries, nothing to pay.
+import { makeInvoicePdf } from './lib/bill-pdf';
+import { mehtaBill, sharmaBill } from './lib/demo-bills';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error?.message ?? ''}`;
@@ -126,6 +128,21 @@ async function main() {
   check('no coin purchase → 403', (await demo.post('/ai/coins/order', { packCode: 'small' })).status === 403);
   check('no invitations → 403', (await demo.post('/staff', { email: 'someone@example.com', name: 'Someone', roleId: new Types.ObjectId().toHexString() })).status === 403);
   check('billing works as in any shop', (await demo.get('/sales?limit=5')).status === 200);
+  // The two sample bills for showing "Purchase from bill" (scripts/make-demo-bills.ts): read and matched for real.
+  const sups = data<{ id: string; name: string }[]>(await demo.get('/suppliers?limit=30'));
+  const sample = async (bill: ReturnType<typeof mehtaBill>) => {
+    const pdf = (await makeInvoicePdf(bill)).toString('base64');
+    return demo.post('/purchases/import/read', { supplierId: sups.find((x) => x.name === bill.seller.name)?.id ?? '', fileName: 'bill.pdf', data: pdf });
+  };
+  type Read = { meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; lines: { name: string; status: string; checks: string[]; suggestions: { name: string }[] }[] };
+  const mehta = await sample(mehtaBill());
+  const m = data<Read>(mehta);
+  check('sample bill Mehta: 8 lines, invoice MMA/26-27/4471 of 20 Oct, pay ₹10,324, every line adds up', mehta.status === 200 && m.lines.length === 8 && m.meta.invoiceNumber === 'MMA/26-27/4471' && m.meta.invoiceDate === '2026-10-20' && m.meta.toPay === 1_032_400 && !m.billCheck && m.lines.every((l) => !l.checks.length), code(mehta));
+  check('…Telma at a new MRP, Glycomet GP 2 to check (GP 1 suggested), Nurokind new, the rest new batches', m.lines.map((l) => l.status).join() === 'newBatch,newBatch,mrp,newBatch,newBatch,check,new,newBatch' && m.lines[5]?.suggestions[0]?.name === 'Glycomet GP 1 Tablet', m.lines.map((l) => l.status).join());
+  const sharma = await sample(sharmaBill());
+  const sh = data<Read>(sharma);
+  check('sample bill Sharma: 8 lines, SD/2627/1186 of 22 Oct, pay ₹15,036, every line adds up', sharma.status === 200 && sh.lines.length === 8 && sh.meta.invoiceNumber === 'SD/2627/1186' && sh.meta.toPay === 1_503_600 && !sh.billCheck && sh.lines.every((l) => !l.checks.length), code(sharma));
+  check('…Digene at a new MRP, Volini Gel new, the rest new batches', sh.lines.map((l) => l.status).join() === 'newBatch,newBatch,newBatch,mrp,newBatch,newBatch,newBatch,new', sh.lines.map((l) => l.status).join());
   const dues = data<{ name: string; visits: number; balance: number }[]>(await demo.get('/clinic/dues'));
   const banerjee = dues.find((d) => d.name === 'Dr. S. Banerjee');
   check('D90: three doctors sit at the demo shop; Dr. Banerjee saw 18 patients this week, ₹7,200 to give (18 × ₹500 − 20%)', dues.length === 3 && banerjee?.visits === 18 && banerjee.balance === 720_000, JSON.stringify(dues));

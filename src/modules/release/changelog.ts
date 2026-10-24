@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.27',
+    date: '2026-10-24',
+    title: 'Purchase from bill: a clearer first screen',
+    shop: [
+      'Purchase from bill opens with the steps — choose the supplier, add the bill, every line matched, confirm — and what each colour means.',
+      'Drop the bill file straight onto the box, or choose it; PDF, Word, Excel and .csv are shown.',
+    ],
+    admin: [],
+    api: [
+      'Two sample supplier bills for showing the demo (scripts/make-demo-bills.ts, written outside the repos), checked line by line against the demo shop in smoke-demo.',
+    ],
+  },
+  {
     version: '1.22.26',
     date: '2026-10-24',
     title: 'Excel import: an empty sheet to fill, beside the sample',
