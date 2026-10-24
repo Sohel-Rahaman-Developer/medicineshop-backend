@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.33',
+    date: '2026-10-24',
+    title: 'Your language for every explanation — fifth part: the rest of the shop',
+    shop: [
+      'Dashboard, reports, P&L, day by day, GST summary, analytics, settings (shop, tax, inventory, scanner test, logo, support access), plan and AI tokens, staff and roles, audit log, My account and PIN, sign-in, first set-up, the plan banner and camera help now explain themselves in the chosen language.',
+      'Every screen of the shop app now follows the language in My account or Settings (634 explanations in Hindi and Bengali); names, menus and buttons stay in English.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.32',
     date: '2026-10-24',
     title: 'Your language for every explanation — fourth part: People and money',
