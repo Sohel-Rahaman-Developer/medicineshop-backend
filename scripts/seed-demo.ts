@@ -35,7 +35,7 @@ async function main() {
   const { hashOtp } = await import('../src/utils/crypto.js');
   const { ShopModel } = await import('../src/modules/shops/shop.model.js');
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
-  const { TEMPLATE_ROWS } = await import('../src/modules/products/products.import.js');
+  const { templateRows } = await import('../src/modules/products/products.import.js');
 
   await connectDb();
   if (process.argv.includes('--fresh')) {
@@ -80,7 +80,7 @@ async function main() {
     await SubscriptionModel.updateOne({ shopId }, { $set: { maxUsers: 10 } });
     process.stdout.write(`Shop ${SHOP}\n`);
 
-    const rows = TEMPLATE_ROWS.map((r) => Object.fromEntries(KEYS.map((k, i) => [k, r[i] ?? ''])));
+    const rows = templateRows().map((r) => Object.fromEntries(KEYS.map((k, i) => [k, r[i] ?? ''])));
     const imp = await ok<{ result: { newProducts: number; stockRows: number } }>('import', owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows }));
     process.stdout.write(`Products: ${String(imp.result.newProducts)} from ${String(rows.length)} rows (${String(imp.result.stockRows)} with stock)\n`);
     const products = await ok<{ id: string; name: string }[]>('products', owner.get('/products?limit=100'));

@@ -1,7 +1,7 @@
 // B2 product + stock checks: PLAN §9 worked example, merge rule, ledger = stock, adjustments, isolation, photo, import.
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
+import { check, crash, finish, section, startHarness, unzip, type Client, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -379,6 +379,24 @@ async function main() {
   const tpl = await owner.get('/products/import/template');
   check('template: an .xlsx file', tpl.status === 200 && tpl.text.startsWith('PK') && (tpl.headers.get('content-disposition') ?? '').includes('MedBox24-product-import-template.xlsx'), code(tpl));
   check('cashier can’t download the template → 403', (await cashier.get('/products/import/template')).status === 403);
+  const book = unzip(tpl.body);
+  const workbook = book.get('xl/workbook.xml')?.toString('utf8') ?? '';
+  const names = [...workbook.matchAll(/<sheet [^>]*name="([^"]+)"/g)].map((m) => m[1]).join(' | ');
+  check('template sheets: Your products (to fill, imported) | Sample | How to fill', names === 'Your products | Sample | How to fill', names);
+  const blankSheet = book.get('xl/worksheets/sheet1.xml')?.toString('utf8') ?? '';
+  const styles = book.get('xl/styles.xml')?.toString('utf8') ?? '';
+  check('Your products: only the header is filled, 1,000 rows ready with the header frozen', (blankSheet.match(/<row /g) ?? []).length === 1001 && blankSheet.split('<row ').slice(2).every((r) => !/<v>|<is>/.test(r)) && blankSheet.includes('<pane '));
+  check('…batch, expiry, barcode, HSN, rack stay text (Excel can’t turn 08/27 into a date)', /formatCode="@"/.test(styles) && /<c r="R500" s="\d+"\/>/.test(blankSheet) && /<c r="I500" s="\d+"\/>/.test(blankSheet));
+  const { templateRows } = await import('../src/modules/products/products.import.js');
+  const KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'minPrice', 'rack'];
+  const sampleRows = templateRows().map((r) => Object.fromEntries(KEYS.map((k, i) => [k, r[i] ?? ''])));
+  const fresh = await h.signIn('sample@stock1.test');
+  fresh.shopId = data<{ id: string }>(await fresh.post('/shops', shopBody('Sample Check Pharmacy'))).id;
+  const sd = await fresh.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: sampleRows });
+  const sdr = data<{ rows: { errors: string[]; warnings: string[] }[]; summary: { errors: number; newProducts: number } }>(sd);
+  check(`the Sample sheet imports into a new shop: ${String(sampleRows.length)} rows, 0 errors, 0 warnings, 13 products`, sd.status === 200 && sdr.summary.errors === 0 && sdr.rows.every((r) => !r.warnings.length) && sdr.summary.newProducts === 13, JSON.stringify(sdr.rows.map((r) => [...r.errors, ...r.warnings]).filter((x) => x.length)));
+  const in2028 = templateRows(new Date('2028-01-15T00:00:00Z'));
+  check('sample expiry counts from today, never stale (Jan 2028 → Dolo 11/28)', in2028[0]?.[17] === '11/28', String(in2028[0]?.[17]));
   const kinds = [
     { name: 'Pantocid 40 Tablet', saleUnit: 'STRIP', baseUnit: 'TABLET', pack: '15', purchaseUnit: 'BOX', purchasePack: '10', category: 'Tablet', schedule: 'H', rack: 'A-1-3' },
     { name: 'Omron BP Monitor', saleUnit: 'PIECE', baseUnit: 'PIECE', pack: '1', category: 'Device', schedule: 'NON_DRUG', gst: '18', hasExpiry: 'No', quantity: '2', mrp: '2450', rate: '1800', minPrice: '2200' },

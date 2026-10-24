@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.26',
+    date: '2026-10-24',
+    title: 'Excel import: an empty sheet to fill, beside the sample',
+    shop: [
+      'The Excel template now opens on an empty “Your products” sheet with every column named: write your products, one row each, and import the same file. The filled “Sample” and “How to fill” sheets sit beside it.',
+      'Expiry, batch, barcode, HSN and rack columns are set as text, so Excel no longer turns 08/27 into a date or a barcode into 8.9E+12.',
+      'The sample’s expiry dates count from today, so they never show as expired.',
+    ],
+    admin: [],
+    api: [
+      'Import template: three sheets (Your products with 1,000 text-formatted rows and a frozen header, Sample, How to fill); sample expiry is months from now.',
+    ],
+  },
+  {
     version: '1.22.25',
     date: '2026-10-24',
     title: 'Load balanced API, tighter security, nothing tells which software it runs',

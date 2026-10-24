@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { crc32 as zlibCrc32 } from 'node:zlib';
+import { crc32 as zlibCrc32, inflateRawSync } from 'node:zlib';
 import type { Server } from 'node:http';
 
 export const SHOP_ORIGIN = 'http://localhost:3000';
@@ -268,7 +268,7 @@ export function crash(err: unknown): never {
   process.exit(1);
 }
 
-/** Reads a ZIP back through its central directory; every entry's CRC must match its bytes. */
+/** Reads a ZIP (stored or deflated) back through its central directory; every entry's CRC must match its bytes. */
 export function unzip(zip: Buffer): Map<string, Buffer> {
   const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   if (end < 0) throw new Error('not a ZIP');
@@ -277,12 +277,15 @@ export function unzip(zip: Buffer): Map<string, Buffer> {
   for (let i = 0; i < zip.readUInt16LE(end + 10); i++) {
     if (zip.readUInt32LE(at) !== 0x02014b50) throw new Error('bad central directory');
     const crc = zip.readUInt32LE(at + 16);
-    const size = zip.readUInt32LE(at + 24);
+    const method = zip.readUInt16LE(at + 10);
+    const packed = zip.readUInt32LE(at + 20);
     const nameLen = zip.readUInt16LE(at + 28);
     const name = zip.subarray(at + 46, at + 46 + nameLen).toString('utf8');
     const local = zip.readUInt32LE(at + 42);
     const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
-    const data = zip.subarray(start, start + size);
+    const raw = zip.subarray(start, start + packed);
+    // 0 = stored (our own ZIPs), 8 = deflate (Excel files).
+    const data = method === 8 ? inflateRawSync(raw) : raw;
     if (zlibCrc32(data) !== crc) throw new Error(`CRC mismatch: ${name}`);
     files.set(name, data);
     at += 46 + nameLen + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);

@@ -281,25 +281,38 @@ const TEMPLATE_COLUMNS: [label: string, width: number][] = [
   ['Lowest price (per sale unit)', 13], ['Rack', 8],
 ];
 
-// One sample per kind of thing a pharmacy sells (D59). GST: copy the rate from the supplier's invoice.
-export const TEMPLATE_ROWS: (string | number)[][] = [
-  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2409', '08/27', 30, 33.5, 23.4, 32, 'A-2-1'],
-  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2501', '03/28', 20, 34, 24, '', 'A-2-1'],
-  ['Mox 500 Capsule', 'Sun Pharma', 'Amoxicillin', '500 mg', 'Capsule', 'H', 12, '30041010', '', 'STRIP', 'CAPSULE', 10, 'BOX', 10, 'Normal', 'Yes', 'MX1123', '11/27', 15, 72.5, 51, '', 'A-3-1'],
-  ['Alprax 0.25 Tablet', 'Torrent', 'Alprazolam', '0.25 mg', 'Tablet', 'H1', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'AL0425', '06/27', 10, 45, 28, '', 'B-1-1'],
-  ['Benadryl Syrup 100 ml', 'J&J', 'Diphenhydramine', '', 'Syrup', 'OTC', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 24, 'Normal', 'Yes', 'BD8812', '02/27', 9, 143, 101, '', 'C-2-1'],
-  ['Huminsulin R 40IU Vial', 'Lilly', 'Human insulin', '40 IU/ml', 'Injection', 'H', 5, '30043110', '', 'VIAL', 'VIAL', 1, 'BOX', 10, 'Cold', 'Yes', 'HR2206', '05/27', 4, 158, 120, '', 'FRIDGE-1'],
-  ['Betadine Ointment 20 g', 'Win-Medicare', 'Povidone iodine', '5%', 'Ointment', 'OTC', 12, '30049099', '', 'TUBE', 'TUBE', 1, 'BOX', 12, 'Normal', 'Yes', 'BT3301', '09/27', 6, 125, 88, '', 'D-1-2'],
-  ['Moxiflox Eye Drops 5 ml', 'Cipla', 'Moxifloxacin', '0.5%', 'Drops', 'H', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 20, 'Normal', 'Yes', 'MF7710', '12/26', 5, 96, 66, '', 'D-2-1'],
-  ['Cadbury Dairy Milk Silk 60 g', 'Mondelez', '', '', 'Chocolate & snacks', 'NON_DRUG', 5, '1806', '', 'BAR', 'BAR', 1, 'BOX', 24, 'Normal', 'Yes', '', '04/27', 12, 80, 68, '', 'COUNTER'],
-  ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', '', 'CAN', 'CAN', 1, 'CASE', 24, 'Normal', 'Yes', '', '01/27', 24, 40, 30, '', 'FRIDGE-2'],
-  ["Johnson's Baby Lotion 100 ml", 'J&J', '', '', 'Baby care', 'NON_DRUG', 18, '3304', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 12, 'Normal', 'Yes', 'JB5501', '10/27', 6, 185, 140, '', 'E-1-1'],
+const ahead = (months: number) => ({ months });
+
+// One sample per kind of thing a pharmacy sells (D59). GST: copy the rate from the supplier's invoice. Expiry is months
+// from today, so the sample never goes stale.
+const SAMPLE: (string | number | { months: number })[][] = [
+  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2409', ahead(10), 30, 33.5, 23.4, 32, 'A-2-1'],
+  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2501', ahead(17), 20, 34, 24, '', 'A-2-1'],
+  ['Mox 500 Capsule', 'Sun Pharma', 'Amoxicillin', '500 mg', 'Capsule', 'H', 12, '30041010', '', 'STRIP', 'CAPSULE', 10, 'BOX', 10, 'Normal', 'Yes', 'MX1123', ahead(13), 15, 72.5, 51, '', 'A-3-1'],
+  ['Alprax 0.25 Tablet', 'Torrent', 'Alprazolam', '0.25 mg', 'Tablet', 'H1', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'AL0425', ahead(8), 10, 45, 28, '', 'B-1-1'],
+  ['Benadryl Syrup 100 ml', 'J&J', 'Diphenhydramine', '', 'Syrup', 'OTC', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 24, 'Normal', 'Yes', 'BD8812', ahead(4), 9, 143, 101, '', 'C-2-1'],
+  ['Huminsulin R 40IU Vial', 'Lilly', 'Human insulin', '40 IU/ml', 'Injection', 'H', 5, '30043110', '', 'VIAL', 'VIAL', 1, 'BOX', 10, 'Cold', 'Yes', 'HR2206', ahead(7), 4, 158, 120, '', 'FRIDGE-1'],
+  ['Betadine Ointment 20 g', 'Win-Medicare', 'Povidone iodine', '5%', 'Ointment', 'OTC', 12, '30049099', '', 'TUBE', 'TUBE', 1, 'BOX', 12, 'Normal', 'Yes', 'BT3301', ahead(11), 6, 125, 88, '', 'D-1-2'],
+  ['Moxiflox Eye Drops 5 ml', 'Cipla', 'Moxifloxacin', '0.5%', 'Drops', 'H', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 20, 'Normal', 'Yes', 'MF7710', ahead(2), 5, 96, 66, '', 'D-2-1'],
+  ['Cadbury Dairy Milk Silk 60 g', 'Mondelez', '', '', 'Chocolate & snacks', 'NON_DRUG', 5, '1806', '', 'BAR', 'BAR', 1, 'BOX', 24, 'Normal', 'Yes', '', ahead(6), 12, 80, 68, '', 'COUNTER'],
+  ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', '', 'CAN', 'CAN', 1, 'CASE', 24, 'Normal', 'Yes', '', ahead(3), 24, 40, 30, '', 'FRIDGE-2'],
+  ["Johnson's Baby Lotion 100 ml", 'J&J', '', '', 'Baby care', 'NON_DRUG', 18, '3304', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 12, 'Normal', 'Yes', 'JB5501', ahead(12), 6, 185, 140, '', 'E-1-1'],
   ['Omron BP Monitor HEM-7120', 'Omron', '', '', 'Device', 'NON_DRUG', 18, '9018', '', 'PIECE', 'PIECE', 1, 'BOX', 10, 'Normal', 'No', '', '', 2, 2450, 1800, 2200, 'E-2-1'],
-  ['Surgical Gloves (pair)', 'Kanam', '', '', 'Surgical', 'NON_DRUG', 12, '4015', '', 'PAIR', 'PAIR', 1, 'BOX', 50, 'Normal', 'Yes', 'KG1201', '07/28', 50, 15, 9, '', 'E-3-1'],
+  ['Surgical Gloves (pair)', 'Kanam', '', '', 'Surgical', 'NON_DRUG', 12, '4015', '', 'PAIR', 'PAIR', 1, 'BOX', 50, 'Normal', 'Yes', 'KG1201', ahead(21), 50, 15, 9, '', 'E-3-1'],
   ['Pan 40 Tablet', 'Alkem', 'Pantoprazole', '40 mg', 'Tablet', 'H', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', '', '', '', '', '', '', 'A-1-3'],
 ];
 
+/** The sample rows with expiry as MM/YY, counted from `now`. */
+export function templateRows(now = new Date()): (string | number)[][] {
+  return SAMPLE.map((r) => r.map((v) => {
+    if (typeof v !== 'object') return v;
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + v.months, 1));
+    return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
+  }));
+}
+
 const HOW_TO: [column: string, needed: string, what: string][] = [
+  ['Your products (first sheet)', '—', 'Write your products here, one row each (a second batch of the same product = another row), then import this file. Only the first sheet is imported; Sample only shows how.'],
   ['Product name', 'Yes', 'As on the pack. The same name twice = another batch of the same product (see Dolo 650 rows).'],
   ['Company', 'No', 'Manufacturer.'],
   ['Salt / composition · Strength', 'No', 'Helps search by salt and shows similar medicines.'],
@@ -320,11 +333,21 @@ const HOW_TO: [column: string, needed: string, what: string][] = [
   ['Stock columns all blank', '—', 'Adds the product only (see Pan 40). Add its stock later from the product screen or a purchase entry.'],
 ];
 
-/** The import template: a filled sample for every kind of product, and a sheet that explains each column. */
-export async function importTemplate(): Promise<Buffer> {
+/** Columns Excel must keep as typed: 08/27 would turn into a date, a 13-digit barcode into 8.9E+12, HSN 0401 into 401. */
+const AS_TEXT = new Set(['Strength', 'HSN', 'Barcode', 'Batch number', 'Expiry (MM/YY)', 'Rack']);
+const BLANK_ROWS = 1000;
+
+/** The import template: an empty first sheet to fill, a filled sample for every kind of product, and how to fill each column. */
+export async function importTemplate(now = new Date()): Promise<Buffer> {
+  const head = TEMPLATE_COLUMNS.map(([value]) => ({ value, fontWeight: 'bold' as const, backgroundColor: '#D9F2EF' }));
+  const text = (value: string | number) => ({ value: String(value), type: String, format: '@' });
+  const columns = TEMPLATE_COLUMNS.map(([, width]) => ({ width }));
+  const blank = TEMPLATE_COLUMNS.map(([label]) => (AS_TEXT.has(label) ? text('') : null));
+  const sample = templateRows(now).map((r) => r.map((v, i) => (AS_TEXT.has(TEMPLATE_COLUMNS[i]?.[0] ?? '') ? text(v) : { value: v })));
   const bold = (value: string) => ({ value, fontWeight: 'bold' as const });
   return writeXlsxFile([
-    { sheet: 'Products', data: [TEMPLATE_COLUMNS.map(([l]) => bold(l)), ...TEMPLATE_ROWS.map((r) => r.map((value) => ({ value })))], columns: TEMPLATE_COLUMNS.map(([, width]) => ({ width })) },
+    { sheet: 'Your products', data: [head, ...Array.from({ length: BLANK_ROWS }, () => blank)], columns, stickyRowsCount: 1 },
+    { sheet: 'Sample', data: [head, ...sample], columns, stickyRowsCount: 1 },
     { sheet: 'How to fill', data: [[bold('Column'), bold('Needed?'), bold('What to write')], ...HOW_TO.map((r) => r.map((value) => ({ value })))], columns: [{ width: 34 }, { width: 16 }, { width: 110 }] },
   ]).toBuffer();
 }
