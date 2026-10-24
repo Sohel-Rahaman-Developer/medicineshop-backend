@@ -161,7 +161,7 @@ export function docxContent(file: Buffer): { rows: string[][]; text: string } {
   return { rows, text };
 }
 
-/** Invoice number, date and the amount to pay, when the bill prints them with a label. */
+/** Invoice number, date and the amount to pay, when the bill prints them with a label; every GSTIN printed on it. */
 export function metaOf(text: string) {
   const inv = /invoice\s*(?:no|number|#)\.?\s*[:-]?\s*([A-Z0-9][A-Z0-9/-]{1,39})/i.exec(text)?.[1];
   const d = /(?:invoice\s*date|bill\s*date|date)\s*[:-]?\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/i.exec(text);
@@ -171,6 +171,7 @@ export function metaOf(text: string) {
     invoiceNumber: inv ?? null,
     invoiceDate: d && year ? `${year}-${(d[2] ?? '').padStart(2, '0')}-${(d[1] ?? '').padStart(2, '0')}` : null,
     toPay: pay ? money(pay) : null,
+    gstins: [...new Set(text.toUpperCase().match(/\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/g) ?? [])],
   };
 }
 

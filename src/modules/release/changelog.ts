@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.28',
+    date: '2026-10-24',
+    title: 'Purchase from bill says why it can’t save, and spots the wrong supplier',
+    shop: [
+      '“Confirm & save” no longer sits greyed out without a word: the bar says “1 line needs its product before saving” with Show, and saving takes you to that line.',
+      'A line the bill reader could not match says what to do: pick a suggestion, search your products, or add it as new.',
+      'Picked the wrong supplier? When the bill carries another supplier’s GSTIN it says “This bill is from …” — one tap reads it again for the right one.',
+    ],
+    admin: [],
+    api: [
+      'Bill reading returns every GSTIN printed on the bill and a supplier check when the chosen supplier’s GSTIN is not among them.',
+    ],
+  },
+  {
     version: '1.22.27',
     date: '2026-10-24',
     title: 'Purchase from bill: a clearer first screen',

@@ -257,6 +257,18 @@ export async function readAndPreview(t: TenantContext, input: BillReadInput) {
   return previewRead(t, input.supplierId, read);
 }
 
+/** The chosen supplier's GSTIN is not on the bill: say so, and name the shop's supplier whose GSTIN is. */
+async function supplierCheckOf(t: TenantContext, supplierId: string, gstins: string[]) {
+  if (!gstins.length) return null;
+  const chosen = await SupplierModel.findOne({ shopId: t.shopId, _id: supplierId }).select('name gstin').lean();
+  if (!chosen?.gstin || gstins.includes(chosen.gstin)) return null;
+  const other = await SupplierModel.findOne({ shopId: t.shopId, gstin: { $in: gstins }, isActive: { $ne: false } }).select('name gstin').lean();
+  return {
+    message: other ? `This bill is from ${other.name} (GSTIN ${other.gstin}), not ${chosen.name}` : `This bill does not carry ${chosen.name}’s GSTIN ${chosen.gstin} — check the supplier`,
+    supplier: other ? { id: String(other._id), name: other.name } : null,
+  };
+}
+
 /** Lines read by any reader (file, sheet or AI) → the preview the shop confirms. */
 export async function previewRead(t: TenantContext, supplierId: string, read: ReturnType<typeof readRows>) {
   const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
@@ -271,6 +283,7 @@ export async function previewRead(t: TenantContext, supplierId: string, read: Re
   return {
     meta: read.meta,
     billCheck: read.billCheck,
+    supplierCheck: await supplierCheckOf(t, supplierId, read.meta.gstins),
     header: read.header,
     skipped,
     counts: preview.counts,

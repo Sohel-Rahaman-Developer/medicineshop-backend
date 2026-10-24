@@ -134,7 +134,7 @@ async function main() {
     const pdf = (await makeInvoicePdf(bill)).toString('base64');
     return demo.post('/purchases/import/read', { supplierId: sups.find((x) => x.name === bill.seller.name)?.id ?? '', fileName: 'bill.pdf', data: pdf });
   };
-  type Read = { meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; lines: { name: string; status: string; checks: string[]; suggestions: { name: string }[] }[] };
+  type Read = { meta: { invoiceNumber: string | null; invoiceDate: string | null; toPay: number | null }; billCheck: string | null; supplierCheck: { message: string; supplier: { id: string; name: string } | null } | null; lines: { name: string; status: string; checks: string[]; suggestions: { name: string }[] }[] };
   const mehta = await sample(mehtaBill());
   const m = data<Read>(mehta);
   check('sample bill Mehta: 8 lines, invoice MMA/26-27/4471 of 20 Oct, pay ₹10,324, every line adds up', mehta.status === 200 && m.lines.length === 8 && m.meta.invoiceNumber === 'MMA/26-27/4471' && m.meta.invoiceDate === '2026-10-20' && m.meta.toPay === 1_032_400 && !m.billCheck && m.lines.every((l) => !l.checks.length), code(mehta));
@@ -142,6 +142,9 @@ async function main() {
   const sharma = await sample(sharmaBill());
   const sh = data<Read>(sharma);
   check('sample bill Sharma: 8 lines, SD/2627/1186 of 22 Oct, pay ₹15,036, every line adds up', sharma.status === 200 && sh.lines.length === 8 && sh.meta.invoiceNumber === 'SD/2627/1186' && sh.meta.toPay === 1_503_600 && !sh.billCheck && sh.lines.every((l) => !l.checks.length), code(sharma));
+  check('the right supplier chosen → no supplier warning', m.supplierCheck === null && sh.supplierCheck === null);
+  const swapped = data<Read>(await demo.post('/purchases/import/read', { supplierId: sups.find((x) => x.name === 'Sharma Distributors')?.id ?? '', fileName: 'bill.pdf', data: (await makeInvoicePdf(mehtaBill())).toString('base64') }));
+  check('Mehta’s bill under Sharma → “This bill is from Mehta Medical Agency”, with Mehta to switch to', /^This bill is from Mehta Medical Agency \(GSTIN 19AAKFM4521K1Z3\), not Sharma Distributors$/.test(swapped.supplierCheck?.message ?? '') && swapped.supplierCheck?.supplier?.name === 'Mehta Medical Agency', JSON.stringify(swapped.supplierCheck));
   check('…Digene at a new MRP, Volini Gel new, the rest new batches', sh.lines.map((l) => l.status).join() === 'newBatch,newBatch,newBatch,mrp,newBatch,newBatch,newBatch,new', sh.lines.map((l) => l.status).join());
   const dues = data<{ name: string; visits: number; balance: number }[]>(await demo.get('/clinic/dues'));
   const banerjee = dues.find((d) => d.name === 'Dr. S. Banerjee');
