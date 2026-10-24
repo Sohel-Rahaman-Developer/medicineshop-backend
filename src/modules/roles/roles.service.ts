@@ -79,7 +79,7 @@ export async function remove(t: TenantContext, actor: Actor, id: string, ip?: st
   if (!role) throw AppError.notFound('Role not found');
   if (role.isSystem) throw AppError.forbidden('Built-in roles can’t be deleted');
   const inUse = await MembershipModel.countDocuments({ shopId: t.shopId, roleId: role._id, status: { $ne: 'removed' } });
-  if (inUse) throw AppError.conflict(`${inUse} staff ${inUse === 1 ? 'member has' : 'members have'} this role. Give them another role first.`);
+  if (inUse) throw AppError.conflict(inUse === 1 ? '1 staff member has this role. Give them another role first.' : `${String(inUse)} staff members have this role. Give them another role first.`);
   await RoleModel.deleteOne({ shopId: t.shopId, _id: role._id });
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'roles', entityId: id, entityName: role.name, text: `${actor.name} deleted role “${role.name}”`, ip });
 }

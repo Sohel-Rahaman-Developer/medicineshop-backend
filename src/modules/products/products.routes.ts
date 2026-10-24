@@ -3,6 +3,7 @@ import { asyncHandler } from '../../core/async-handler';
 import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
+import { langOf, sayNotes } from '../../core/lang';
 import { z } from 'zod';
 import { clientRequestId, idParams } from '../../core/zod';
 import { sendFile } from '../../core/export';
@@ -88,7 +89,7 @@ productsRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const out = await importRows(tenantOf(req), await actorOf(req), req.body as ImportInput, req.ip);
     if (out.saved) sent(res, out, `${String(out.summary.rows)} rows imported`);
-    else fetched(res, out);
+    else fetched(res, sayNotes(langOf(req), out));
   }),
 );
 

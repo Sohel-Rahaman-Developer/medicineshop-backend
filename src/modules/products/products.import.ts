@@ -163,7 +163,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
     const expiry = 'field' in lot ? null : lot.expiry;
     if (expiry && expiry.getTime() < Date.now()) warnings.push('Already expired — it will not sell');
     const qty = Number(r.quantity);
-    if (!r.quantity || !Number.isInteger(qty) || qty < 1) errors.push('Quantity must be a whole number of ' + saleName);
+    if (!r.quantity || !Number.isInteger(qty) || qty < 1) errors.push(`Quantity must be a whole number of ${saleName}`);
     const mrp = rupees(r.mrp);
     if (mrp === null || mrp < 1 || mrp > MAX_PAISE) errors.push('MRP should be a price like 30.00');
     const rate = rupees(r.rate);

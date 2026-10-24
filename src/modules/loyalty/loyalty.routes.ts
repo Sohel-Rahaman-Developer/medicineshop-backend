@@ -58,7 +58,7 @@ loyaltyRouter.post(
   validate({ body: adjustSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const { result, replayed } = await svc.adjust(tenantOf(req), await actorOf(req), req.body as AdjustInput, req.ip);
-    const msg = `${result.points > 0 ? '+' : ''}${String(result.points)} points · balance ${String(result.balance)}`;
+    const msg = `${result.points > 0 ? `+${String(result.points)}` : String(result.points)} points · balance ${String(result.balance)}`;
     if (replayed) sent(res, result, msg);
     else created(res, result, msg);
   }),

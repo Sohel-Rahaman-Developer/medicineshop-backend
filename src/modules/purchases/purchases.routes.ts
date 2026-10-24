@@ -4,6 +4,7 @@ import { asyncHandler } from '../../core/async-handler';
 import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
+import { langOf, sayNotes } from '../../core/lang';
 import { idParams } from '../../core/zod';
 import { sendFile } from '../../core/export';
 import { attach, photoOf } from '../attachments/attachments.service';
@@ -87,7 +88,7 @@ purchasesRouter.post(
   create,
   validate({ body: billReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    fetched(res, await readAndPreview(tenantOf(req), req.body as BillReadInput));
+    fetched(res, sayNotes(langOf(req), await readAndPreview(tenantOf(req), req.body as BillReadInput)));
   }),
 );
 
@@ -98,7 +99,7 @@ purchasesRouter.post(
   needFeature('ai'),
   validate({ body: aiReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    fetched(res, await readWithAi(tenantOf(req), await actorOf(req), req.body as AiReadInput));
+    fetched(res, sayNotes(langOf(req), await readWithAi(tenantOf(req), await actorOf(req), req.body as AiReadInput)));
   }),
 );
 
@@ -108,7 +109,7 @@ purchasesRouter.post(
   create,
   validate({ body: billPreviewSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    fetched(res, await previewBill(tenantOf(req), req.body as BillPreviewInput));
+    fetched(res, sayNotes(langOf(req), await previewBill(tenantOf(req), req.body as BillPreviewInput)));
   }),
 );
 

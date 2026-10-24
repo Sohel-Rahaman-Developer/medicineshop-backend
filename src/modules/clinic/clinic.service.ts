@@ -1,5 +1,6 @@
 import { Types, type ClientSession } from 'mongoose';
 import { AppError } from '../../core/errors';
+import { part } from '../../core/lang';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
@@ -189,11 +190,12 @@ export function undoPay(t: TenantContext, actor: Actor, id: string, ip?: string)
 }
 
 const NEXT: Record<string, readonly string[]> = { booked: ['arrived', 'seen', 'no_show'], arrived: ['seen', 'no_show', 'booked'], seen: ['arrived'], no_show: ['booked', 'arrived'] };
-const SAID: Record<string, string> = { booked: 'back to booked', arrived: 'arrived', seen: 'seen by the doctor', no_show: 'did not come' };
+const SAID: Record<string, string> = { booked: part('back to booked'), arrived: part('arrived'), seen: part('seen by the doctor'), no_show: part('did not come') };
+const WAS: Record<string, string> = { booked: part('booked'), arrived: part('arrived'), seen: part('seen'), no_show: part('no-show') };
 
 export function setStatus(t: TenantContext, actor: Actor, id: string, status: 'booked' | 'arrived' | 'seen' | 'no_show', ip?: string) {
   return change(t, actor, id, ip, (a, now) => {
-    if (!(NEXT[a.status] ?? []).includes(status)) throw AppError.conflict(`A ${a.status.replace('_', '-')} appointment can’t be marked ${SAID[status] ?? status}`);
+    if (!(NEXT[a.status] ?? []).includes(status)) throw AppError.conflict(`This appointment is ${WAS[a.status] ?? a.status} — it can’t be marked ${SAID[status] ?? status}`);
     const at = status === 'arrived' ? { arrivedAt: now } : status === 'seen' ? { seenAt: now } : {};
     return Promise.resolve({ set: { status, ...at }, text: SAID[status] ?? status });
   });

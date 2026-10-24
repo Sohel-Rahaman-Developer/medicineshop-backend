@@ -5,6 +5,7 @@ import { AppError, type ErrorCode } from '../errors';
 import { logger } from '../../config/logger';
 import { isProd } from '../../config/env';
 import { signal } from '../../services/monitor';
+import { langOf, sayNotes, translate } from '../lang';
 
 // body-parser marks its own errors with `type`.
 const bodyParserType = (err: unknown) => (err as { type?: unknown } | null)?.type;
@@ -61,11 +62,13 @@ export const errorHandler: ErrorRequestHandler = (thrown, req, res, _next) => {
   }
   else logger.warn(log, 'Request rejected');
 
+  const lang = langOf(req);
+  if (Array.isArray(details)) details = sayNotes(lang, details).map((d: unknown) => (d && typeof d === 'object' && 'message' in d && typeof d.message === 'string' ? { ...d, message: translate(lang, d.message) } : d));
   res.status(status).json({
     success: false,
     error: {
       code,
-      message,
+      message: translate(lang, message),
       ...(details ? { details } : {}),
       // Stack traces in development only — never in production.
       ...(!isProd && status >= 500 ? { stack: (err as Error).stack } : {}),

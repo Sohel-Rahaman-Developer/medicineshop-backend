@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.22.35",
+  "version": "1.22.36",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.check.json",
-    "lint": "eslint .",
+    "lint": "eslint . && tsx scripts/check-words.ts",
     "test:unit": "tsx --test \"scripts/unit/**/*.test.ts\"",
     "smoke:auth": "tsx scripts/smoke-auth.ts",
     "smoke:security": "tsx scripts/smoke-security.ts",

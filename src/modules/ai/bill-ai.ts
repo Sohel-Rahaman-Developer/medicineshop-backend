@@ -6,6 +6,7 @@ import { logger } from '../../config/logger';
 import { GeminiError, generate, schemaFor, textOf, usageOf, type GeminiPart } from '../../services/gemini';
 import { signal } from '../../services/monitor';
 import { AppError } from '../../core/errors';
+import { part } from '../../core/lang';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { PdfTextError, pdfPageCount } from '../../core/pdf-text';
 import { inTransaction } from '../../core/transaction';
@@ -120,13 +121,13 @@ async function askClaude(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   });
   const msg = await stream.finalMessage();
   const usage = { input: msg.usage.input_tokens + (msg.usage.cache_creation_input_tokens ?? 0) + (msg.usage.cache_read_input_tokens ?? 0), output: msg.usage.output_tokens };
-  if (msg.stop_reason === 'refusal') return { usage, error: 'The AI would not read this file' };
-  if (msg.stop_reason === 'max_tokens') return { usage, error: 'The bill is too long to read in one go — upload fewer pages' };
+  if (msg.stop_reason === 'refusal') return { usage, error: part('The AI would not read this file') };
+  if (msg.stop_reason === 'max_tokens') return { usage, error: part('The bill is too long to read in one go — upload fewer pages') };
   const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
   try {
     return { usage, bill: aiBillSchema.parse(JSON.parse(text)) };
   } catch {
-    return { usage, error: 'The AI answer could not be used' };
+    return { usage, error: part('The AI answer could not be used') };
   }
 }
 
@@ -153,16 +154,16 @@ async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   const usage = usageOf(r);
   const total = { input: usage.input + usage.cacheRead, output: usage.output };
   const c = r.candidates?.[0];
-  if (r.promptFeedback?.blockReason || !c || (c.finishReason && !['STOP', 'MAX_TOKENS'].includes(c.finishReason))) return { usage: total, error: 'The AI would not read this file' };
-  if (c.finishReason === 'MAX_TOKENS') return { usage: total, error: 'The bill is too long to read in one go — upload fewer pages' };
+  if (r.promptFeedback?.blockReason || !c || (c.finishReason && !['STOP', 'MAX_TOKENS'].includes(c.finishReason))) return { usage: total, error: part('The AI would not read this file') };
+  if (c.finishReason === 'MAX_TOKENS') return { usage: total, error: part('The bill is too long to read in one go — upload fewer pages') };
   try {
     return { usage: total, bill: aiBillSchema.parse(JSON.parse(textOf(c.content))) };
   } catch {
-    return { usage: total, error: 'The AI answer could not be used' };
+    return { usage: total, error: part('The AI answer could not be used') };
   }
 }
 
-const FAILED = (coins: number) => `${coins === 1 ? 'Your token is' : `Your ${String(coins)} tokens are`} back`;
+const failed = (why: string, coins: number) => (coins === 1 ? part(`${why}. Your token is back`) : part(`${why}. Your ${String(coins)} tokens are back`));
 
 /** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude or Gemini (D96), paid by the page in coins. */
 export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadInput) {
@@ -218,20 +219,20 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
     await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail');
     const refused = err instanceof Anthropic.AuthenticationError || (err instanceof GeminiError && err.kind === 'refused');
     const busy = err instanceof Anthropic.RateLimitError || (err instanceof GeminiError && err.kind === 'busy');
-    const why = refused ? 'the AI key was refused — MedBox24 has been told' : busy ? 'the AI is busy, try again in a minute' : 'the AI could not be reached';
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', `Could not read the bill: ${await giveBack(why)}. ${FAILED(coins)}`);
+    const why = refused ? part('the AI key was refused — MedBox24 has been told') : busy ? part('the AI is busy, try again in a minute') : part('the AI could not be reached');
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', failed(part(`Could not read the bill: ${await giveBack(why)}`), coins));
   }
-  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', `${await giveBack(answer.error, answer.usage)}. ${FAILED(coins)}`);
+  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', failed(await giveBack(answer.error, answer.usage), coins));
   const bill = 'bill' in answer ? answer.bill : undefined;
   const result = bill ? rowsOfAiSafe(bill) : null;
-  if (!result || !result.lines.length) throw new AppError(422, 'VALIDATION_ERROR', `${await giveBack('No item lines found on this file', answer.usage)}. ${FAILED(coins)}`);
+  if (!result || !result.lines.length) throw new AppError(422, 'VALIDATION_ERROR', failed(await giveBack(part('No item lines found on this file'), answer.usage), coins));
 
   let preview: Awaited<ReturnType<typeof previewRead>>;
   try {
     preview = await previewRead(t, input.supplierId, result);
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
-    throw new AppError(err.status, err.code, `${await giveBack(err.message, answer.usage)}. ${FAILED(coins)}`, err.details);
+    throw new AppError(err.status, err.code, failed(await giveBack(err.message, answer.usage), coins), err.details);
   }
   await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started } });
   const balance = await balanceOf(t.shopId);

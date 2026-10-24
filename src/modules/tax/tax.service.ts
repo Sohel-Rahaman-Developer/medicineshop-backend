@@ -57,8 +57,11 @@ export async function saveTaxSettings(t: TenantContext, actor: Actor, input: Tax
   const gone = before.rates.filter((r) => !rates.some((x) => x.rate === r.rate));
   const busy = gone.filter((r) => r.products > 0);
   if (busy.length) {
-    const what = busy.map((r) => `${r.name} is on ${String(r.products)} product${r.products === 1 ? '' : 's'}`).join(', ');
-    throw AppError.conflict(`${what} — move them to another rate first`, { reason: 'TAX_RATE_IN_USE' });
+    const [one] = busy;
+    const said = busy.length > 1 ? `${busy.map((r) => `${r.name} (${String(r.products)})`).join(', ')} are still on products — move them to another rate first`
+      : one?.products === 1 ? `${one.name} is on 1 product — move it to another rate first`
+      : `${one?.name ?? ''} is on ${String(one?.products ?? 0)} products — move them to another rate first`;
+    throw AppError.conflict(said, { reason: 'TAX_RATE_IN_USE' });
   }
   await ShopModel.updateOne({ _id: t.shopId }, { $set: { 'settings.tax.rates': rates, 'settings.tax.defaultGstRate': input.defaultGstRate, 'settings.tax.showHsnOnBill': input.showHsnOnBill } });
   const what = [

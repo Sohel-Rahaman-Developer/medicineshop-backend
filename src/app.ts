@@ -91,7 +91,7 @@ export function createApp() {
       origin: (origin, callback) => callback(null, origin !== undefined && allowedOrigins.includes(origin)),
       // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
       credentials: true,
-      allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id'],
+      allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id', 'X-Lang'],
       // PDF / Excel names come in Content-Disposition; unexposed, every download was "medbox24-file".
       exposedHeaders: ['Content-Disposition'],
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],

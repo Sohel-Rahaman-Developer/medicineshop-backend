@@ -84,7 +84,7 @@ export async function savePurchase(t: TenantContext, actor: Actor, input: Purcha
     const u = p.units as Units;
     if (l.unit !== u.sale && l.unit !== u.purchase) throw lineError(i, `Line ${String(i + 1)}: buy ${p.name} in ${u.purchase} or ${u.sale}`);
     const lot = lotOf(p, l.batchNumber, l.expiry, lotDay);
-    if ('field' in lot) throw lineError(i, `Line ${String(i + 1)}: ${p.name} — ${lot.message.toLowerCase()}`);
+    if ('field' in lot) throw lineError(i, `Line ${String(i + 1)}: ${p.name} — ${lot.message}`);
     lots.push(lot);
     if (lot.expiry.getTime() < now.getTime()) throw lineError(i, `Line ${String(i + 1)}: batch ${lot.batchNumber} has already expired — don’t take it into stock`);
     const key = `${l.productId}|${lot.batchNumber.toUpperCase()}|${String(lot.expiry.getTime())}`;

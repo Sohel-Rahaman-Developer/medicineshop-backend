@@ -97,6 +97,8 @@ export class Client {
   private csrfToken: string | undefined;
   /** Sent as X-Shop-Id when set. */
   shopId: string | undefined;
+  /** Sent as X-Lang when set: the API answers its messages in that language. */
+  lang: string | undefined;
 
   constructor(
     private readonly base: string,
@@ -128,6 +130,7 @@ export class Client {
         ...(cookie ? { cookie } : {}),
         ...(this.origin && method !== 'GET' ? { origin: this.origin } : {}),
         ...(this.shopId ? { 'x-shop-id': this.shopId } : {}),
+        ...(this.lang ? { 'x-lang': this.lang } : {}),
         ...headers,
       },
       ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),

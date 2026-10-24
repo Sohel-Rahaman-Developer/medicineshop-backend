@@ -54,7 +54,7 @@ export async function create(t: TenantContext, actor: Actor, name: string, ip?: 
     const cat = await CategoryModel.create({ shopId: t.shopId, name: known.name, key, isSystem: true });
     return { status: 'added', category: { id: String(cat._id), name: cat.name, isSystem: true, products: 0 } };
   }
-  if (known?.status === 'rejected') throw AppError.conflict(`MedBox24 did not add “${known.name}” as a category${known.reason ? `: ${known.reason}` : ''}. Pick the nearest one.`, { rejected: true });
+  if (known?.status === 'rejected') throw AppError.conflict(known.reason ? `MedBox24 did not add “${known.name}” as a category: ${known.reason}. Pick the nearest one.` : `MedBox24 did not add “${known.name}” as a category. Pick the nearest one.`, { rejected: true });
   if (known) {
     const mine = known.shops.some((s) => s.shopId.equals(t.shopId));
     if (!mine) await CategoryRequestModel.updateOne({ _id: known._id }, { $push: { shops: asker } });
@@ -85,7 +85,7 @@ export async function remove(t: TenantContext, actor: Actor, id: string, ip?: st
   if (!cat) throw AppError.notFound('Category not found');
   if (cat.isSystem) throw AppError.forbidden('Built-in categories can’t be removed');
   const used = await ProductModel.countDocuments({ shopId: t.shopId, categoryId: cat._id });
-  if (used) throw AppError.conflict(`${used} ${used === 1 ? 'product uses' : 'products use'} this category. Move them first.`);
+  if (used) throw AppError.conflict(used === 1 ? '1 product uses this category. Move it first.' : `${String(used)} products use this category. Move them first.`);
   await CategoryModel.deleteOne({ shopId: t.shopId, _id: cat._id });
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'products', entityId: id, entityName: cat.name, text: `${actor.name} removed product category ${cat.name}`, ip });
 }

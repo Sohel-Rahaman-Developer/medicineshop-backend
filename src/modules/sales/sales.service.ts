@@ -141,7 +141,7 @@ async function buildParts(t: TenantContext, input: SaleInput, now: Date, session
     if (!p.isActive) throw itemError(i, `${p.name} is deactivated`);
     const u = p.units as Units;
     const loose = it.unit === u.base && u.base !== u.sale;
-    if (it.unit !== u.sale && !(loose && u.allowLooseSale)) throw itemError(i, `${p.name} sells by ${u.sale.toLowerCase()}${u.allowLooseSale && u.base !== u.sale ? ` or ${u.base.toLowerCase()}` : ''}`);
+    if (it.unit !== u.sale && !(loose && u.allowLooseSale)) throw itemError(i, u.allowLooseSale && u.base !== u.sale ? `${p.name} sells by ${u.sale.toLowerCase()} or ${u.base.toLowerCase()}` : `${p.name} sells by ${u.sale.toLowerCase()}`);
     const qtyBase = it.quantity * conv(u, it.unit);
     const left = batches.filter((b) => b.productId.equals(p._id)).map((b) => ({ ...b, quantity: b.quantity - (used.get(String(b._id)) ?? 0) }));
     if (it.batchId) {
@@ -205,9 +205,12 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const due = toPay - advanceUsed;
     const paid = input.payments.reduce((s, x) => s + x.amount, 0);
     if (paid !== due) {
-      const less = [points.redeemValue ? `${inr(points.redeemValue)} points` : '', advanceUsed ? `${inr(advanceUsed)} advance` : ''].filter(Boolean).join(' and ');
-      const what = less ? `the bill is ${inr(priced.grandTotal)} less ${less} = ${inr(due)}` : `the bill is ${inr(priced.grandTotal)}`;
-      throw AppError.validation(`Payments add up to ${inr(paid)}, ${what}`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
+      const [sum, bill, pts, adv, owed] = [inr(paid), inr(priced.grandTotal), inr(points.redeemValue), inr(advanceUsed), inr(due)];
+      const said = points.redeemValue && advanceUsed ? `Payments add up to ${sum}, the bill is ${bill} less ${pts} points and ${adv} advance = ${owed}`
+        : points.redeemValue ? `Payments add up to ${sum}, the bill is ${bill} less ${pts} points = ${owed}`
+        : advanceUsed ? `Payments add up to ${sum}, the bill is ${bill} less ${adv} advance = ${owed}`
+        : `Payments add up to ${sum}, the bill is ${bill}`;
+      throw AppError.validation(said, [{ field: 'body.payments', message: `Payments must add up to ${owed}` }]);
     }
     const payments = [
       ...input.payments,

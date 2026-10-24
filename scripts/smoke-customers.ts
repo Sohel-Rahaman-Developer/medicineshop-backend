@@ -184,6 +184,24 @@ async function main() {
   check('audit: the old udhaar, the limit and the correction', (await AuditLogModel.countDocuments({ shopId: shop1, entityId: gopal.id, text: /old udhaar ₹1,250.00 \(khata · Khata page 34\)/ })) === 1 && (await AuditLogModel.countDocuments({ shopId: shop1, entityId: ratna.id, text: /took ₹300.00 off/ })) === 1);
   check('shop 2 cannot write udhaar on a shop 1 customer → 404', (await add({ customerId: ratna.id, amount: 100 }, other)).status === 404);
 
+  section('7. Messages in the person’s language (X-Lang)');
+  const pre = await owner.raw('OPTIONS', '/customers', undefined, { origin: 'http://localhost:3000', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-csrf-token,x-shop-id,x-lang' });
+  check('CORS lets the apps send X-Lang', /x-lang/i.test(pre.headers.get('access-control-allow-headers') ?? ''), pre.headers.get('access-control-allow-headers') ?? '');
+  owner.lang = 'hi';
+  const dupHi = await owner.post('/customers', { name: 'Ratna Again', phone: '98300 12345' });
+  check('hi: the same phone → 409 in Hindi, the name and number as typed', dupHi.status === 409 && dupHi.json.error?.message === '+919830012345 पहले से Ratna Sen का है', code(dupHi));
+  const badHi = await owner.post('/customers', { name: 'No Phone' });
+  const phoneHi = (badHi.json.error as { details?: { field: string; message: string }[] } | undefined)?.details?.find((d) => d.field === 'body.phone')?.message;
+  check('hi: 422 and its field message in Hindi', badHi.json.error?.message === 'कुछ जानकारी सही नहीं है' && phoneHi === 'यह ज़रूरी है', `${code(badHi)} · ${phoneHi ?? ''}`);
+  const okHi = await owner.post('/customers', { name: 'Hari Das', phone: '98300 77777' });
+  check('hi: success message in Hindi', okHi.status === 201 && okHi.json.message === 'Hari Das जुड़ गए', `${String(okHi.status)} ${okHi.json.message ?? ''}`);
+  owner.lang = 'bn';
+  const dupBn = await owner.post('/customers', { name: 'Hari Again', phone: '98300 77777' });
+  check('bn: the same phone → 409 in Bengali', dupBn.json.error?.message === '+919830077777 আগে থেকেই Hari Das-এর', code(dupBn));
+  owner.lang = 'xx';
+  check('an unknown language → English', (await owner.post('/customers', { name: 'Hari Again', phone: '98300 77777' })).json.error?.message === '+919830077777 is already Hari Das');
+  owner.lang = undefined;
+
   await h.close();
   finish();
 }

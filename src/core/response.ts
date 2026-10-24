@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+import { say } from './lang';
 
 export interface Meta {
   /** Cursor pagination — see PLAN.md §33.2 */
@@ -9,7 +10,7 @@ export interface Meta {
 }
 
 export function sent(res: Response, data: unknown, message: string, status = 200): void {
-  res.status(status).json({ success: true, data, message });
+  res.status(status).json({ success: true, data, message: say(res.req, message) });
 }
 
 export function fetched(res: Response, data: unknown, meta?: Meta): void {

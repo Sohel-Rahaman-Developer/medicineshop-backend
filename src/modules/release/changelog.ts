@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.36',
+    date: '2026-10-25',
+    title: 'Messages from MedBox24 in your language',
+    shop: [
+      'Messages from MedBox24 itself — “Product not found”, “this phone is already Ratna Sen”, “Saved”, the hints under a box — now come in English, हिन्दी or বাংলা, whichever you chose in My account. Names, numbers and bill numbers stay as typed.',
+      'Rows with a problem in Excel import and the notes on a supplier bill follow your language too.',
+      'A box left empty now says “This is required” instead of a technical line.',
+    ],
+    admin: ['Partner desk: messages from the server follow the partner’s language; the console stays English.'],
+    api: ['X-Lang: hi | bn — errors, field messages, success messages and preview notes come back in that language; English without it.'],
+  },
+  {
     version: '1.22.35',
     date: '2026-10-25',
     title: 'Day close: count the whole drawer once — forgotten days add up, the first close takes what was already there',

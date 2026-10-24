@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import { monthEndIST } from '../utils/date';
+import { part } from './lang';
+
+// Boxes a schema gives no message of its own: plain words a shop can read (and translate), not zod's "Invalid input: expected string".
+z.config({
+  customError: (iss) => {
+    if (iss.code === 'invalid_type' && iss.input === undefined) return part('This is required');
+    if (iss.code === 'too_small' && iss.origin === 'string') return iss.minimum === 1 ? part('This is required') : part(`At least ${String(iss.minimum)} characters`);
+    if (iss.code === 'too_big' && iss.origin === 'string') return part(`At most ${String(iss.maximum)} characters`);
+    return undefined;
+  },
+});
 
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 export const idParams = z.object({ id: objectId }).strict();
