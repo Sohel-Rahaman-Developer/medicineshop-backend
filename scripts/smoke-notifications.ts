@@ -95,7 +95,15 @@ async function main() {
   const titleOf = (type: string) => ow.items.find((i) => i.type === type)?.title ?? '';
   check('the 10-day batch is now “expire in 8–15 days”, the 45-day one “16–45 days”; nothing within 7', /^1 batch expires in 8–15 days/.test(titleOf('EXPIRY_NEXT')) && /^1 batch expires in 16–45 days/.test(titleOf('EXPIRY_AHEAD')) && !titleOf('EXPIRY_SOON'), `${titleOf('EXPIRY_NEXT')} | ${titleOf('EXPIRY_AHEAD')}`);
   check('audit: expiry alerts 90/60/30 → 45/15/7 days, digest 08:00 → 07:30', (await AuditLogModel.countDocuments({ shopId: shop1, text: /expiry alerts 90\/60\/30 → 45\/15\/7 days · digest 08:00 → 07:30/ })) === 1);
-  await owner.put('/notifications/settings', { expiryAlertDays: [90, 60, 30], alertDigestTime: '08:00', dailySummaryTime: '22:00', emailEnabled: true });
+  const reset = { expiryAlertDays: [90, 60, 30], alertDigestTime: '08:00', dailySummaryTime: '22:00', emailEnabled: true };
+  const badCopies = await Promise.all([['not-an-email'], ['a@x.test', 'b@x.test', 'c@x.test'], ['a@x.test', 'A@x.test']].map((extraEmails) => owner.put('/notifications/settings', { ...reset, extraEmails })));
+  check('alert copies: a broken address, 3 addresses, the same one twice → 422 each', badCopies.every((r) => r.status === 422), badCopies.map((r) => r.status).join(','));
+  const copies = await owner.put('/notifications/settings', { ...reset, extraEmails: ['Books@CA.test', 'rohit@notif1.test'] });
+  check('owner adds the CA and their own address → saved in small letters', copies.status === 200 && data<{ extraEmails: string[] }>(copies).extraEmails.join(',') === 'books@ca.test,rohit@notif1.test', code(copies));
+  check('audit: alert copies none → books@ca.test, rohit@notif1.test', (await AuditLogModel.countDocuments({ shopId: shop1, text: /alert copies none → books@ca\.test, rohit@notif1\.test/ })) === 1);
+  const kept = await manager.put('/notifications/settings', body);
+  check('a save without the list keeps it', data<{ extraEmails: string[] }>(kept).extraEmails.length === 2);
+  await owner.put('/notifications/settings', reset);
 
   section('2. Read and “Later” are per person');
   const k30 = o1.items.find((i) => i.type === 'EXPIRY_SOON')?.key ?? '';
@@ -150,19 +158,21 @@ async function main() {
   section('6. Jobs: digest, summary, nightly — once a day each');
   await EmailJobModel.deleteMany({});
   await JobRunModel.deleteMany({});
+  await owner.put('/notifications/settings', { expiryAlertDays: [90, 60, 30], alertDigestTime: '08:00', dailySummaryTime: '22:00', emailEnabled: true, extraEmails: ['books@ca.test', 'rohit@notif1.test'] });
   const morning = await tick(istAt(8, 5));
   check('08:05 IST: nightly and the morning digest ran', morning.ran.includes('nightly:Shri Ram Medical Store') && morning.ran.includes('digest:Shri Ram Medical Store'), morning.ran.join(','));
   const mails = await EmailJobModel.find({ kind: 'digest' }).lean();
   const to = mails.map((m) => m.to).sort();
-  check('digest mails: owner, manager, stock keeper (expiry), cashier and accountant (stock) — one each', to.join(',') === ['arif@notif1.test', 'meera@notif1.test', 'rohit@notif1.test', 'sunita@notif1.test', 'vikram@notif1.test'].join(','), to.join(','));
+  check('digest mails: owner, manager, stock keeper (expiry), cashier and accountant (stock), and the CA copy — one each, the owner not twice', to.join(',') === ['arif@notif1.test', 'books@ca.test', 'meera@notif1.test', 'rohit@notif1.test', 'sunita@notif1.test', 'vikram@notif1.test'].join(','), to.join(','));
   const own = mails.find((m) => m.to === 'rohit@notif1.test');
   check('owner’s digest leads with the expired batch and skips low stock (email off)', /expired/.test(own?.subject ?? '') && !/below reorder/.test(own?.text ?? '') && /Out of stock|out of stock/.test(own?.text ?? ''), own?.subject ?? '');
+  check('the CA copy is the owner’s digest', Boolean(own?.text) && mails.find((m) => m.to === 'books@ca.test')?.text === own?.text);
   const again = await tick(istAt(8, 6));
-  check('the next minute: nothing runs twice', !again.ran.length && (await EmailJobModel.countDocuments({ kind: 'digest' })) === 5, again.ran.join(','));
-  check('the queued mail went out (dev SMTP fallback) — status sent', (await EmailJobModel.countDocuments({ status: 'sent' })) === 5, String(await EmailJobModel.countDocuments({ status: 'sent' })));
+  check('the next minute: nothing runs twice', !again.ran.length && (await EmailJobModel.countDocuments({ kind: 'digest' })) === 6, again.ran.join(','));
+  check('the queued mail went out (dev SMTP fallback) — status sent', (await EmailJobModel.countDocuments({ status: 'sent' })) === 6, String(await EmailJobModel.countDocuments({ status: 'sent' })));
   const eve = await tick(istAt(22, 5));
   const sumMails = await EmailJobModel.find({ kind: 'summary' }).lean();
-  check('22:05 IST: the daily summary to owner and manager only', eve.ran.includes('summary:Shri Ram Medical Store') && sumMails.map((m) => m.to).sort().join(',') === 'rohit@notif1.test,vikram@notif1.test', sumMails.map((m) => m.to).join(','));
+  check('22:05 IST: the daily summary to owner, manager and the CA copy only', eve.ran.includes('summary:Shri Ram Medical Store') && sumMails.map((m) => m.to).sort().join(',') === 'books@ca.test,rohit@notif1.test,vikram@notif1.test', sumMails.map((m) => m.to).join(','));
 
   section('7. Nightly points: expiry and birthdays');
   const lot = await LoyaltyModel.findOne({ shopId: shop1, customerId: ratna.id, remaining: { $gt: 0 } }).sort({ createdAt: 1 }).lean();

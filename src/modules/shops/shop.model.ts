@@ -60,6 +60,7 @@ const settingsSchema = new Schema(
       dailySummaryTime: { type: String, default: '22:00' },
       alertDigestTime: { type: String, default: '08:00' },
       emailEnabled: { type: Boolean, default: true },
+      extraEmails: { type: [String], default: [] },
     },
   },
   { _id: false },

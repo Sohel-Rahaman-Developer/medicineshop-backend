@@ -126,6 +126,7 @@ async function main() {
   check('no plan payment → 403', (await demo.post('/subscription/order', { planCode: 'monthly' })).status === 403);
   check('no cancelling → 403', (await demo.post('/subscription/cancel', { reason: 'Testing it out' })).status === 403);
   check('no coin purchase → 403', (await demo.post('/ai/coins/order', { packCode: 'small' })).status === 403);
+  check('no alert copies to a typed address → 403', (await demo.put('/notifications/settings', { expiryAlertDays: [90, 60, 30], alertDigestTime: '08:00', dailySummaryTime: '22:00', emailEnabled: true, extraEmails: ['someone@example.com'] })).status === 403);
   check('no invitations → 403', (await demo.post('/staff', { email: 'someone@example.com', name: 'Someone', roleId: new Types.ObjectId().toHexString() })).status === 403);
   check('billing works as in any shop', (await demo.get('/sales?limit=5')).status === 200);
   // The two sample bills for showing "Purchase from bill" (scripts/make-demo-bills.ts): read and matched for real.

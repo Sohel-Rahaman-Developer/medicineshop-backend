@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.34',
+    date: '2026-10-25',
+    title: 'Alert copies to your accountant, a letter counter in Ask AI, and the last explanations in your language',
+    shop: [
+      'Settings → Inventory → Expiry alerts: “Also email to” sends the owner’s morning alerts and evening summary to up to 2 more addresses, for example your accountant. Off in the demo shop.',
+      'Ask AI shows how many letters are left near the 300-letter limit.',
+      'A sign-in link with a code (…/login?ref=CODE) now says the code is kept and is applied when you set up your shop.',
+      'The customer’s points page and the counter QR page have their own English / हिं / বাং switch.',
+      'Empty lists, warnings, “could not …” messages, the offline bar, sign-out, lock screen, the error and not-found pages now follow the chosen language too (823 explanations in Hindi and Bengali).',
+    ],
+    admin: ['Partner desk: English / हिन्दी / বাংলা on sign-in and in Profile — explanations and the WhatsApp message with the code follow it; names, menus and buttons stay English. The admin console stays English.'],
+    api: ['PUT /notifications/settings takes extraEmails (up to 2 addresses); the morning digest and evening summary copy the owner’s mail to them.'],
+  },
+  {
     version: '1.22.33',
     date: '2026-10-24',
     title: 'Your language for every explanation — fifth part: the rest of the shop',

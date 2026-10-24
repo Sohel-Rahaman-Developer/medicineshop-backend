@@ -23,6 +23,11 @@ export const alertSettingsSchema = z
     alertDigestTime: clock,
     dailySummaryTime: clock,
     emailEnabled: z.boolean(),
+    extraEmails: z
+      .array(z.email('Type a full email address').max(254).toLowerCase().trim())
+      .max(2, 'At most 2 extra addresses')
+      .refine((v) => new Set(v).size === v.length, 'The same address twice')
+      .optional(),
   })
   .strict();
 export type AlertSettingsInput = z.infer<typeof alertSettingsSchema>;

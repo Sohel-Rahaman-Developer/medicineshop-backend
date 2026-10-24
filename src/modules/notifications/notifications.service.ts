@@ -116,6 +116,7 @@ export async function alertSettings(t: TenantContext) {
     alertDigestTime: n?.alertDigestTime ?? '08:00',
     dailySummaryTime: n?.dailySummaryTime ?? '22:00',
     emailEnabled: n?.emailEnabled ?? true,
+    extraEmails: n?.extraEmails ?? [],
     windows: expiryWindows(expiryAlertDays).map((w) => ({ type: w.type, priority: w.priority, what: w.what })),
   };
 }
@@ -123,15 +124,19 @@ export async function alertSettings(t: TenantContext) {
 export async function saveAlertSettings(t: TenantContext, actor: Actor, input: AlertSettingsInput, ip?: string) {
   const before = await alertSettings(t);
   const days = [...input.expiryAlertDays].sort((a, b) => b - a);
+  const extra = input.extraEmails ?? before.extraEmails;
+  // The demo shop is open to anyone: it must not mail addresses a visitor types.
+  if (t.demo && extra.length) throw AppError.forbidden('This is the MedBox24 demo shop — alert copies to other addresses are off here.');
   await ShopModel.updateOne(
     { _id: t.shopId },
-    { $set: { 'settings.inventory.expiryAlertDays': days, 'settings.notifications.alertDigestTime': input.alertDigestTime, 'settings.notifications.dailySummaryTime': input.dailySummaryTime, 'settings.notifications.emailEnabled': input.emailEnabled } },
+    { $set: { 'settings.inventory.expiryAlertDays': days, 'settings.notifications.alertDigestTime': input.alertDigestTime, 'settings.notifications.dailySummaryTime': input.dailySummaryTime, 'settings.notifications.emailEnabled': input.emailEnabled, 'settings.notifications.extraEmails': extra } },
   );
   const what = [
     before.expiryAlertDays.join('/') !== days.join('/') ? `expiry alerts ${before.expiryAlertDays.join('/')} → ${days.join('/')} days` : '',
     before.alertDigestTime !== input.alertDigestTime ? `digest ${before.alertDigestTime} → ${input.alertDigestTime}` : '',
     before.dailySummaryTime !== input.dailySummaryTime ? `summary ${before.dailySummaryTime} → ${input.dailySummaryTime}` : '',
     before.emailEnabled !== input.emailEnabled ? (input.emailEnabled ? 'alert email on' : 'alert email off') : '',
+    before.extraEmails.join(', ') !== extra.join(', ') ? `alert copies ${before.extraEmails.join(', ') || 'none'} → ${extra.join(', ') || 'none'}` : '',
   ].filter(Boolean);
   if (what.length) await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'settings', entityId: String(t.shopId), entityName: 'Alert settings', text: `${actor.name} changed ${what.join(' · ')}`, ip });
   return alertSettings(t);

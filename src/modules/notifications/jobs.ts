@@ -64,16 +64,24 @@ async function claim(key: string, at: Date) {
   }
 }
 
-async function people(shopId: Types.ObjectId) {
+/** Extra addresses from Settings → Alerts get what the owner gets. */
+export interface Copies {
+  ownerId: Types.ObjectId;
+  to: string[];
+}
+
+async function people(shopId: Types.ObjectId, copies?: Copies) {
   const ms = await MembershipModel.find({ shopId, status: 'active' }).select('userId').lean();
-  const users = await UserModel.find({ _id: { $in: ms.map((m) => m.userId) } }).select('email').lean();
-  return users.filter((u) => u.email);
+  const users = (await UserModel.find({ _id: { $in: ms.map((m) => m.userId) } }).select('email').lean()).filter((u) => u.email).map((u) => ({ _id: u._id, email: u.email }));
+  const known = new Set(users.map((u) => u.email.toLowerCase()));
+  const extra = (copies?.to ?? []).filter((e) => !known.has(e.toLowerCase()));
+  return [...users, ...(copies ? extra.map((email) => ({ _id: copies.ownerId, email })) : [])];
 }
 
 /** Morning digest (alertDigestTime): each person's email-wanted alerts, one mail each, nothing when empty. */
-export async function digest(shopId: Types.ObjectId, shopName: string, now: Date) {
+export async function digest(shopId: Types.ObjectId, shopName: string, now: Date, copies?: Copies) {
   let mails = 0;
-  for (const u of await people(shopId)) {
+  for (const u of await people(shopId, copies)) {
     let ctx: TenantContext;
     try {
       ctx = (await contextFor(shopId, u._id)).ctx;
@@ -92,7 +100,7 @@ export async function digest(shopId: Types.ObjectId, shopName: string, now: Date
 }
 
 /** Evening summary (dailySummaryTime) to Owner / Manager who want it: today's bills, money by mode, returns. */
-export async function summary(shopId: Types.ObjectId, shopName: string, now: Date) {
+export async function summary(shopId: Types.ObjectId, shopName: string, now: Date, copies?: Copies) {
   const d0 = istDayStart(now);
   const range = { $gte: d0, $lt: new Date(d0.getTime() + DAY) };
   const [bills, cancelled, rets] = await Promise.all([
@@ -115,7 +123,7 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
     cancelled,
   });
   let mails = 0;
-  for (const u of await people(shopId)) {
+  for (const u of await people(shopId, copies)) {
     let ctx: TenantContext;
     try {
       ctx = (await contextFor(shopId, u._id)).ctx;
@@ -222,11 +230,11 @@ export async function tick(now = new Date()) {
         ran.push(`nightly:${s.name}`);
       }
       if (email && clock >= (n?.alertDigestTime ?? '08:00') && (await fresh(`digest:${String(s._id)}:${day}`))) {
-        await digest(s._id, s.name, now);
+        await digest(s._id, s.name, now, { ownerId: s.ownerUserId, to: n?.extraEmails ?? [] });
         ran.push(`digest:${s.name}`);
       }
       if (email && clock >= (n?.dailySummaryTime ?? '22:00') && (await fresh(`summary:${String(s._id)}:${day}`))) {
-        await summary(s._id, s.name, now);
+        await summary(s._id, s.name, now, { ownerId: s.ownerUserId, to: n?.extraEmails ?? [] });
         ran.push(`summary:${s.name}`);
       }
     } catch (err) {
