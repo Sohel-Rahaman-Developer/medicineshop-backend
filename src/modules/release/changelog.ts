@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.32',
+    date: '2026-10-24',
+    title: 'Your language for every explanation — fourth part: People and money',
+    shop: [
+      'Customers, udhaar, collecting, doctors, appointments and doctors’ money, loyalty points, orders, day close, expenses, suppliers and their payments, and notifications now explain themselves in the language chosen in My account or Settings.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.31',
     date: '2026-10-24',
     title: 'Your language for every explanation — third part: Stock',
