@@ -1,5 +1,5 @@
 import writeXlsxFile from 'write-excel-file/node';
-import { Types, type ClientSession } from 'mongoose';
+import { Schema, Types, model, type ClientSession } from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
@@ -198,18 +198,29 @@ const view = (p: Plan[]) => ({
   },
 });
 
-// Rows saved so far per running import, for the progress bar. In memory: the API runs as one process (PM2).
-const progress = new Map<string, { done: number; total: number; at: number }>();
+// Rows saved so far per running import, for the progress bar — in the database, so whichever API worker gets the poll
+// can answer it. Outside the import's transaction; gone 10 minutes after the last write.
+const progressSchema = new Schema({ _id: { type: String, required: true }, done: { type: Number, required: true }, total: { type: Number, required: true }, at: { type: Date, required: true } }, { versionKey: false });
+progressSchema.index({ at: 1 }, { expireAfterSeconds: 600 });
+const ImportProgressModel = model('ImportProgress', progressSchema);
 const progressKey = (t: TenantContext, id: string) => `${String(t.shopId)}|${id}`;
+const lastWrite = new Map<string, number>();
 function setProgress(key: string, done: number, total: number) {
   const now = Date.now();
-  for (const [k, v] of progress) if (now - v.at > 10 * 60_000) progress.delete(k);
-  progress.set(key, { done, total, at: now });
+  // A write at most every 400 ms, the last one always; $max keeps a late write from moving the bar back.
+  if (done > 0 && done < total && now - (lastWrite.get(key) ?? 0) < 400) return;
+  if (done >= total) lastWrite.delete(key);
+  else lastWrite.set(key, now);
+  void ImportProgressModel.updateOne({ _id: key }, { $max: { done }, $set: { total, at: new Date(now) } }, { upsert: true }).catch(() => undefined);
+}
+function dropProgress(key: string) {
+  lastWrite.delete(key);
+  void ImportProgressModel.deleteOne({ _id: key }).catch(() => undefined);
 }
 
 /** How far a running import is: rows saved, out of rows + 1 (the closing step). 0 / 0 when unknown. */
-export function importProgress(t: TenantContext, clientRequestId: string) {
-  const p = progress.get(progressKey(t, clientRequestId));
+export async function importProgress(t: TenantContext, clientRequestId: string) {
+  const p = await ImportProgressModel.findById(progressKey(t, clientRequestId)).lean();
   return { done: p?.done ?? 0, total: p?.total ?? 0 };
 }
 
@@ -254,7 +265,7 @@ export async function importRows(t: TenantContext, actor: Actor, input: ImportIn
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityName: 'Excel import', text: `${actor.name} imported ${String(rows.length)} rows — ${String(created.size)} new products, ${String(stocked)} stock rows`, ip }, session);
     return { rows: rows.length, newProducts: created.size, merged, stockRows: stocked };
   }).catch((err: unknown) => {
-    progress.delete(tracking);
+    dropProgress(tracking);
     throw err;
   });
   setProgress(tracking, total, total);

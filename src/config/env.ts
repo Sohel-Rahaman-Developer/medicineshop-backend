@@ -11,6 +11,8 @@ const boolish = (fallback: boolean) =>
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(5000),
+  /** Address to listen on; production defaults to 127.0.0.1 so only Nginx on the same machine reaches the API. */
+  HOST: z.string().optional(),
   API_PREFIX: z.string().default('/api/v1'),
   /** The only browser origins allowed to call the API (CORS + CSRF origin check). */
   SHOP_APP_URL: z.url().transform((u) => new URL(u).origin),
@@ -42,6 +44,10 @@ const schema = z.object({
   RATE_REFRESH_PER_USER: z.coerce.number().int().positive().default(120),
   /** Default for protected API routes — per user, per minute. */
   RATE_API_PER_USER_PER_MIN: z.coerce.number().int().positive().default(300),
+  /** PDFs and Excel files a minute, per person. */
+  RATE_FILES_PER_USER_PER_MIN: z.coerce.number().int().positive().default(30),
+  /** API workers behind the load balancer (PM2 cluster); memory-kept limits are split between them. */
+  API_WORKERS: z.coerce.number().int().min(1).max(16).default(1),
   /** D81: chat questions a minute, per person. */
   RATE_ASK_PER_USER_PER_MIN: z.coerce.number().int().positive().default(20),
 

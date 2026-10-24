@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
+import { perWorker } from '../../core/middleware/rate-limit';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
 import { AppError } from '../../core/errors';
@@ -17,7 +18,7 @@ export const publicRouter = Router();
 publicRouter.use(
   rateLimit({
     windowMs: 60_000,
-    limit: 60,
+    limit: perWorker(60),
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     keyGenerator: (req) => `public:${ipKeyGenerator(req.ip ?? '')}`,

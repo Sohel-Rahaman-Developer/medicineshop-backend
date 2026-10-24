@@ -7,6 +7,8 @@ import pinoHttp from 'pino-http';
 import { allowedOrigins, env, isProd } from './config/env';
 import { logger } from './config/logger';
 import { csrfProtection } from './core/middleware/csrf';
+import { jsonGuard } from './core/middleware/json-guard';
+import { apiLimiter, fileLimiter } from './core/middleware/rate-limit';
 import { errorHandler, notFoundHandler } from './core/middleware/error-handler';
 import { healthRouter } from './modules/health/health.routes';
 import { releaseRouter } from './modules/release/release.routes';
@@ -53,13 +55,21 @@ const BILL_PATH = /^\/purchases\/import\/read$/;
 const AI_BILL_PATH = /^\/purchases\/import\/ai$/;
 // A logo upload — the platform's from the admin console or a shop's own (≤ 600 KB image).
 const BRAND_PATH = /^\/(admin\/brand|shop\/logo)$/;
+// Routes that build a PDF or an Excel file.
+const FILE_PATH = /\/(export|pdf|invoice|template|credit-notes\/[^/]+)$/;
 
 export function createApp() {
   const app = express();
 
   // Real client IP behind the proxy — rate limits and audit depend on it.
   app.set('trust proxy', 1);
+  // Query values stay plain strings: `?q[$ne]=x` can never turn into a database operator.
+  app.set('query parser', 'simple');
+  // Answers are never cached (no-store), so an ETag only tells the world which framework made it.
+  app.set('etag', false);
   app.use(timing);
+  // Local load tests see which worker answered; production never says.
+  if (!isProd) app.use((_req, res, next) => { res.setHeader('X-Worker', String(process.pid)); next(); });
   const noExpiry = NO_EXPIRY.toISOString();
   app.set('json replacer', (_key: string, value: unknown) => (value === noExpiry ? null : value));
 
@@ -101,12 +111,21 @@ export function createApp() {
     else next();
   });
   app.use(express.json({ limit: '100kb' }));
+  app.use(jsonGuard);
   app.use(cookieParser());
 
   // Every API response is private to the signed-in user — no shared or browser caching.
   app.use(env.API_PREFIX, (_req, res, next) => {
-    res.set('Cache-Control', 'no-store');
+    res.set({ 'Cache-Control': 'no-store', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()' });
     next();
+  });
+  // A minute at a time per person (or IP), files a smaller allowance on top; health stays open for uptime monitors.
+  app.use(env.API_PREFIX, (req, res, next) => {
+    if (req.path === '/health') return next();
+    apiLimiter(req, res, (err?: unknown) => {
+      if (err !== undefined || !FILE_PATH.test(req.path)) return next(err);
+      fileLimiter(req, res, next);
+    });
   });
   app.use(env.API_PREFIX, csrfProtection);
 

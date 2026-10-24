@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { Schema, model, type Types } from 'mongoose';
 import { summariseRecent } from '../retention/retention';
 import { env } from '../../config/env';
@@ -34,6 +35,24 @@ const DAY = 24 * 60 * 60 * 1000;
 const runSchema = new Schema({ key: { type: String, required: true, unique: true }, at: { type: Date, required: true } }, { versionKey: false });
 runSchema.index({ at: 1 }, { expireAfterSeconds: 40 * 24 * 60 * 60 });
 export const JobRunModel = model('JobRun', runSchema);
+
+// One API worker runs the minute tick; the lease passes on by itself when its holder stops renewing (restart, crash).
+const leaseSchema = new Schema({ _id: { type: String, required: true }, owner: { type: String, required: true }, until: { type: Date, required: true } }, { versionKey: false });
+export const LeaseModel = model('Lease', leaseSchema);
+const ME = `${hostname()}:${String(process.pid)}`;
+const LEASE_MS = 90_000;
+
+/** True when this worker holds the scheduler lease — or just took it over. */
+export async function leader(now = new Date(), me = ME): Promise<boolean> {
+  try {
+    const row = await LeaseModel.findOneAndUpdate({ _id: 'scheduler', $or: [{ until: { $lt: now } }, { owner: me }] }, { $set: { owner: me, until: new Date(now.getTime() + LEASE_MS) } }, { upsert: true, returnDocument: 'after' }).lean();
+    return row.owner === me;
+  } catch (err) {
+    // Someone else holds it: the upsert met their row.
+    if ((err as { code?: number }).code === 11000) return false;
+    throw err;
+  }
+}
 
 async function claim(key: string, at: Date) {
   try {
@@ -126,6 +145,10 @@ export async function tick(now = new Date()) {
   const day = istIsoDay(now);
   const clock = istClock(now);
   const shops = await ShopModel.find({ status: 'active' }).select('name ownerUserId settings.notifications').lean();
+  // Today's shop jobs already done, in one read — not three round trips per shop every minute.
+  const keys = shops.flatMap((s) => ['nightly', 'digest', 'summary'].map((k) => `${k}:${String(s._id)}:${day}`));
+  const done = new Set((await JobRunModel.find({ key: { $in: keys } }).select('key').lean()).map((r) => r.key));
+  const fresh = (key: string) => !done.has(key) && claim(key, now);
   const ran: string[] = [];
   // Payments the webhooks missed, once an hour (B8c).
   if ((await gateway()).mode === 'razorpay' && (await claim(`reconcile:${now.toISOString().slice(0, 13)}`, now))) {
@@ -194,15 +217,15 @@ export async function tick(now = new Date()) {
     const n = s.settings.notifications;
     const email = n?.emailEnabled ?? true;
     try {
-      if (await claim(`nightly:${String(s._id)}:${day}`, now)) {
+      if (await fresh(`nightly:${String(s._id)}:${day}`)) {
         await nightly(s._id, s.ownerUserId, now);
         ran.push(`nightly:${s.name}`);
       }
-      if (email && clock >= (n?.alertDigestTime ?? '08:00') && (await claim(`digest:${String(s._id)}:${day}`, now))) {
+      if (email && clock >= (n?.alertDigestTime ?? '08:00') && (await fresh(`digest:${String(s._id)}:${day}`))) {
         await digest(s._id, s.name, now);
         ran.push(`digest:${s.name}`);
       }
-      if (email && clock >= (n?.dailySummaryTime ?? '22:00') && (await claim(`summary:${String(s._id)}:${day}`, now))) {
+      if (email && clock >= (n?.dailySummaryTime ?? '22:00') && (await fresh(`summary:${String(s._id)}:${day}`))) {
         await summary(s._id, s.name, now);
         ran.push(`summary:${s.name}`);
       }
@@ -231,22 +254,31 @@ export async function checkAlerts(now = new Date()) {
 }
 
 let timer: NodeJS.Timeout | null = null;
+let running = false;
 
-/** Starts the minute tick in the API process (PLAN §17: no Redis). Off in tests; on in production. */
+/** Starts the minute tick (PLAN §17: no Redis): every worker asks for the lease, only its holder ticks. Off in tests. */
 export function startScheduler() {
   if (timer || !env.JOBS_ENABLED) return;
   const run = () => {
-    tick().catch(async (err: unknown) => {
-      logger.error({ err }, 'Scheduler tick failed');
-      await signal('job_fail');
-    });
+    // The last minute is still going: skip this one rather than pile up.
+    if (running) return;
+    running = true;
+    leader()
+      .then((lead) => (lead ? tick() : null))
+      .catch(async (err: unknown) => {
+        logger.error({ err }, 'Scheduler tick failed');
+        await signal('job_fail');
+      })
+      .finally(() => { running = false; });
   };
   timer = setInterval(run, 60_000);
   timer.unref();
   run();
 }
 
-export function stopScheduler() {
+/** Stops the tick and hands the lease on, so another worker takes over within a minute. */
+export async function stopScheduler() {
   if (timer) clearInterval(timer);
   timer = null;
+  await LeaseModel.updateOne({ _id: 'scheduler', owner: ME }, { $set: { until: new Date(0) } }).catch(() => undefined);
 }

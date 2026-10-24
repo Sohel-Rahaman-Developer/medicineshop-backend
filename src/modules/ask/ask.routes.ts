@@ -15,7 +15,7 @@ askRouter.use(shopAuth, needFeature('ask'));
 const member = requirePermission('dashboard', 'view');
 
 askRouter.get('/offer', member, asyncHandler(async (req: Request, res: Response) => { fetched(res, await offer(tenantOf(req))); }));
-askRouter.post('/', member, perUser({ limit: env.RATE_ASK_PER_USER_PER_MIN }), validate({ body: askSchema }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await ask(tenantOf(req), await actorOf(req), req.body as AskInput)); }));
+askRouter.post('/', member, perUser({ limit: env.RATE_ASK_PER_USER_PER_MIN, name: 'rl-ask' }), validate({ body: askSchema }), asyncHandler(async (req: Request, res: Response) => { fetched(res, await ask(tenantOf(req), await actorOf(req), req.body as AskInput)); }));
 askRouter.put(
   '/ai',
   requirePermission('subscription', 'edit'),

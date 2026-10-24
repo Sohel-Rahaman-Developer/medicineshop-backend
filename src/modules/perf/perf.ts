@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { hostname } from 'node:os';
 import type { RequestHandler, Response } from 'express';
 import mongoose, { Schema, Types, model } from 'mongoose';
 import { allowedOrigins, env } from '../../config/env';
@@ -66,6 +67,26 @@ const since = new Date();
 const MAX_ROUTES = 400;
 let kept = { minute: 0, n: 0 };
 
+// Each API worker writes its route totals every minute; the Speed panel adds up the workers heard from in 3 minutes.
+const workerSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    since: { type: Date, required: true },
+    at: { type: Date, required: true },
+    routes: { type: [{ _id: false, path: { type: String, required: true }, n: Number, ms: Number, max: Number, dbMs: Number, queries: Number, slow: Number }], default: [] },
+  },
+  { versionKey: false },
+);
+workerSchema.index({ at: 1 }, { expireAfterSeconds: 24 * 60 * 60 });
+export const PerfWorkerModel = model('PerfWorker', workerSchema);
+const ME = `${hostname()}:${String(process.pid)}`;
+const LIVE_MS = 3 * 60_000;
+let flushing: NodeJS.Timeout | null = null;
+const snapshot = () => [...routes.entries()].map(([path, s]) => ({ path, n: s.n, ms: s.ms, max: s.max, dbMs: s.db, queries: s.queries, slow: s.slow }));
+function flush() {
+  PerfWorkerModel.updateOne({ _id: ME }, { $set: { since, at: new Date(), routes: snapshot() } }, { upsert: true }).catch((err: unknown) => { logger.warn({ err }, 'perf totals not saved'); });
+}
+
 const round = (n: number) => Math.round(n);
 
 function keep(doc: Record<string, unknown>) {
@@ -86,6 +107,10 @@ function headerOn(res: Response, value: () => string) {
 /** Server-Timing on every API answer (app = total, db = query time) and per-route totals since the server started. */
 export const timing: RequestHandler = (req, res, next) => {
   if (!req.path.startsWith(env.API_PREFIX)) return next();
+  if (!flushing) {
+    flushing = setInterval(flush, 60_000);
+    flushing.unref();
+  }
   const t: Timing = { db: 0, queries: 0 };
   const start = performance.now();
   const origin = req.get('origin');
@@ -127,12 +152,24 @@ export async function perfOverview(now = new Date()) {
     ]),
     PerfSampleModel.find({}).sort({ at: -1 }).limit(25).lean(),
   ]);
-  const top = [...routes.entries()]
+  // This worker live, the others from their last minute's write.
+  const others = await PerfWorkerModel.find({ _id: { $ne: ME }, at: { $gte: new Date(now.getTime() - LIVE_MS) } }).lean();
+  const workers = [{ since, routes: snapshot() }, ...others.map((o) => ({ since: o.since, routes: o.routes.map((r) => ({ path: r.path, n: r.n ?? 0, ms: r.ms ?? 0, max: r.max ?? 0, dbMs: r.dbMs ?? 0, queries: r.queries ?? 0, slow: r.slow ?? 0 })) }))];
+  const merged = new Map<string, RouteStat>();
+  for (const w of workers) {
+    for (const r of w.routes) {
+      const m = merged.get(r.path) ?? { n: 0, ms: 0, max: 0, db: 0, queries: 0, slow: 0 };
+      m.n += r.n; m.ms += r.ms; m.db += r.dbMs; m.queries += r.queries; m.slow += r.slow; m.max = Math.max(m.max, r.max);
+      merged.set(r.path, m);
+    }
+  }
+  const top = [...merged.entries()]
     .map(([path, s]) => ({ path, n: s.n, avg: avg(s.ms, s.n), max: round(s.max), db: avg(s.db, s.n), queries: s.n ? Math.round((s.queries / s.n) * 10) / 10 : 0, slow: s.slow }))
     .sort((a, b) => b.avg * b.n - a.avg * a.n)
     .slice(0, 25);
   return {
-    since,
+    since: workers.reduce((a, w) => (w.since < a ? w.since : a), since),
+    workers: workers.map((w) => ({ since: w.since, requests: w.routes.reduce((a, r) => a + r.n, 0) })),
     slowMs: SLOW_MS,
     routes: top,
     slow24h: groups.map((g) => ({ source: g._id.source, kind: g._id.kind, path: g._id.path, n: g.n, avg: round(g.ms), max: round(g.max), server: g.server === null ? null : round(g.server), db: g.db === null ? null : round(g.db), queries: g.queries === null ? null : Math.round(g.queries * 10) / 10, last: g.last })),

@@ -13,6 +13,8 @@ async function main() {
   process.env.PORT = String(API_PORT);
   // Every Playwright project signs in from the same IP; the per-email limits stay real.
   process.env.RATE_OTP_REQUEST_PER_IP ??= '1000';
+  process.env.RATE_API_PER_USER_PER_MIN ??= '100000';
+  process.env.RATE_FILES_PER_USER_PER_MIN ??= '100000';
   // D78: AI reading goes to a local stand-in for Anthropic that copies the M.A. Pharma bill.
   const claude = await startFakeClaude();
   claude.answer = { bill: MA_AI };

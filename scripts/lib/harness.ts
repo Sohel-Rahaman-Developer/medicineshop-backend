@@ -185,6 +185,9 @@ export interface Harness {
 /** welcomeCoins: the free coins a new shop gets (D96) — 0 unless a test is about them, so balances start at zero. */
 export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
+  // Suites fire far more calls a minute than a person; smoke-vapt sets low limits of its own to test them.
+  process.env.RATE_API_PER_USER_PER_MIN ??= '100000';
+  process.env.RATE_FILES_PER_USER_PER_MIN ??= '100000';
   out('\n⏳ Starting in-memory MongoDB…\n');
   const { MongoMemoryReplSet } = await import('mongodb-memory-server');
   if (opts.dbPath) {

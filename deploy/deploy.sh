@@ -76,12 +76,19 @@ node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ version: 
   "$ROOT/backend/release.json" "$VERSION" "$(git -C "$ROOT/backend" rev-parse --short HEAD)" "$(git -C "$ROOT/frontend" rev-parse --short HEAD)" "$(git -C "$ROOT/admin" rev-parse --short HEAD)"
 
 step "Restart with PM2"
+# The API runs in cluster mode (load balanced). A reload cannot switch an older fork-mode process or change the worker
+# count, so pharma-api alone is replaced then — one short restart; no other app on the server is touched.
+apis() { pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s.slice(s.indexOf("["))).filter(p=>p.name==="pharma-api");process.stdout.write(l.length?`${l[0].pm2_env.exec_mode==="cluster_mode"?"cluster":"fork"}:${l.length}:${l.filter(p=>p.pm2_env.status==="online").length}`:"none")})'; }
+want=$(node -e 'const a=require(process.argv[1]).apps.find(x=>x.name==="pharma-api");process.stdout.write(`${a.exec_mode}:${a.instances}`)' "$ROOT/backend/deploy/ecosystem.config.cjs")
+have=$(apis)
+if [ "$have" != none ] && [ "${have%:*}" != "$want" ]; then echo "  pharma-api: ${have%:*} → $want (one restart)"; pm2 delete pharma-api >/dev/null; fi
 pm2 startOrReload "$ROOT/backend/deploy/ecosystem.config.cjs" --update-env
 pm2 save
 
 step "Health check"
 sleep 4
 curl -fsS "http://127.0.0.1:$API_PORT/health" >/dev/null && echo "  ✅ API up on $API_PORT"
+now=$(apis); echo "  ✅ API load balanced: ${now%%:*} mode, $(echo "$now" | cut -d: -f3) of $(echo "$now" | cut -d: -f2) workers online"
 curl -fsS -o /dev/null "http://127.0.0.1:$MEDSHOP_SHOP_PORT/login" && echo "  ✅ Shop app up on $MEDSHOP_SHOP_PORT"
 curl -fsS -o /dev/null "http://127.0.0.1:$MEDSHOP_ADMIN_PORT/" && echo "  ✅ Admin up on $MEDSHOP_ADMIN_PORT"
 echo

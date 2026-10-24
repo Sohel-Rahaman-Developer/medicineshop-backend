@@ -75,9 +75,9 @@ productsRouter.get(
   '/import/progress/:id',
   requirePermission('products', 'create'),
   validate({ params: z.object({ id: clientRequestId }).strict() }),
-  (req: Request, res: Response) => {
-    fetched(res, importProgress(tenantOf(req), String(req.params.id)));
-  },
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await importProgress(tenantOf(req), String(req.params.id)));
+  }),
 );
 
 productsRouter.post(

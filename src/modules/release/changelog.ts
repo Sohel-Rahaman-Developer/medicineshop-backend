@@ -10,6 +10,28 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.25',
+    date: '2026-10-24',
+    title: 'Load balanced API, tighter security, nothing tells which software it runs',
+    shop: [
+      'The server now runs on more than one worker: a big PDF or Excel report no longer slows the counter, and an update no longer drops anyone mid-bill.',
+      'A person can make up to 300 requests and 30 PDF / Excel files a minute — far above real use; past that, “try again in a minute” (it always opens again by itself, nothing is blocked for good).',
+      'The site no longer says which framework version it runs (tools like Wappalyzer see none).',
+    ],
+    admin: [
+      'Speed panel: how many API workers share the load and how many requests each took; the busiest routes add up every worker.',
+      'Excel import progress, sign-in limits, the AI question limit and the minute jobs (emails, alerts, reconcile) work across workers: limits are counted once in the database, the jobs run on one worker and pass to another if it stops.',
+    ],
+    api: [
+      'PM2 cluster mode (2 workers on a 2+ CPU, 2 GB+ server; MEDSHOP_API_INSTANCES overrides) with ready signal and graceful reload; deploy.sh switches an older single process over once.',
+      'Every API call is rate limited per person (or IP when signed out); files have their own allowance; OTP, refresh and AI limits are shared through MongoDB (TTL-cleared).',
+      'Query strings parse flat (no nested operators); bodies with __proto__ / constructor.prototype get 400; no ETag; Permissions-Policy on every answer.',
+      'The minute scheduler: a lease in MongoDB, never two ticks at once, one read for the day’s done jobs instead of three per shop.',
+      'In production the API listens on 127.0.0.1 only (HOST overrides): only Nginx reaches it, so a forged X-Forwarded-For never counts.',
+      'Dependency advisories fixed: zod 4.6.7, body-parser 1.20.9, nodemailer 10.2.1, fast-uri.',
+    ],
+  },
+  {
     version: '1.22.24',
     date: '2026-10-23',
     title: 'Fewer “partner” words, plainer text',
