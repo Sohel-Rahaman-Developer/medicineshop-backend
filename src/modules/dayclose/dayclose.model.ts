@@ -7,6 +7,9 @@ const dayCloseSchema = new Schema(
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
     fy: { type: String, required: true },
     day: { type: String, required: true },
+    /** First day this close covers: days nobody closed in between are counted together. Older closes: one day. */
+    from: { type: String },
+    days: { type: Number },
     dayStart: { type: Date, required: true },
     opening: { type: Number, required: true },
     cashSales: { type: Number, required: true },

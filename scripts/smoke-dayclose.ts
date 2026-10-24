@@ -17,8 +17,8 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 const DAY = 86_400_000;
 const istDay = (at: number) => new Date(at + 5.5 * 3600_000).toISOString().slice(0, 10);
 
-interface Cash { day: string; opening: number; openingFrom: string | null; cashSales: number; advances: number; refunds: number; orderRefunds: number; advanceBack: number; cancelled: number; suppliers: number; cashIn: number; cashOut: number; expected: number; upi: number; card: number; advanceUsed: number; bills: number; byUser: { name: string; cash: number }[] }
-interface Status { day: string; today: string; isToday: boolean; lastClosed: string | null; closed: { counted: number; diff: number; leftInDrawer: number; takenOut: number } | null; cash: Cash | null }
+interface Cash { day: string; from: string; days: number; firstClose: boolean; opening: number; openingFrom: string | null; cashSales: number; advances: number; refunds: number; orderRefunds: number; advanceBack: number; cancelled: number; suppliers: number; cashIn: number; cashOut: number; expected: number; upi: number; card: number; advanceUsed: number; bills: number; byUser: { name: string; cash: number }[] }
+interface Status { day: string; today: string; isToday: boolean; yesterday: string | null; lastClosed: string | null; closed: { counted: number; diff: number; leftInDrawer: number; takenOut: number } | null; cash: Cash | null }
 
 async function main() {
   const h = await startHarness();
@@ -75,6 +75,7 @@ async function main() {
   const x = st.cash;
   check('today, not closed, nothing closed before', st.day === today && st.isToday && st.closed === null && st.lastClosed === null && x !== null);
   check('opening = the shop’s float ₹2,000', x?.opening === 200_000 && x.openingFrom === null);
+  check('the first close: its own day only', x?.firstClose === true && x.from === today && x.days === 1);
   check('cash bills ₹152 + ₹30 = ₹182 (the cancelled one too — it was paid)', x?.cashSales === 18_200);
   check('cash advances ₹100 + ₹50 + ₹500 (UPI advance left out)', x?.advances === 65_000);
   check('out: return ₹14 · advance refund ₹50 · advance back on a bill ₹408 · cancelled ₹30 · supplier ₹300 (not the ₹1,000 from the owner)', x?.refunds === 1400 && x.orderRefunds === 5000 && x.advanceBack === 40_800 && x.cancelled === 3000 && x.suppliers === 30_000, JSON.stringify(x));
@@ -96,19 +97,36 @@ async function main() {
   check('audit: “closed … matched”', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: `Day close ${today}`, text: /matched/ })) === 1);
   check('history has it', data<unknown[]>(await owner.get('/day-close/history')).length === 1);
 
-  section('3. Yesterday first, opening from the last close, a short day');
+  section('3. The first close takes its opening; days nobody closed are counted together');
   const { c: owner2, dolo: d2 } = await setup('owner@close2.test', 'Other Pharmacy');
   const shop2 = owner2.shopId ?? '';
-  const y = data<{ id: string }>(await ok('bill', owner2.post('/sales', bill([{ productId: d2, quantity: 1, unit: 'STRIP' }], { payments: cash(3000) }))));
-  await SaleModel.updateOne({ shopId: shop2, _id: y.id }, { $set: { billDate: new Date(Date.now() - DAY) } });
+  const ago = (n: number) => istDay(Date.now() - n * DAY);
+  const billOn = async (n: number, amount: number) => {
+    const b = data<{ id: string }>(await ok('bill', owner2.post('/sales', bill([{ productId: d2, quantity: amount / 3000, unit: 'STRIP' }], { payments: cash(amount) }))));
+    await SaleModel.updateOne({ shopId: shop2, _id: b.id }, { $set: { billDate: new Date(Date.now() - n * DAY) } });
+  };
+  await billOn(3, 3000);
   const s2 = data<Status>(await owner2.get('/day-close'));
-  check('yesterday had bills and no close → yesterday comes first', s2.day === yesterday && !s2.isToday && s2.cash?.cashSales === 3000, JSON.stringify({ d: s2.day, c: s2.cash?.cashSales }));
-  check('shop 2 sees only its own cash', s2.cash?.cashSales === 3000 && s2.cash.advances === 0);
-  await ok('close yesterday short', owner2.post('/day-close', { day: yesterday, counted: 2000, takenOut: 0, note: 'Gave change twice' }));
-  const y2 = await DayCloseModel.findOne({ shopId: shop2, day: yesterday }).lean();
-  check('yesterday: short ₹10 with the note, ₹20 left in the drawer', y2?.diff === -1000 && y2.leftInDrawer === 2000 && y2.note === 'Gave change twice');
-  const t2 = data<Status>(await owner2.get('/day-close'));
-  check('today: opening = what yesterday left (₹20)', t2.day === today && t2.cash?.opening === 2000 && t2.cash.openingFrom === yesterday);
+  check('nothing closed, no bill yesterday → today, and yesterday offered', s2.day === today && s2.yesterday === yesterday && s2.cash?.firstClose === true, JSON.stringify({ d: s2.day, y: s2.yesterday }));
+  check('shop 2 sees only its own cash', s2.cash?.advances === 0);
+  const first = data<Status>(await owner2.get(`/day-close?day=${ago(3)}`));
+  check('the first close covers its own day; opening from the shop setting (₹0)', first.cash?.firstClose === true && first.cash.from === ago(3) && first.cash.days === 1 && first.cash.opening === 0 && first.cash.cashSales === 3000);
+  await ok('first close with ₹100 already in the drawer', owner2.post('/day-close', { day: ago(3), counted: 13_000, takenOut: 0, opening: 10_000 }));
+  const f = await DayCloseModel.findOne({ shopId: shop2, day: ago(3) }).lean();
+  check('…expected ₹100 + ₹30 = ₹130, matched, ₹130 left in the drawer', f?.opening === 10_000 && f.expected === 13_000 && f.diff === 0 && f.leftInDrawer === 13_000);
+  await billOn(2, 6000);
+  await billOn(1, 3000);
+  await billOn(0, 3000);
+  const gap = data<Status>(await owner2.get(`/day-close?day=${today}`));
+  check('two days nobody closed + today → one close over 3 days, opening from the last close', gap.cash?.from === ago(2) && gap.cash.days === 3 && !gap.cash.firstClose && gap.cash.opening === 13_000 && gap.cash.openingFrom === ago(3) && gap.cash.cashSales === 12_000 && gap.cash.bills === 3, JSON.stringify({ from: gap.cash?.from, days: gap.cash?.days, sales: gap.cash?.cashSales }));
+  check('expected = ₹130 + ₹120 = ₹250', gap.cash?.expected === 25_000, String(gap.cash?.expected));
+  check('an opening once a close exists → 422', (await owner2.post('/day-close', { day: today, counted: 25_000, opening: 0 })).status === 422);
+  await ok('close the three days at once', owner2.post('/day-close', { day: today, counted: 24_000, takenOut: 20_000, note: 'Gave change twice' }));
+  const g = data<{ from: string; days: number; diff: number; leftInDrawer: number }[]>(await owner2.get('/day-close/history'))[0];
+  check('history: from, 3 days, short ₹10, ₹40 left', g?.from === ago(2) && g.days === 3 && g.diff === -1000 && g.leftInDrawer === 4000, JSON.stringify(g));
+  check('audit names the span', (await AuditLogModel.findOne({ shopId: shop2, entityName: `Day close ${today}` }).lean())?.text.includes(`closed ${ago(2)} to ${today} (3 days)`) === true);
+  const after2 = data<Status>(await owner2.get('/day-close'));
+  check('status: today closed, yesterday no longer offered', after2.closed?.counted === 24_000 && after2.yesterday === null && after2.cash === null);
 
   section('4. Who');
   const roles = data<{ id: string; key: string | null }[]>(await owner.get('/roles'));

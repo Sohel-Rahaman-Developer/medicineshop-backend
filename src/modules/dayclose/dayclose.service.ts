@@ -4,7 +4,7 @@ import { AppError } from '../../core/errors';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
 import { istDay, paise } from '../../core/zod';
-import { istIsoDay } from '../../utils/date';
+import { istClock, istIsoDay } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
@@ -25,6 +25,9 @@ const oid = (id: string) => new Types.ObjectId(id);
 const DENOMS = ['50000', '20000', '10000', '5000', '2000', '1000'] as const;
 /** IST midnight of a "YYYY-MM-DD" day. */
 const startOf = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) - IST);
+const nextDay = (day: string) => istIsoDay(new Date(startOf(day).getTime() + DAY));
+/** Closing before 6 am is still last night's work. */
+const LATE_UNTIL = '06:00';
 
 export const statusSchema = z.object({ day: istDay.optional() }).strict();
 export const closeSchema = z
@@ -34,6 +37,8 @@ export const closeSchema = z
     takenOut: paise('Taken out').default(0),
     note: z.string().trim().max(200).default(''),
     denoms: z.partialRecord(z.enum(DENOMS), z.number().int().min(0).max(100_000)).optional(),
+    // Only the very first close: cash already in the drawer when that day began.
+    opening: paise('Opening cash').optional(),
   })
   .strict()
   .refine((v) => v.takenOut <= v.counted, { message: 'More than what is in the drawer', path: ['takenOut'] });
@@ -42,14 +47,18 @@ export type CloseInput = z.infer<typeof closeSchema>;
 const sumOf = <T>(rows: readonly T[], f: (r: T) => number) => rows.reduce((s, r) => s + f(r), 0);
 
 /**
- * Every rupee of cash that came into or left the counter on one IST day (PLAN §35.3). Cash the owner paid from
- * outside the drawer (fromDrawer false) never touches the count.
+ * Every rupee of cash that came into or left the counter since the last close, up to the end of `day` (PLAN §35.3).
+ * Days nobody closed are added together: the drawer only ever holds one total. Cash the owner paid from outside the
+ * drawer (fromDrawer false) never touches the count. The first close covers its own day; `opening` is then what the
+ * counter says was already in the drawer.
  */
-export async function cashDay(t: TenantContext, day: string) {
-  const d0 = startOf(day);
-  const d1 = new Date(d0.getTime() + DAY);
+export async function cashDay(t: TenantContext, day: string, opening?: number) {
+  const prev = await DayCloseModel.findOne({ shopId: t.shopId, dayStart: { $lt: startOf(day) } }).sort({ dayStart: -1 }).select('day leftInDrawer').lean();
+  const from = prev ? nextDay(prev.day) : day;
+  const d0 = startOf(from);
+  const d1 = new Date(startOf(day).getTime() + DAY);
   const inDay = { $gte: d0, $lt: d1 };
-  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, prev, shop, collections, spent, doctors] = await Promise.all([
+  const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, shop, collections, spent, doctors] = await Promise.all([
     SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName').lean(),
     SaleModel.find({ shopId: t.shopId, status: 'cancelled', cancelledAt: inDay }).select('payments').lean(),
     SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack').lean(),
@@ -57,7 +66,6 @@ export async function cashDay(t: TenantContext, day: string) {
     OrderModel.find({ shopId: t.shopId, 'refund.at': inDay, 'refund.mode': 'CASH' }).select('refund').lean(),
     OrderModel.find({ shopId: t.shopId, completedAt: inDay, advanceBack: { $gt: 0 } }).select('advanceBack').lean(),
     SupplierPaymentModel.find({ shopId: t.shopId, paymentDate: inDay, paymentMode: 'CASH', fromDrawer: true }).select('amount').lean(),
-    DayCloseModel.findOne({ shopId: t.shopId, dayStart: { $lt: d0 } }).sort({ dayStart: -1 }).select('day leftInDrawer').lean(),
     ShopModel.findById(t.shopId).select('settings.billing.openingFloat').lean(),
     CustomerPaymentModel.find({ shopId: t.shopId, paymentDate: inDay, paymentMode: 'CASH' }).select('amount').lean(),
     ExpenseModel.find({ shopId: t.shopId, status: 'active', date: inDay, paymentMode: 'CASH', fromDrawer: true }).select('amount').lean(),
@@ -71,7 +79,10 @@ export async function cashDay(t: TenantContext, day: string) {
   }
   const r = {
     day,
-    opening: prev ? prev.leftInDrawer : (shop?.settings.billing?.openingFloat ?? 0),
+    from,
+    days: Math.round((d1.getTime() - d0.getTime()) / DAY),
+    firstClose: !prev,
+    opening: prev ? prev.leftInDrawer : (opening ?? shop?.settings.billing?.openingFloat ?? 0),
     openingFrom: prev?.day ?? null,
     cashSales: pay('CASH'),
     collected: sumOf(collections, (p) => p.amount),
@@ -104,6 +115,8 @@ function shape(c: CloseLean) {
   return {
     id: String(c._id),
     day: c.day,
+    from: c.from ?? c.day,
+    days: c.days ?? 1,
     opening: c.opening,
     cashSales: c.cashSales,
     collected: c.collected,
@@ -134,19 +147,22 @@ function shape(c: CloseLean) {
   };
 }
 
-/** The day to close: yesterday when it had bills and was never closed, otherwise today (sandbox targetDay). */
+/**
+ * The day to close up to: today — or, before 6 am, yesterday when it is still open and had bills (the counter
+ * closing after midnight). `yesterday` is offered while it is still open, for the counter to pick itself.
+ */
 export async function status(t: TenantContext, asked?: Date) {
   const now = new Date();
   const today = istIsoDay(now);
+  const yesterday = istIsoDay(new Date(now.getTime() - DAY));
   const last = await lastClose(t);
+  const open = !last || last.day < yesterday;
   let day = asked ? istIsoDay(asked) : today;
-  if (!asked) {
-    const yesterday = istIsoDay(new Date(now.getTime() - DAY));
-    if ((!last || last.day < yesterday) && (await SaleModel.exists({ shopId: t.shopId, billDate: { $gte: startOf(yesterday), $lt: startOf(today) } }))) day = yesterday;
-  }
+  if (!asked && open && istClock(now) < LATE_UNTIL && (await SaleModel.exists({ shopId: t.shopId, billDate: { $gte: startOf(yesterday), $lt: startOf(today) } }))) day = yesterday;
   if (day > today) throw AppError.validation('That day has not come yet', [{ field: 'query.day', message: 'A future day' }]);
   const closed = await DayCloseModel.findOne({ shopId: t.shopId, day }).lean();
-  return { day, today, isToday: day === today, lastClosed: last?.day ?? null, closed: closed ? shape(closed) : null, cash: closed ? null : await cashDay(t, day) };
+  const cash = closed || (last && last.day > day) ? null : await cashDay(t, day);
+  return { day, today, isToday: day === today, yesterday: open ? yesterday : null, lastClosed: last?.day ?? null, closed: closed ? shape(closed) : null, cash };
 }
 
 export async function history(t: TenantContext) {
@@ -163,7 +179,8 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
   return inTransaction(async (session) => {
     const last = await DayCloseModel.findOne({ shopId: t.shopId }).sort({ dayStart: -1 }).select('day').session(session).lean();
     if (last && last.day >= input.day) throw AppError.conflict(last.day === input.day ? `${input.day} is already closed` : `${last.day} is closed already — a day before it can’t be closed now`);
-    const cash = await cashDay(t, input.day);
+    if (last && input.opening !== undefined) throw AppError.validation('The opening cash comes from the last close', [{ field: 'body.opening', message: 'Only the first close takes it' }]);
+    const cash = await cashDay(t, input.day, input.opening);
     const diff = input.counted - cash.expected;
     if (diff && input.note.length < 3) throw AppError.validation('Write why the cash does not match', [{ field: 'body.note', message: 'Write why the cash does not match' }]);
     const [doc] = await DayCloseModel.create(
@@ -172,6 +189,8 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
           shopId: t.shopId,
           fy: fyOf(startOf(input.day)),
           day: input.day,
+          from: cash.from,
+          days: cash.days,
           dayStart: startOf(input.day),
           opening: cash.opening,
           cashSales: cash.cashSales,
@@ -208,7 +227,8 @@ export async function close(t: TenantContext, actor: Actor, input: CloseInput, i
     );
     if (!doc) throw AppError.internal();
     const result = diff ? `${diff > 0 ? 'over' : 'short'} ${inr(Math.abs(diff))}${input.note ? `: ${input.note}` : ''}` : 'matched';
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(doc._id), entityName: `Day close ${input.day}`, text: `${actor.name} closed ${input.day} · counted ${inr(input.counted)} vs expected ${inr(cash.expected)} · ${result} · ${inr(input.takenOut)} taken out`, ip }, session);
+    const span = cash.days > 1 ? `${cash.from} to ${input.day} (${String(cash.days)} days)` : input.day;
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(doc._id), entityName: `Day close ${input.day}`, text: `${actor.name} closed ${span} · counted ${inr(input.counted)} vs expected ${inr(cash.expected)} · ${result} · ${inr(input.takenOut)} taken out`, ip }, session);
     const saved = await DayCloseModel.findOne({ shopId: t.shopId, _id: doc._id }).session(session).lean();
     if (!saved) throw AppError.internal();
     return shape(saved);

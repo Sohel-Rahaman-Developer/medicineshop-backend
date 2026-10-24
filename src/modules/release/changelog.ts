@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.35',
+    date: '2026-10-25',
+    title: 'Day close: count the whole drawer once — forgotten days add up, the first close takes what was already there',
+    shop: [
+      'Forgot to close a day? Today’s close now adds up every day since the last close (“3 days together”) — count the whole drawer once; no need to keep earlier days’ money apart.',
+      'The very first close asks what was already in the drawer (change money, coins) before the first bill.',
+      'Closing after midnight: before 6 am it closes up to last night, and a button switches between last night and today.',
+      'The Day close help is clearer in English, हिन्दी and বাংলা, with a worked example (₹600 left last night + ₹444 cash today = ₹1,044 in the drawer).',
+    ],
+    admin: [],
+    api: ['Day close status and history carry from / days; POST /day-close takes opening on the first close only.'],
+  },
+  {
     version: '1.22.34',
     date: '2026-10-25',
     title: 'Alert copies to your accountant, a letter counter in Ask AI, and the last explanations in your language',
