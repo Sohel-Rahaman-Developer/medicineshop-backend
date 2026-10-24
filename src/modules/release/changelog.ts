@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.30',
+    date: '2026-10-24',
+    title: 'Your language for every explanation — second part: Sell',
+    shop: [
+      'The counter (POS), the cart, payment, price and discount, prescription, points, held bills, the barcode scanner, bills, sale returns and credit notes now explain themselves in the language chosen in My account or Settings.',
+      'Names, menus and buttons stay in English; the bill message to the customer stays in English.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.29',
     date: '2026-10-24',
     title: 'Your language for every explanation — first part: Buy',
