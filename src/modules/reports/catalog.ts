@@ -15,6 +15,7 @@ import { BatchModel } from '../stock/batch.model';
 import { expiryRange, NO_EXPIRY } from '../stock/stock.domain';
 import { MovementModel } from '../stock/movement.model';
 import { SupplierModel } from '../suppliers/supplier.model';
+import { StockTransferModel } from '../transfers/transfer.model';
 import { daybook, pnl, pnlByDay } from './pnl.service';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -34,6 +35,8 @@ export interface Params {
   from: Date;
   to: Date;
   month: string;
+  /** v1.25.3: every shop on one GSTIN together (GST reports only). */
+  shops?: Types.ObjectId[];
 }
 
 export interface Report {
@@ -362,7 +365,7 @@ const REPORTS: Report[] = [
     range: 'range',
     cols: [c('gstin', 'Supplier GSTIN'), c('supplier', 'Supplier'), c('invoices', 'Invoices', 'num'), c('taxable', 'Taxable', 'money'), c('tax', 'GST', 'money'), c('total', 'Total', 'money')],
     rows: async (t, p) => {
-      const rows = (await gstPurchases(t, p)).map((x) => ({ gstin: x.gstin || '—', supplier: x.supplier, invoices: x.invoices, taxable: x.taxable, tax: x.cgst + x.sgst, total: x.taxable + x.cgst + x.sgst }));
+      const rows = (await gstPurchases(t, p)).map((x) => ({ gstin: x.gstin || '—', supplier: x.supplier, invoices: x.invoices, taxable: x.taxable, tax: x.cgst + x.sgst + x.igst, total: x.taxable + x.cgst + x.sgst + x.igst }));
       return totalRow(rows, { gstin: 'Total', supplier: '' }, ['invoices', 'taxable', 'tax', 'total']);
     },
   },
@@ -454,11 +457,30 @@ async function scheduleRows(t: TenantContext, p: Params, schedule: string) {
 }
 
 /** HSN + rate from each line's snapshot (D62), returns taken out at their own line's rate. */
+export const shopsOf = (t: TenantContext, p: { shops?: Types.ObjectId[] }) => (p.shops ? { $in: p.shops } : t.shopId);
+
+/** Same state: CGST + SGST halves (as on the transfer's invoice); another state: IGST. */
+export const splitTax = (tax: number, intra: boolean) => (intra ? { cgst: Math.floor(tax / 2), sgst: tax - Math.floor(tax / 2), igst: 0 } : { cgst: 0, sgst: 0, igst: tax });
+type TaxAgg = { _id: { hsn: string; rate: number; intra?: boolean }; taxable: number; cgst: number; sgst: number; igst: number };
+const sameState = { $eq: ['$from.stateCode', '$to.stateCode'] };
+
+/** v1.25.1 tax invoices to the owner's shop on another GSTIN: the sender's outward supply (sent, not cancelled). */
+export async function transfersOut(t: TenantContext, p: Params) {
+  const rows = await StockTransferModel.aggregate<TaxAgg>([
+    { $match: { fromShopId: shopsOf(t, p), kind: 'invoice', status: { $ne: 'cancelled' }, sentAt: inRange(p) } },
+    { $unwind: '$lines' },
+    { $group: { _id: { hsn: '$lines.hsnCode', rate: '$lines.gstRate', intra: sameState }, taxable: { $sum: '$lines.value' }, cgst: { $sum: 0 }, sgst: { $sum: 0 }, igst: { $sum: '$lines.tax' } } },
+  ]);
+  return rows.map((x) => ({ ...x, ...splitTax(x.igst, x._id.intra === true) }));
+}
+
 export async function gstSales(t: TenantContext, p: Params) {
   const key = { hsn: '$lines.hsn', rate: '$lines.gstRate' };
-  const [s, r] = await Promise.all([
-    SaleModel.aggregate<{ _id: { hsn: string; rate: number }; taxable: number; cgst: number; sgst: number; igst: number }>([{ $match: { shopId: t.shopId, billDate: inRange(p), ...live } }, { $unwind: '$lines' }, { $group: { _id: key, taxable: { $sum: '$lines.taxableAmount' }, cgst: { $sum: '$lines.cgst' }, sgst: { $sum: '$lines.sgst' }, igst: { $sum: '$lines.igst' } } }]),
-    SaleReturnModel.aggregate<{ _id: { hsn: string; rate: number }; taxable: number; cgst: number; sgst: number; igst: number }>([{ $match: { shopId: t.shopId, returnDate: inRange(p) } }, { $unwind: '$lines' }, { $group: { _id: key, taxable: { $sum: '$lines.taxable' }, cgst: { $sum: '$lines.cgst' }, sgst: { $sum: '$lines.sgst' }, igst: { $sum: '$lines.igst' } } }]),
+  const sid = shopsOf(t, p);
+  const [s, r, tr] = await Promise.all([
+    SaleModel.aggregate<TaxAgg>([{ $match: { shopId: sid, billDate: inRange(p), ...live } }, { $unwind: '$lines' }, { $group: { _id: key, taxable: { $sum: '$lines.taxableAmount' }, cgst: { $sum: '$lines.cgst' }, sgst: { $sum: '$lines.sgst' }, igst: { $sum: '$lines.igst' } } }]),
+    SaleReturnModel.aggregate<TaxAgg>([{ $match: { shopId: sid, returnDate: inRange(p) } }, { $unwind: '$lines' }, { $group: { _id: key, taxable: { $sum: '$lines.taxable' }, cgst: { $sum: '$lines.cgst' }, sgst: { $sum: '$lines.sgst' }, igst: { $sum: '$lines.igst' } } }]),
+    transfersOut(t, p),
   ]);
   const m = new Map<string, { hsn: string; rate: number; taxable: number; cgst: number; sgst: number; igst: number }>();
   const add = (x: (typeof s)[number], sign: number) => {
@@ -471,18 +493,39 @@ export async function gstSales(t: TenantContext, p: Params) {
     m.set(k, v);
   };
   s.forEach((x) => { add(x, 1); });
+  tr.forEach((x) => { add(x, 1); });
   r.forEach((x) => { add(x, -1); });
   return [...m.values()].sort((a, b) => a.rate - b.rate || b.taxable - a.taxable);
 }
 
+type PurRow = { gstin: string; supplier: string; invoices: number; taxable: number; cgst: number; sgst: number; igst: number };
+
 export async function gstPurchases(t: TenantContext, p: Params) {
-  const g = await PurchaseModel.aggregate<{ _id: Types.ObjectId; supplier: string; invoices: number; taxable: number; cgst: number; sgst: number }>([
-    { $match: { shopId: t.shopId, status: 'active', invoiceDate: inRange(p) } },
-    { $group: { _id: '$supplierId', supplier: { $first: '$supplierName' }, invoices: { $sum: 1 }, taxable: { $sum: '$taxableAmount' }, cgst: { $sum: '$cgst' }, sgst: { $sum: '$sgst' } } },
-    { $sort: { taxable: -1 } },
+  const sid = shopsOf(t, p);
+  const [g, tr] = await Promise.all([
+    PurchaseModel.aggregate<{ _id: Types.ObjectId; supplier: string; invoices: number; taxable: number; cgst: number; sgst: number }>([
+      { $match: { shopId: sid, status: 'active', invoiceDate: inRange(p) } },
+      { $group: { _id: '$supplierId', supplier: { $first: '$supplierName' }, invoices: { $sum: 1 }, taxable: { $sum: '$taxableAmount' }, cgst: { $sum: '$cgst' }, sgst: { $sum: '$sgst' } } },
+    ]),
+    // v1.25.1 tax invoices from the owner's shop on another GSTIN, once received here.
+    StockTransferModel.aggregate<{ _id: { gstin: string; intra: boolean }; supplier: string; invoices: number; taxable: number; tax: number }>([
+      { $match: { toShopId: sid, kind: 'invoice', status: 'received', sentAt: inRange(p) } },
+      { $group: { _id: { gstin: '$from.gstin', intra: sameState }, supplier: { $first: '$from.name' }, invoices: { $sum: 1 }, taxable: { $sum: '$value' }, tax: { $sum: '$tax' } } },
+    ]),
   ]);
-  const gstin = new Map((await SupplierModel.find({ shopId: t.shopId, _id: { $in: g.map((x) => x._id) } }).select('gstin').lean()).map((x) => [String(x._id), x.gstin]));
-  return g.map((x) => ({ gstin: gstin.get(String(x._id)) ?? '', supplier: x.supplier, invoices: x.invoices, taxable: x.taxable, cgst: x.cgst, sgst: x.sgst }));
+  const gstin = new Map((await SupplierModel.find({ shopId: sid, _id: { $in: g.map((x) => x._id) } }).select('gstin').lean()).map((x) => [String(x._id), x.gstin]));
+  // Every shop keeps its own supplier records: on one GSTIN the same supplier GSTIN is one row.
+  const rows = new Map<string, PurRow>();
+  const put = (k: string, v: PurRow) => {
+    const o = rows.get(k);
+    rows.set(k, o ? { ...o, invoices: o.invoices + v.invoices, taxable: o.taxable + v.taxable, cgst: o.cgst + v.cgst, sgst: o.sgst + v.sgst, igst: o.igst + v.igst } : v);
+  };
+  for (const x of g) {
+    const gst = gstin.get(String(x._id)) ?? '';
+    put(gst ? `g:${gst}` : `s:${String(x._id)}`, { gstin: gst, supplier: x.supplier, invoices: x.invoices, taxable: x.taxable, cgst: x.cgst, sgst: x.sgst, igst: 0 });
+  }
+  for (const x of tr) put(`g:${x._id.gstin}`, { gstin: x._id.gstin, supplier: x.supplier, invoices: x.invoices, taxable: x.taxable, ...splitTax(x.tax, x._id.intra) });
+  return [...rows.values()].sort((a, b) => b.taxable - a.taxable);
 }
 
 export const reportByKey = (key: string) => REPORTS.find((r) => r.key === key);

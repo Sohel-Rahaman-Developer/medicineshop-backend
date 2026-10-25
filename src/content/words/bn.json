@@ -903,5 +903,8 @@
   "{productName} was deleted in the sending shop": "পাঠানো দোকানে {productName} মুছে ফেলা হয়েছে",
   "{name} has no category in the sending shop": "পাঠানো দোকানে {name}-এর category নেই",
   "Already received — it can’t be cancelled": "আগেই receive হয়ে গেছে — বাতিল করা যাবে না",
-  "This web address is for another shop. Open your own shop’s address, or the main MedBox24 site.": "এই web address অন্য একটা দোকানের। নিজের দোকানের address খুলুন, অথবা MedBox24-এর main site।"
+  "This web address is for another shop. Open your own shop’s address, or the main MedBox24 site.": "এই web address অন্য একটা দোকানের। নিজের দোকানের address খুলুন, অথবা MedBox24-এর main site।",
+  "Only the owner of two or more shops on this GSTIN sees them together": "এই GSTIN-এ দুই বা তার বেশি দোকানের মালিকই সেগুলো একসাথে দেখতে পারেন",
+  "Only the GST reports add up shops": "শুধু GST reports-ই দোকানগুলো যোগ করে",
+  "GST reports only": "শুধু GST reports"
 }

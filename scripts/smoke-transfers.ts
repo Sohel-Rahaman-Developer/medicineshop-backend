@@ -108,6 +108,37 @@ async function main() {
   check('…can’t send to Krishna’s branch → 422', (await other.post('/transfers', { clientRequestId: randomUUID(), toShopId: slt, lines: [{ batchId: String(new Types.ObjectId()), quantity: 1 }] })).status === 422);
   check('…nor read its paper → 404', (await other.raw('GET', `/transfers/${t1.id}/pdf`)).status === 404);
 
+  section('5. GST: shops on one GSTIN together; tax invoices between shops count (v1.25.3)');
+  interface Gst { scope: string; shared: { gstin: string; shops: { name: string }[] } | null; salesTaxable: number; outTax: number; inTax: number; b2b: { billNumber: string; gstin: string; taxable: number; igst: number }[]; purchases: { gstin: string; taxable: number; igst: number }[]; sales: { hsn: string; taxable: number }[] }
+  const month = new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 7);
+  const sltDolo = await ProductModel.findOne({ shopId: slt, nameLower: 'dolo 650 tablet' }).lean();
+  await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 2, unit: 'STRIP' }], payments: [{ mode: 'CASH', amount: 6000 }] });
+  const sold = await sltC.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: String(sltDolo?._id), quantity: 1, unit: 'STRIP' }], payments: [{ mode: 'CASH', amount: 3000 }] });
+  const gst = async (c: Client, scope?: string) => c.get(`/reports/gst?month=${month}${scope ? `&scope=${scope}` : ''}`);
+  const main1 = data<Gst>(await gst(owner));
+  const slt1 = data<Gst>(await gst(sltC));
+  check('the owner is told Salt Lake shares the GSTIN', sold.status === 201 && main1.scope === 'shop' && main1.shared?.gstin === '19ABCDE1234F1Z5' && main1.shared.shops.map((s) => s.name).join() === 'Krishna Medical,Krishna Salt Lake', code(sold));
+  const toPatna = main1.b2b.find((b) => b.billNumber === t2.number);
+  check('the invoice to Patna is a B2B supply of the main shop: ₹19.50 + IGST ₹2.34', toPatna?.gstin === '10ABCDE1234F1Z7' && toPatna.taxable === 1950 && toPatna.igst === 234, JSON.stringify(main1.b2b));
+  check('…and in its HSN 30049099 sales', (main1.sales.find((s) => s.hsn === '30049099')?.taxable ?? 0) > 1950);
+  const both = data<Gst>(await gst(owner, 'gstin'));
+  check('together: sales and output tax of both shops add up', both.scope === 'gstin' && both.salesTaxable === main1.salesTaxable + slt1.salesTaxable && both.outTax === main1.outTax + slt1.outTax && slt1.salesTaxable > 0, `${String(both.salesTaxable)} = ${String(main1.salesTaxable)} + ${String(slt1.salesTaxable)}`);
+  check('…the challan to Salt Lake is not a sale anywhere', !both.b2b.some((b) => b.billNumber === t1.number));
+  const patna = data<Gst>(await gst(patC));
+  const fromMain = patna.purchases.find((x) => x.gstin === '19ABCDE1234F1Z5');
+  check('Patna: the received invoice is input tax, IGST ₹2.34', fromMain?.taxable === 1950 && fromMain.igst === 234 && patna.inTax === 234 && patna.shared === null, JSON.stringify(patna.purchases));
+  check('Patna is alone on its GSTIN → together is 403', (await gst(patC, 'gstin')).status === 403);
+  await owner.post('/staff', { email: 'anil@trf1.test', name: 'Anil', roleId: roles.find((r) => r.key === 'accountant')?.id });
+  const acct = await h.signIn('anil@trf1.test');
+  await acct.post(`/invitations/${data<{ id: string }[]>(await acct.get('/invitations'))[0]?.id ?? ''}/accept`, { name: 'Anil' });
+  acct.shopId = mainId;
+  const acctGst = await gst(acct);
+  check('the accountant sees GST for this shop only (not told of the others), together → 403', acctGst.status === 200 && data<Gst>(acctGst).shared === null && (await gst(acct, 'gstin')).status === 403, code(acctGst));
+  const today = new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
+  const xl = await owner.raw('GET', `/reports/r/gst-sales/export?from=${month}-01&to=${today}&format=xlsx&scope=gstin`);
+  check('the Excel for both shops downloads', xl.status === 200 && xl.body.subarray(0, 2).toString() === 'PK', code(xl));
+  check('adding up shops in a non-GST report → 422', (await owner.raw('GET', `/reports/r/stock-on-hand/export?format=xlsx&scope=gstin`)).status === 422);
+
   await h.close();
   finish();
 }

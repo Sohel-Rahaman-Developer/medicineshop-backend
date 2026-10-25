@@ -9,6 +9,7 @@ import { AppError } from '../../core/errors';
 import { day, dayTime, pdfTable, rupees, sendFile, xlsx, type Column } from '../../core/export';
 import { reportByKey, reportList, type Cell, type Col, type Params, type Row } from './catalog';
 import { analytics } from './analytics.service';
+import { gstinFamily } from '../branches/branches.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
 
@@ -19,7 +20,9 @@ const rangeSchema = z
   .refine((v) => v.to.getTime() - v.from.getTime() <= 400 * 24 * 60 * 60 * 1000, { message: 'At most about a year at a time', path: ['to'] });
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-10');
 const monthSchema = z.object({ month }).strict();
-const reportQuery = z.object({ from: istDay.optional(), to: istDay.optional(), month: month.optional(), format: z.enum(['xlsx', 'pdf']).optional() }).strict();
+const scope = z.enum(['shop', 'gstin']).optional();
+const gstQuery = z.object({ month, scope }).strict();
+const reportQuery = z.object({ from: istDay.optional(), to: istDay.optional(), month: month.optional(), format: z.enum(['xlsx', 'pdf']).optional(), scope }).strict();
 const keyParams = z.object({ key: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict();
 
 const IST = 5.5 * 60 * 60 * 1000;
@@ -57,6 +60,13 @@ reportsRouter.use(shopAuth, requirePermission('reports', 'view'));
 // D87: GST stays in every plan (the CA needs it); P&L, the report centre and analytics are Pro.
 const pnlPlan = needFeature('pnl');
 const gstKeys = new Set(['gst-sales', 'gst-purchase']);
+
+/** v1.25.3: "all shops on this GSTIN" — the owner's shops that share it; anyone else only ever sees this shop. */
+async function together(req: Request, want: 'shop' | 'gstin' | undefined) {
+  const fam = await gstinFamily(tenantOf(req), req.auth?.userId ?? '');
+  if (want === 'gstin' && !fam.shops.length) throw AppError.forbidden('Only the owner of two or more shops on this GSTIN sees them together');
+  return { fam, shops: want === 'gstin' ? fam.shops.map((s) => s.id) : undefined };
+}
 const reportPlan: RequestHandler = (req, res, next) => {
   if (gstKeys.has((req.params as { key?: string }).key ?? '')) {
     next();
@@ -112,10 +122,13 @@ reportsRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const r = reportByKey((req.params as { key: string }).key);
     if (!r) throw AppError.notFound('Report not found');
-    const q = req.query as unknown as { from?: Date; to?: Date; month?: string; format?: 'xlsx' | 'pdf' };
-    const p = paramsOf(r.range, q);
+    const q = req.query as unknown as { from?: Date; to?: Date; month?: string; format?: 'xlsx' | 'pdf'; scope?: 'shop' | 'gstin' };
+    if (q.scope === 'gstin' && !gstKeys.has(r.key)) throw AppError.validation('Only the GST reports add up shops', [{ field: 'query.scope', message: 'GST reports only' }]);
+    const all = await together(req, q.scope);
+    const p = { ...paramsOf(r.range, q), shops: all.shops };
     const rows = await r.rows(tenantOf(req), p);
-    const sub = r.range === 'none' ? `As of ${day(new Date())}` : r.range === 'month' ? p.month : `${day(p.from)} – ${day(p.to)}`;
+    const span = r.range === 'none' ? `As of ${day(new Date())}` : r.range === 'month' ? p.month : `${day(p.from)} – ${day(p.to)}`;
+    const sub = all.shops ? `${span} · GSTIN ${all.fam.gstin}, ${String(all.shops.length)} shops` : span;
     if (q.format === 'pdf') {
       const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.label, num: c.kind === 'money' || c.kind === 'num' || c.kind === 'pct', get: (row) => cellText(c, row[c.key]) }));
       sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title: r.name, sub, columns, rows, landscape: r.cols.length > 5 }), `${r.name} ${sub}`, 'pdf');
@@ -129,9 +142,12 @@ reportsRouter.get(
 // S62 GST: a month for the CA, and the same as a 3-sheet workbook.
 reportsRouter.get(
   '/gst',
-  validate({ query: monthSchema }),
+  validate({ query: gstQuery }),
   asyncHandler(async (req: Request, res: Response) => {
-    fetched(res, await gstMonth(tenantOf(req), (req.query as { month: string }).month));
+    const q = req.query as { month: string; scope?: 'shop' | 'gstin' };
+    const all = await together(req, q.scope);
+    const shared = all.fam.shops.length ? { gstin: all.fam.gstin, shops: all.fam.shops.map((s) => ({ id: String(s.id), name: s.name })) } : null;
+    fetched(res, { ...(await gstMonth(tenantOf(req), q.month, new Date(), all.shops)), scope: all.shops ? 'gstin' : 'shop', shared });
   }),
 );
 

@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.25.3',
+    date: '2026-10-25',
+    title: 'One GST return for shops on one GSTIN',
+    shop: [
+      'Insights → GST: when your main shop and branches bill on the same GSTIN, the owner sees “This shop” or “All shops on this GSTIN” — sales, B2B bills, purchases and the net added up for one return. Stock moved between them is not a sale.',
+      'Tax invoices for stock sent to your shop on another GSTIN now count in GST: a B2B sale for the sender, input tax for the shop that received it.',
+      'The GST Excel downloads for all the shops together too. IGST shows wherever there is any.',
+    ],
+    admin: [],
+    api: ['GET /reports/gst?scope=gstin and /reports/r/gst-sales|gst-purchase/export?scope=gstin (owner of two or more shops on the GSTIN; 403 otherwise); /reports/gst carries scope and shared; purchases carry igst.'],
+  },
+  {
     version: '1.25.2',
     date: '2026-10-25',
     title: 'Your web address is yours alone',

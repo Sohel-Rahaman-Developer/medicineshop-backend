@@ -54,6 +54,16 @@ export async function groupShops(shopId: Types.ObjectId) {
   return ShopModel.find({ $or: [{ _id: mainId }, { mainShopId: mainId }], ownerUserId: here.ownerUserId, status: 'active' }).select('name address phone gstin drugLicenseNumber').sort({ createdAt: 1 }).lean();
 }
 
+/** v1.25.3: the owner's shops that bill on this shop's GSTIN (one GST return) — empty unless there are two or more. */
+export async function gstinFamily(t: TenantContext, userId: string) {
+  if (!t.isOwner) return { gstin: '', shops: [] };
+  const here = await ShopModel.findById(t.shopId).select('gstin').lean();
+  const gstin = here?.gstin ?? '';
+  if (!gstin) return { gstin, shops: [] };
+  const same = (await groupOf(t.shopId, new Types.ObjectId(userId))).shops.filter((s) => s.gstin === gstin);
+  return { gstin, shops: same.length > 1 ? same.map((s) => ({ id: s._id, name: s.name })) : [] };
+}
+
 function ownerOnly(t: TenantContext) {
   if (!t.isOwner) throw AppError.forbidden('Only the owner sees and opens branches');
 }
