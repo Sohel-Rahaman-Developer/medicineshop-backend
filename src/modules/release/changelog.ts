@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.24.1',
+    date: '2026-10-25',
+    title: 'Pay for your web address in the app',
+    shop: [
+      'Settings → Web address: “Keep it on” — pay for 1 month or 1 year right there (UPI, card or netbanking). The new time starts after the time you have now, so no day is lost.',
+      'Every payment comes with a tax invoice to download; the bell reminds the owner 7 days before the address stops.',
+    ],
+    admin: ['Web addresses: set a month and a year price, record cash or UPI paid by hand (with the UTR or receipt), and see each address’s payments with their invoice numbers.'],
+    api: ['POST /web-address/order, /verify, /test-pay; GET /web-address/payments/:id/invoice; POST /admin/web-addresses/:id/payment; the Razorpay webhook and the hourly check pay these orders too.'],
+  },
+  {
     version: '1.24.0',
     date: '2026-10-25',
     title: 'Your shop’s own web address',

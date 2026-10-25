@@ -861,5 +861,16 @@
   "Your web address {url} is ready": "आपका web address {url} तैयार है",
   "Your team can open the app at this address. Share it with them.": "आपकी team इस पते पर app खोल सकती है। उन्हें भेज दीजिए।",
   "MedBox24 did not approve {url}": "MedBox24 ने {url} मंज़ूर नहीं किया",
-  "Your web address {url} is stopped": "आपका web address {url} बंद कर दिया गया है"
+  "Your web address {url} is stopped": "आपका web address {url} बंद कर दिया गया है",
+  "{url} is paused — pay to turn it on": "{url} रुका हुआ है — चालू करने के लिए payment करें",
+  "{url} stops today": "{url} आज बंद हो जाएगा",
+  "{url} stops in 1 day": "{url} 1 दिन में बंद हो जाएगा",
+  "{url} stops in {n} days": "{url} {n} दिन में बंद हो जाएगा",
+  "On {ends}. Pay for a month or a year to keep it.": "{ends} को। इसे चालू रखने के लिए एक महीने या एक साल का payment करें।",
+  "Your team signs in at medbox24.in meanwhile.": "तब तक आपकी team medbox24.in पर sign in करे।",
+  "Your web address is not approved yet": "आपका web address अभी approve नहीं हुआ है",
+  "MedBox24 stopped this address — call MedBox24": "MedBox24 ने यह address रोक दिया है — MedBox24 को call करें",
+  "Renew your plan first — the web address works with a running plan": "पहले अपना plan renew करें — web address चालू plan के साथ ही चलता है",
+  "Choose a period": "अवधि चुनें",
+  "Online payment is off — MedBox24 will call you": "Online payment बंद है — MedBox24 आपको call करेगा"
 }

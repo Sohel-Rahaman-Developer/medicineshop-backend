@@ -1,11 +1,14 @@
 // D94 checks: a shop asks for <name>.medbox24.in, MedBox24 approves; it opens in the trial, after it only when given free
-// (or paid); the API trusts a live address as the shop app; a name that lapsed 60 days ago can go to another shop.
+// (or paid — Razorpay or cash, v1.24.1); the API trusts a live address as the shop app; a name that lapsed 60 days ago can go to another shop.
+import { createHmac } from 'node:crypto';
+import { Types } from 'mongoose';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
 const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error?.message ?? ''}`;
 const DAY = 86_400_000;
+const sign = (body: string) => createHmac('sha256', 'smoke-razorpay-webhook-secret').update(body).digest('hex');
 
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
@@ -14,7 +17,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 
-interface Mine { address: { id: string; name: string; url: string; status: string; live: boolean; reason: string; freeUntil: string | null } | null; price: number | null; domain: string }
+interface Mine { address: { id: string; name: string; url: string; status: string; live: boolean; reason: string; freeUntil: string | null; paidUntil: string | null } | null; price: number | null; yearPrice: number | null; domain: string; payments: unknown[]; payMode: string }
 interface Row { id: string; name: string; status: string; live: boolean; notes: { text: string }[]; owner: { email: string }; shop: { name: string } }
 interface Pub { live: boolean; shopName: string | null }
 
@@ -129,6 +132,66 @@ async function main() {
   check('unknown fields → 422', extra.status === 422, code(extra));
   check('a shop never sees another’s request', (await mine(a)).address === null);
   check('public: an unknown or bad name is simply not live', !(await pub('no-such-shop')).live && !(await pub('--')).live);
+
+  section('7. Paying for the address (v1.24.1)');
+  const { WebAddressPaymentModel } = await import('../src/modules/webaddress/web-address.model.js');
+  const { endingOf } = await import('../src/modules/webaddress/web-address.service.js');
+  const c = await shop('ganga@web3.test', 'Ganga Pharmacy');
+  await c.post('/web-address', { name: 'ganga' });
+  const g = await rowOf('ganga');
+  await root.post(`/admin/web-addresses/${g?.id ?? ''}/decide`, { action: 'approve', reason });
+  const yp = await root.put('/admin/web-addresses/price', { price: 9900, yearPrice: 99_000, reason: 'Year price from today' });
+  check('MedBox24 sets ₹99 a month and ₹990 a year', data<{ price: number; yearPrice: number }>(yp).yearPrice === 99_000 && (await mine(c)).yearPrice === 99_000, code(yp));
+  check('a year price alone is not kept', data<{ yearPrice: number | null }>(await root.put('/admin/web-addresses/price', { price: null, yearPrice: 5000, reason: 'Checking the rule' })).yearPrice === null);
+  await root.put('/admin/web-addresses/price', { price: 9900, yearPrice: 99_000, reason: 'Year price from today' });
+  check('a shop without an approved address can’t pay → 409', (await b.post('/web-address/order', { period: 'month' })).status === 409);
+  check('an unknown period → 422', (await c.post('/web-address/order', { period: 'week' })).status === 422);
+  const ord = await c.post('/web-address/order', { period: 'month' });
+  const o1 = data<{ orderId: string; amount: number; label: string }>(ord);
+  check('order a month: ₹99, GST ₹15.10 inside', ord.status === 201 && o1.amount === 9900 && (await WebAddressPaymentModel.findOne({ razorpayOrderId: o1.orderId }).lean())?.gst === 1510 && o1.label === 'ganga.localhost:3000 · 1 month', code(ord));
+  const trialEnd = (await SubscriptionModel.findOne({ shopId: c.shopId }).lean())?.endDate ?? new Date();
+  const p1 = await c.post('/web-address/test-pay', { orderId: o1.orderId });
+  const p1d = data<{ id: string; invoiceNumber: string; periodStart: string; periodEnd: string }>(p1);
+  check('paid in the trial → paid time starts when the trial ends, 30 days', p1.status === 200 && new Date(p1d.periodStart).getTime() === trialEnd.getTime() && new Date(p1d.periodEnd).getTime() === trialEnd.getTime() + 30 * DAY, code(p1));
+  check('…with a tax invoice number', /^MS-\d{4}-\d{2}-\d{5}$/.test(p1d.invoiceNumber));
+  check('the same payment again → replayed, no more time', data<{ replayed: boolean }>(await c.post('/web-address/test-pay', { orderId: o1.orderId })).replayed && (await mine(c)).address?.paidUntil === p1d.periodEnd);
+  const pdf = await c.raw('GET', `/web-address/payments/${p1d.id}/invoice`);
+  check('the invoice downloads as a PDF', pdf.status === 200 && pdf.text.startsWith('%PDF'));
+  await SubscriptionModel.updateOne({ shopId: c.shopId }, { $set: { planCode: 'pro', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
+  check('trial over, add-on paid → still live', (await pub('ganga')).live);
+
+  const o2 = data<{ orderId: string }>(await c.post('/web-address/order', { period: 'year' }));
+  const hook = h.client({ origin: null });
+  const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_WEBYEAR1', order_id: o2.orderId, amount: 99_000, method: 'upi' } } } });
+  const w1 = await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign(raw), 'x-razorpay-event-id': 'evt_web_1' });
+  const afterYear = (await mine(c)).address?.paidUntil ?? '';
+  check('the webhook pays a year → 365 more days after the month', w1.status === 200 && new Date(afterYear).getTime() === new Date(p1d.periodEnd).getTime() + 365 * DAY, code(w1));
+  await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign(raw), 'x-razorpay-event-id': 'evt_web_2' });
+  check('the same payment in another event → no second year', (await mine(c)).address?.paidUntil === afterYear);
+  const o3 = data<{ orderId: string }>(await c.post('/web-address/order', { period: 'month' }));
+  const rawShort = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_WEBSHORT', order_id: o3.orderId, amount: 100, method: 'upi' } } } });
+  await hook.raw('POST', '/webhooks/razorpay', rawShort, { 'x-razorpay-signature': sign(rawShort), 'x-razorpay-event-id': 'evt_web_3' });
+  check('₹1 paid on a ₹99 order → failed, no time', (await WebAddressPaymentModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await mine(c)).address?.paidUntil === afterYear);
+
+  check('cash by hand needs the UTR / receipt → 422', (await root.post(`/admin/web-addresses/${g?.id ?? ''}/payment`, { period: 'month', reference: '', reason })).status === 422);
+  const man = await root.post(`/admin/web-addresses/${g?.id ?? ''}/payment`, { period: 'month', reference: 'CASH-0412', reason: 'Owner paid cash at the shop' });
+  const manRow = data<{ paidUntil: string; payments: { source: string; reference: string }[] }>(man);
+  check('MedBox24 records cash → 30 more days, on the admin row', man.status === 200 && new Date(manRow.paidUntil).getTime() === new Date(afterYear).getTime() + 30 * DAY && manRow.payments[0]?.source === 'manual' && manRow.payments[0].reference === 'CASH-0412', code(man));
+  const cm = await mine(c);
+  check('the shop sees 3 paid payments, online in test mode', cm.payments.length === 3 && cm.payMode === 'test');
+  check('another shop never sees them', (await mine(b)).payments.length === 0);
+
+  await WebAddressModel.updateOne({ shopId: c.shopId, slug: 'ganga' }, { $set: { paidUntil: new Date(Date.now() + 3 * DAY - 60_000) } });
+  const soon = await endingOf(new Types.ObjectId(c.shopId), new Date());
+  check('3 days left → the owner’s bell says so', soon?.left === 3 && soon.live);
+  await WebAddressModel.updateOne({ shopId: c.shopId, slug: 'ganga' }, { $set: { paidUntil: new Date(Date.now() - DAY) } });
+  const gone = await endingOf(new Types.ObjectId(c.shopId), new Date());
+  check('ran out → paused, pay to turn it on', gone?.live === false && !(await pub('ganga')).live);
+  const back = data<{ orderId: string }>(await c.post('/web-address/order', { period: 'month' }));
+  await c.post('/web-address/test-pay', { orderId: back.orderId });
+  check('paid again after it ran out → 30 days from today, live again', (await pub('ganga')).live && Math.abs(new Date((await mine(c)).address?.paidUntil ?? 0).getTime() - (Date.now() + 30 * DAY)) < 60_000);
+  await root.post(`/admin/web-addresses/${g?.id ?? ''}/decide`, { action: 'stop', reason: 'Owner asked to stop' });
+  check('a stopped address can’t be paid for → 409', (await c.post('/web-address/order', { period: 'month' })).status === 409);
 
   await h.close();
   finish();

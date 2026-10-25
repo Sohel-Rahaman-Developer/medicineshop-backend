@@ -37,6 +37,8 @@ import * as demo from '../demo/demo.service';
 import { FEATURES, TIERS } from '../subscription/features';
 import { allPlans } from '../subscription/subscription.service';
 import * as web from '../webaddress/web-address.service';
+import * as webPay from '../webaddress/web-address-pay';
+import { ADDRESS_PERIODS, type AddressPeriod } from '../webaddress/web-address.model';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -188,9 +190,17 @@ adminRouter.post('/web-addresses/:id/free', moneyRole, validate({ params: addres
 adminRouter.post('/web-addresses/:id/note', shopsRole, validate({ params: addressId, body: z.object({ text: z.string().trim().min(2, 'Write the note').max(300) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   sent(res, await web.addNote(adminOf(req), (req.params as { id: string }).id, (req.body as { text: string }).text), 'Note saved');
 }));
-adminRouter.put('/web-addresses/price', moneyRole, validate({ body: z.object({ price: z.number().int().min(100).max(10_000_000).nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
-  const b = req.body as { price: number | null; reason: string };
-  sent(res, { price: await web.setPrice(adminOf(req), b.price, b.reason, req.ip) }, 'Price saved');
+const addressPrice = z.number().int().min(100).max(10_000_000).nullable();
+adminRouter.put('/web-addresses/price', moneyRole, validate({ body: z.object({ price: addressPrice, yearPrice: addressPrice.default(null), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { price: number | null; yearPrice: number | null; reason: string };
+  const p = await web.setPrice(adminOf(req), b.price, b.yearPrice, b.reason, req.ip);
+  sent(res, { price: p.month, yearPrice: p.year }, 'Price saved');
+}));
+adminRouter.post('/web-addresses/:id/payment', moneyRole, validate({ params: addressId, body: z.object({ period: z.enum(ADDRESS_PERIODS), reference: z.string().trim().min(3, 'Type the UTR or receipt number').max(80), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { period: AddressPeriod; reference: string; reason: string };
+  const id = (req.params as { id: string }).id;
+  const p = await webPay.recordAddressManual(adminOf(req), id, b.period, b.reference, b.reason, req.ip);
+  sent(res, (await web.adminList()).rows.find((x) => x.id === id), `Payment recorded — invoice ${p.invoiceNumber ?? ''}`);
 }));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));

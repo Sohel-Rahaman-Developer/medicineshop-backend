@@ -28,6 +28,7 @@ import { afterPaid, discountFor, withOffer, type Offer } from '../referral/refer
 const DAY = 24 * 60 * 60 * 1000;
 // Loaded when used: the coins module builds its invoices from this one.
 const coins = () => import('../ai/coins.js');
+const addressPay = () => import('../webaddress/web-address-pay.js');
 const daysBetween = (a: Date, b: Date) => Math.ceil((b.getTime() - a.getTime()) / DAY);
 
 const shapePlan = (p: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean; tier: string; features?: string[] | null }) => ({ code: p.code, name: p.name, price: p.price, durationDays: p.durationDays, maxUsers: p.maxUsers, perMonth: Math.round((p.price * 30) / p.durationDays), tier: p.tier as Tier, features: (p.features ?? allFeatures()) as Feature[], isActive: p.isActive });
@@ -258,6 +259,19 @@ export async function webhook(raw: string, signature: string, eventId: string) {
         throw err;
       });
       result = 'error' in r ? `error: ${r.error}` : r.replayed ? 'already paid' : 'tokens added';
+    }
+  } else if ((type === 'payment.captured' || type === 'order.paid' || type === 'payment.failed') && e?.order_id && (await (await addressPay()).isAddressOrder(e.order_id))) {
+    // v1.24.1: the web address add-on — its own paid time, same idempotency.
+    const w = await addressPay();
+    if (type === 'payment.failed') {
+      await w.addressOrderFailed(e.order_id, e.error_description ?? 'Payment failed');
+      result = 'failed';
+    } else if (e.id) {
+      const r = await w.addressPaid(e.order_id, e.id, typeof e.amount === 'number' ? e.amount : null, e.method ?? 'razorpay', null).catch((err: unknown) => {
+        if (err instanceof AppError) return { error: err.message };
+        throw err;
+      });
+      result = 'error' in r ? `error: ${r.error}` : r.replayed ? 'already paid' : 'web address paid';
     }
   } else if ((type === 'payment.captured' || type === 'order.paid') && e?.order_id && e.id && !(await SubscriptionPaymentModel.exists({ razorpayOrderId: e.order_id }))) {
     // Autopay charges carry Razorpay's own order ids; they are paid through subscription.charged.

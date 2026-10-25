@@ -86,6 +86,8 @@ const platformSchema = new Schema(
     maintenance: { on: { type: Boolean, default: false }, message: { type: String, default: '' } },
     /** D94: the web address add-on, paise a month after the trial; unset = the team tells the price on the call. */
     webAddressPrice: { type: Number },
+    /** v1.24.1: a year at once, paise; unset = only monthly is sold. */
+    webAddressYearPrice: { type: Number },
     updatedBy: { type: String },
   },
   { timestamps: true, versionKey: false },

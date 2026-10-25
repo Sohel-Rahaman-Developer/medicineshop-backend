@@ -129,11 +129,13 @@ async function main() {
     }
   };
   const { WebAddressModel } = await import('../src/modules/webaddress/web-address.model.js');
-  /** Web address suite (D94): the named shop asks for a name; approve: MedBox24 already said yes. */
-  const seedWeb = async (b: { shopName?: string; name?: string; approve?: boolean }) => {
+  const { PlatformSettingsModel } = await import('../src/modules/admin/admin.model.js');
+  /** Web address suite (D94): the named shop asks for a name; approve: MedBox24 already said yes; price / yearPrice: the add-on's. */
+  const seedWeb = async (b: { shopName?: string; name?: string; approve?: boolean; price?: number; yearPrice?: number }) => {
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop || !b.name) throw new Error('shop or name missing');
     await WebAddressModel.updateOne({ shopId: shop._id, status: { $in: ['requested', 'active', 'stopped'] } }, { $set: { slug: b.name, status: b.approve ? 'active' : 'requested', requestedAt: new Date(), requestedByName: 'Shop Owner' } }, { upsert: true });
+    if (b.price) await PlatformSettingsModel.updateOne({ _id: 'platform' }, { $set: { webAddressPrice: b.price, ...(b.yearPrice ? { webAddressYearPrice: b.yearPrice } : {}) } }, { upsert: true });
   };
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
@@ -145,7 +147,7 @@ async function main() {
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean };
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number };
       if (req.url === '/mail') {
         lastMail(body).then(
           (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),

@@ -13,7 +13,7 @@ import { logoPathOf } from '../shops/shop-logo';
 import { SubscriptionModel, statusAt, type SubscriptionStatus } from '../subscription/subscription.model';
 import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
-import { WebAddressModel, type AddressStatus } from './web-address.model';
+import { WebAddressModel, WebAddressPaymentModel, type AddressStatus } from './web-address.model';
 
 const DAY = 86_400_000;
 const ALL = { crossTenant: true } as const;
@@ -59,7 +59,7 @@ function lastLiveOf(r: Rec, sub: Sub): Date | null {
   return ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))) : null;
 }
 
-async function stateOf(r: Rec, now = new Date()) {
+export async function stateOf(r: Rec, now = new Date()) {
   const [shop, sub] = await Promise.all([ShopModel.findById(r.shopId).select('name status').lean(), SubscriptionModel.findOne({ shopId: r.shopId }).select('status planCode endDate').lean()]);
   return { shop, sub, live: liveAt(r, shop?.status ?? 'closed', sub, now), lastLive: lastLiveOf(r, sub) };
 }
@@ -75,8 +75,9 @@ async function holderOf(slug: string, shopId: Types.ObjectId, now: Date) {
   return since && now.getTime() - since.getTime() > KEEP_DAYS * DAY ? { ...r, lapsed: true as const } : r;
 }
 
-export async function price(): Promise<number | null> {
-  return (await PlatformSettingsModel.findById('platform').select('webAddressPrice').lean())?.webAddressPrice ?? null;
+export async function prices(): Promise<{ month: number | null; year: number | null }> {
+  const s = await PlatformSettingsModel.findById('platform').select('webAddressPrice webAddressYearPrice').lean();
+  return { month: s?.webAddressPrice ?? null, year: s?.webAddressPrice ? (s.webAddressYearPrice ?? null) : null };
 }
 
 async function shapeMine(r: Rec & { reason?: string; requestedAt: Date }, now: Date) {
@@ -87,7 +88,8 @@ async function shapeMine(r: Rec & { reason?: string; requestedAt: Date }, now: D
 /** Settings → Web address: the shop's address (or its last answer), the price and the domain it sits under. */
 export async function mine(t: TenantContext, now = new Date()) {
   const r = await WebAddressModel.findOne({ shopId: t.shopId, status: { $ne: 'released' } }).sort({ requestedAt: -1 }).lean<Rec & { reason?: string; requestedAt: Date }>();
-  return { address: r ? await shapeMine(r, now) : null, price: await price(), domain: base.host };
+  const p = await prices();
+  return { address: r ? await shapeMine(r, now) : null, price: p.month, yearPrice: p.year, domain: base.host };
 }
 
 const clean = (name: string) => name.trim().toLowerCase();
@@ -136,8 +138,11 @@ export async function adminList(now = new Date()) {
   const shops = await ShopModel.find({ _id: { $in: rows.map((r) => r.shopId) } }, null, ALL).select('name phone address.city ownerUserId status').lean();
   const owners = await UserModel.find({ _id: { $in: shops.map((s) => s.ownerUserId) } }).select('name email').lean();
   const subs = await SubscriptionModel.find({ shopId: { $in: rows.map((r) => r.shopId) } }, null, ALL).select('shopId status planCode endDate').lean();
+  const pays = await WebAddressPaymentModel.find({ addressId: { $in: rows.map((r) => r._id) }, status: 'paid' }).select('addressId period amount invoiceNumber periodEnd source reference paidAt').sort({ createdAt: -1 }).limit(1000).lean();
+  const p = await prices();
   return {
-    price: await price(),
+    price: p.month,
+    yearPrice: p.year,
     domain: base.host,
     rows: rows.map((r) => {
       const shop = shops.find((s) => s._id.equals(r.shopId));
@@ -160,6 +165,7 @@ export async function adminList(now = new Date()) {
         notes: r.notes.map((n) => ({ text: n.text, byName: n.byName, at: n.at })),
         shop: { id: String(r.shopId), name: shop?.name ?? '', city: shop?.address?.city ?? '', phone: shop?.phone ?? '' },
         owner: { name: owner?.name ?? '', email: owner?.email ?? '' },
+        payments: pays.filter((x) => x.addressId.equals(r._id)).slice(0, 5).map((x) => ({ period: x.period, amount: x.amount, invoiceNumber: x.invoiceNumber ?? '', paidUntil: x.periodEnd ?? null, source: x.source, reference: x.reference ?? '', paidAt: x.paidAt ?? null })),
       };
     }),
   };
@@ -211,11 +217,21 @@ export async function addNote(a: AdminActor, id: string, text: string) {
   return (await adminList()).rows.find((x) => x.id === id);
 }
 
-export async function setPrice(a: AdminActor, amount: number | null, reason: string, ip?: string) {
-  const before = await price();
-  await PlatformSettingsModel.updateOne({ _id: 'platform' }, amount === null ? { $unset: { webAddressPrice: 1 } } : { $set: { webAddressPrice: amount } }, { upsert: true });
-  await log(a, 'web_address_price', reason, `set the web address price ${before === null ? 'none' : inr(before)} → ${amount === null ? 'none' : inr(amount)} a month`, undefined, undefined, ip);
-  return price();
+const money = (p: number | null) => (p === null ? 'none' : inr(p));
+
+/** A month's price, and a year's (only sold with a monthly price beside it). */
+export async function setPrice(a: AdminActor, month: number | null, year: number | null, reason: string, ip?: string) {
+  const before = await prices();
+  const y = month === null ? null : year;
+  const set: Record<string, number> = {};
+  const unset: Record<string, 1> = {};
+  if (month === null) unset.webAddressPrice = 1;
+  else set.webAddressPrice = month;
+  if (y === null) unset.webAddressYearPrice = 1;
+  else set.webAddressYearPrice = y;
+  await PlatformSettingsModel.updateOne({ _id: 'platform' }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) }, { upsert: true });
+  await log(a, 'web_address_price', reason, `set the web address price ${money(before.month)} → ${money(month)} a month, ${money(before.year)} → ${money(y)} a year`, undefined, undefined, ip);
+  return prices();
 }
 
 /** The address as anyone sees it: whether it opens, and whose it is (name and logo for the sign-in page). */
@@ -225,6 +241,18 @@ export async function publicAddress(slug: string, now = new Date()) {
   const s = await stateOf(r, now);
   if (!s.live) return { live: false, shopName: null, logo: null };
   return { live: true, shopName: s.shop?.name ?? '', logo: await logoPathOf(r.shopId) };
+}
+
+/** The owner's bell: the address stops within 7 days, or stopped (less than 60 days ago) for want of the add-on. */
+export async function endingOf(shopId: Types.ObjectId, now = new Date()) {
+  const r = await WebAddressModel.findOne({ shopId, status: 'active' }).lean<Rec>();
+  if (!r || (await prices()).month === null) return null;
+  const s = await stateOf(r, now);
+  const end = s.lastLive ?? r.decidedAt ?? null;
+  if (!end) return null;
+  const left = Math.ceil((end.getTime() - now.getTime()) / DAY);
+  if (s.live ? left > 7 : left > 0 || -left > KEEP_DAYS) return null;
+  return { url: addressUrl(r.slug), ends: end, left: Math.max(0, left), live: s.live };
 }
 
 // The API trusts a live address as one of its own apps (CORS, CSRF). Answers are kept 30 seconds per name.

@@ -5,6 +5,7 @@ import { auditSettled, charge, settleRefund } from './autopay';
 import { AutopayModel, SubscriptionPaymentModel } from './billing.model';
 import { markPaid } from './subscription.service';
 import { gateway } from './gateway';
+import { addressPaid, openOrders } from '../webaddress/web-address-pay';
 
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
@@ -28,6 +29,14 @@ export async function reconcile(now = new Date()) {
     const paid = ((await orderPayments(o.razorpayOrderId).catch(quiet)) ?? []).find((x) => x.status === 'captured');
     if (!paid) continue;
     const r = await markPaid(o.razorpayOrderId, paid.id, paid.amount, paid.method ?? 'razorpay', null, now).catch(quiet);
+    if (r && !r.replayed) out.orders++;
+  }
+
+  // The web address add-on, the same way.
+  for (const o of await openOrders(now)) {
+    const paid = ((await orderPayments(o.razorpayOrderId).catch(quiet)) ?? []).find((x) => x.status === 'captured');
+    if (!paid) continue;
+    const r = await addressPaid(o.razorpayOrderId, paid.id, paid.amount, paid.method ?? 'razorpay', null, now).catch(quiet);
     if (r && !r.replayed) out.orders++;
   }
 

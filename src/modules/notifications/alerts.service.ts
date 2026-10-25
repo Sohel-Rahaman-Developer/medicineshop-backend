@@ -11,6 +11,7 @@ import { SaleModel } from '../sales/sale.model';
 import { AutopayModel } from '../subscription/billing.model';
 import { ShopModel } from '../shops/shop.model';
 import { BatchModel } from '../stock/batch.model';
+import { endingOf } from '../webaddress/web-address.service';
 import * as suppliers from '../suppliers/suppliers.service';
 import { typeInfo, type Group, type NotificationType, type Priority } from './notification.catalog';
 
@@ -24,6 +25,7 @@ const batchesTitle = (n: number, from: number | null, to: number) => {
   return n === 1 ? `1 batch expires within ${String(to)} days` : `${c} batches expire within ${String(to)} days`;
 };
 const planTitle = (trial: boolean, n: number) => (trial ? (n === 1 ? 'Trial ends in 1 day' : `Trial ends in ${String(n)} days`) : n === 1 ? 'Plan renews in 1 day' : `Plan renews in ${String(n)} days`);
+const addressTitle = (url: string, n: number, live: boolean) => (!live ? `${url} is paused — pay to turn it on` : n === 0 ? `${url} stops today` : n === 1 ? `${url} stops in 1 day` : `${url} stops in ${String(n)} days`);
 const summaryTitle = (today: boolean, n: number, total: string) => (today ? (n === 1 ? `Today: 1 bill · ${total}` : `Today: ${String(n)} bills · ${total}`) : n === 1 ? `Yesterday: 1 bill · ${total}` : `Yesterday: ${String(n)} bills · ${total}`);
 
 export interface Alert {
@@ -159,13 +161,14 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     const d0 = late ? istDayStart(now) : new Date(istDayStart(now).getTime() - DAY);
     const y0 = new Date(istDayStart(now).getTime() - DAY);
     const yDay = istIsoDay(y0);
-    const [shop, auto, bills, closes, soldYesterday, closedYesterday] = await Promise.all([
+    const [shop, auto, bills, closes, soldYesterday, closedYesterday, web] = await Promise.all([
       ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry settings.loyalty').lean(),
       AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean(),
       SaleModel.find({ shopId: t.shopId, status: { $ne: 'cancelled' }, billDate: { $gte: d0, $lt: new Date(d0.getTime() + DAY) } }).select('grandTotal payments').lean(),
       DayCloseModel.find({ shopId: t.shopId, diff: { $lte: -10_000 }, at: { $gte: new Date(now.getTime() - 7 * DAY) } }).select('day diff counted expected byName note at').lean(),
       SaleModel.exists({ shopId: t.shopId, billDate: { $gte: y0, $lt: istDayStart(now) } }),
       DayCloseModel.exists({ shopId: t.shopId, day: yDay }),
+      endingOf(t.shopId, now),
     ]);
     if (shop && t.features.includes('loyalty') && !rulesOf(shop.settings.loyalty).configured) {
       out.push(alert('LOYALTY_SETUP', { key: 'LOYALTY_SETUP', priority: 'medium', title: 'Loyalty points are not set up', body: 'Decide what a point is worth — until then customers earn no points.', route: '/loyalty', action: 'Set up points', at: at8 }));
@@ -178,6 +181,9 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     const left = Math.ceil((sub.endDate.getTime() - now.getTime()) / DAY);
     if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: sub.status === 'expired' ? 'Subscription expired — read-only' : 'Subscription cancelled — read-only', body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
     else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : planTitle(sub.status === 'trial', Math.max(0, left)), body: `On ${dayLabel(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
+
+    // v1.24.1: the web address add-on running out, or paused for want of it.
+    if (web) out.push(alert('WEB_ADDRESS', { key: `WEB_ADDRESS_ENDING:${day}`, priority: web.live ? 'medium' : 'high', title: addressTitle(web.url.replace(/^https?:\/\//, ''), web.left, web.live), body: web.live ? `On ${dayLabel(web.ends)}. Pay for a month or a year to keep it.` : 'Your team signs in at medbox24.in meanwhile.', route: '/settings/web-address', action: 'Pay', at: at8 }));
 
     // B8c: a failed autopay charge — Razorpay retries (pending), then gives up (halted); the plan screen has the fix.
     if (auto) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `AUTOPAY_${auto.status.toUpperCase()}:${day}`, priority: 'high', title: auto.status === 'pending' ? 'Autopay payment failed' : 'Autopay stopped after failed payments', body: auto.status === 'pending' ? 'Razorpay will try again. Keep money in the account, or pay once so the shop never stops.' : 'Pay once, or turn autopay on again, before the plan ends.', route: '/settings/plan', action: 'Open plan', at: at8 }));
