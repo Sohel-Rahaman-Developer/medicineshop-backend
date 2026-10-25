@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.40',
+    date: '2026-10-25',
+    title: 'Book a doctor in fewer taps',
+    shop: [
+      'People → Doctors: every doctor with days set has a “Book” button — the booking opens with that doctor already chosen.',
+      'Booking is shorter: the doctor shows as one line (Change if needed), the visit is a chip — New visit or free follow-up — the shop’s and doctor’s share is one line, and “Booked by” waits behind a link.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.39',
     date: '2026-10-25',
     title: 'Emails in your language, and tea money straight from Day close',
