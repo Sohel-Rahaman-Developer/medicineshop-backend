@@ -274,7 +274,6 @@ export async function shopOfOrigin(origin: string | undefined): Promise<string |
   return slug ? liveShop(slug) : null;
 }
 
-export const isLiveOrigin = async (origin: string | undefined): Promise<boolean> => (await shopOfOrigin(origin)) !== null;
 
 /** Each shop's own live address, so the main app can send its people there. */
 export async function liveAddresses(shopIds: Types.ObjectId[]): Promise<Map<string, string>> {

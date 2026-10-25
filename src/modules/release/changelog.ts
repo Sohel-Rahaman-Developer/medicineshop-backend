@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.26.0',
+    date: '2026-10-25',
+    title: 'Your shop on its own domain',
+    shop: [
+      'Settings → Web address → Your own domain: use a domain you have (like krishnamedical.in) — the app shows the two DNS records to add and checks them for you — or ask MedBox24 to buy one. No web address needed for it.',
+      'A domain MedBox24 buys: we call with its price, you pay for the year here and get a tax invoice; the bell reminds you 30 days before the next year is due.',
+      'Once it works, signing in at medbox24.in opens your shop on your domain, still signed in. Only your shop’s people can sign in there.',
+      'The add-on is the same as the web address: free in the trial, then a month or a year paid here.',
+    ],
+    admin: [
+      'Web addresses → Own domains: DNS check, the server steps to copy (nginx + certificate), switch on (only when the DNS points here and a bought name is paid), turn down, stop, the name’s yearly price, payments by hand and free time.',
+    ],
+    api: ['POST/DELETE /web-address/domain, POST /web-address/domain/dns; /web-address/order takes target and what; GET /public/domain/:host; POST /auth/handoff and /auth/handoff/redeem; /auth/me shops carry addresses and handoff; /admin/own-domains/:id/decide|dns|free|note|price|payment.'],
+  },
+  {
     version: '1.25.3',
     date: '2026-10-25',
     title: 'One GST return for shops on one GSTIN',

@@ -19,6 +19,8 @@ import {
   verifyOtpSchema,
   pinSchema,
   pinUnlockSchema,
+  handoffSchema,
+  redeemSchema,
 } from './auth.validation';
 
 export const authRouter = Router();
@@ -57,6 +59,10 @@ authRouter.post('/logout', optionalAuth, validate({ body: logoutSchema }), async
 authRouter.post('/unlock', otpVerifyLimiter, validate({ body: pinUnlockSchema }), asyncHandler(ctrl.unlock));
 authRouter.put('/pin', requireAuth, validate({ body: pinSchema }), asyncHandler(ctrl.setPin));
 authRouter.delete('/pin', requireAuth, asyncHandler(ctrl.removePin));
+
+// v1.26: main site → the shop's own domain without a second email code.
+authRouter.post('/handoff', requireAuth, validate({ body: handoffSchema }), asyncHandler(ctrl.handoff));
+authRouter.post('/handoff/redeem', otpVerifyLimiter, validate({ body: redeemSchema }), asyncHandler(ctrl.redeem));
 
 authRouter.get('/me', requireAuth, asyncHandler(ctrl.me));
 authRouter.patch('/me', requireAuth, validate({ body: updateMeSchema }), asyncHandler(ctrl.updateMe));

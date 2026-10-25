@@ -46,7 +46,8 @@ import { publicRouter } from './modules/public/public.routes';
 import { webAddressRouter } from './modules/webaddress/web-address.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
 import { transfersRouter } from './modules/transfers/transfers.routes';
-import { isLiveOrigin, shopOfOrigin } from './modules/webaddress/web-address.service';
+import { shopOfDomainOrigin } from './modules/owndomain/own-domain.service';
+import { shopOfOrigin } from './modules/webaddress/web-address.service';
 import { isOurOrigin, trustMoreOrigins } from './core/origins';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { referralRouter } from './modules/referral/referral.routes';
@@ -92,7 +93,9 @@ export function createApp() {
 
   // Only our own apps get CORS headers; any other origin gets none and the browser blocks it.
   // A shop's live web address (D94) counts as the shop app.
-  trustMoreOrigins(isLiveOrigin, shopOfOrigin);
+  // v1.26: so does a shop's live own domain (its /api is this API, behind the same nginx).
+  const shopOfAny = async (origin: string) => (await shopOfOrigin(origin)) ?? shopOfDomainOrigin(origin);
+  trustMoreOrigins(async (origin) => (await shopOfAny(origin)) !== null, shopOfAny);
   app.use(
     cors({
       origin: (origin, callback) => {

@@ -7,7 +7,9 @@ import { fetched, sent } from '../../core/response';
 import { langOf, type Lang } from '../../core/lang';
 import { Types } from 'mongoose';
 import { myInvitations, myShops } from '../memberships/memberships.service';
+import { liveDomains } from '../owndomain/own-domain.service';
 import { liveAddresses } from '../webaddress/web-address.service';
+import { redeemHandoff, startHandoff } from './handoff';
 import { hashOtp } from '../../utils/crypto';
 import { UserModel } from '../user/user.model';
 import * as authService from './auth.service';
@@ -101,15 +103,32 @@ export async function me(req: Request, res: Response) {
     myInvitations(req.auth.userId),
   ]);
   if (!user) throw AppError.notFound('User not found');
-  // D94: a shop with its own live address is opened there.
-  const addresses = await liveAddresses(shops.map((s) => new Types.ObjectId(s.shopId)));
+  // D94: a shop with its own live address is opened there — its own domain first (v1.26), else its web address.
+  const ids = shops.map((s) => new Types.ObjectId(s.shopId));
+  const [subs, domains] = await Promise.all([liveAddresses(ids), liveDomains(ids)]);
 
   // A read — no message, otherwise every page load fires a pointless toast.
   fetched(res, {
     user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status, hasPin: Boolean(user.pinHash), lockMinutes: user.lockMinutes, lang: user.lang ?? null },
-    shops: shops.map((s) => ({ ...s, address: addresses.get(s.shopId) ?? null })),
+    shops: shops.map((s) => {
+      const all = [domains.get(s.shopId), subs.get(s.shopId)].filter((a): a is string => Boolean(a));
+      return { ...s, address: all[0] ?? null, addresses: all, handoff: domains.has(s.shopId) };
+    }),
     invitations: invitations.length,
   });
+}
+
+/** v1.26: from the main site to the shop's own domain, still signed in — a one-time code for that domain. */
+export async function handoff(req: Request, res: Response) {
+  if (!req.auth) throw AppError.unauthenticated();
+  fetched(res, await startHandoff(req.auth.userId, req.auth.sessionId, (req.body as { to: string }).to));
+}
+
+export async function redeem(req: Request, res: Response) {
+  const { code } = req.body as { code: string };
+  const c = ctxOf(req);
+  setAuthCookies(res, await redeemHandoff(code, req.get('origin'), { ip: c.ip, userAgent: c.userAgent, deviceInfo: c.deviceInfo }));
+  sent(res, null, 'Signed in');
 }
 
 /** D60: the PIN opens an idle session on this device; 5 wrong and the session ends (email code again). */

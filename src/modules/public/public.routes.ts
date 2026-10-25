@@ -10,6 +10,7 @@ import { TOKEN, publicPoints, publicShop } from '../loyalty/points-link';
 import { ShopModel } from '../shops/shop.model';
 import { logoBytes } from '../shops/shop-logo';
 import * as categories from '../categories/categories.service';
+import { publicDomain } from '../owndomain/own-domain.service';
 import { publicAddress } from '../webaddress/web-address.service';
 
 /** D92: pages a customer opens without signing in — a shop's loyalty QR page and their own points link. */
@@ -49,6 +50,12 @@ publicRouter.get('/points/:token', validate({ params: z.object({ token: z.string
 publicRouter.get('/web-address/:slug', validate({ params: z.object({ slug: z.string().max(40) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   res.set('X-Robots-Tag', 'noindex');
   fetched(res, await publicAddress((req.params as { slug: string }).slug.toLowerCase()));
+}));
+
+// v1.26: the same for a shop's own domain, by the host the app is opened on.
+publicRouter.get('/domain/:host', validate({ params: z.object({ host: z.string().max(253) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  res.set('X-Robots-Tag', 'noindex');
+  fetched(res, await publicDomain((req.params as { host: string }).host));
 }));
 
 publicRouter.get('/shops/:code', validate({ params: code }), asyncHandler(async (req: Request, res: Response) => {

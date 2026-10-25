@@ -36,6 +36,7 @@ import * as brand from '../branding/branding.service';
 import * as demo from '../demo/demo.service';
 import { FEATURES, TIERS } from '../subscription/features';
 import { allPlans } from '../subscription/subscription.service';
+import * as dom from '../owndomain/own-domain.service';
 import * as web from '../webaddress/web-address.service';
 import * as webPay from '../webaddress/web-address-pay';
 import { ADDRESS_PERIODS, type AddressPeriod } from '../webaddress/web-address.model';
@@ -177,7 +178,7 @@ adminRouter.post('/category-requests/:id', superOnly, validate({ params: idParam
 
 // D94: shops' own web addresses — call the owner, approve or turn down, give free time, set the add-on price.
 const addressId = idParams;
-adminRouter.get('/web-addresses', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await web.adminList()); }));
+adminRouter.get('/web-addresses', asyncHandler(async (_req: Request, res: Response) => { fetched(res, { ...(await web.adminList()), domains: await dom.adminDomains() }); }));
 adminRouter.post('/web-addresses/:id/decide', shopsRole, validate({ params: addressId, body: z.object({ action: z.enum(['approve', 'reject', 'stop', 'restart']), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   const b = req.body as { action: 'approve' | 'reject' | 'stop' | 'restart'; reason: string };
   sent(res, await web.decide(adminOf(req), (req.params as { id: string }).id, b.action, b.reason, req.ip), b.action === 'approve' ? 'Approved — the address works now' : b.action === 'reject' ? 'Turned down' : b.action === 'stop' ? 'Stopped' : 'Started again');
@@ -201,6 +202,34 @@ adminRouter.post('/web-addresses/:id/payment', moneyRole, validate({ params: add
   const id = (req.params as { id: string }).id;
   const p = await webPay.recordAddressManual(adminOf(req), id, b.period, b.reference, b.reason, req.ip);
   sent(res, (await web.adminList()).rows.find((x) => x.id === id), `Payment recorded — invoice ${p.invoiceNumber ?? ''}`);
+}));
+
+// v1.26: shops' own domains — DNS, the server set-up, switch on; a bought name's yearly price; payments by hand.
+adminRouter.post('/own-domains/:id/decide', shopsRole, validate({ params: addressId, body: z.object({ action: z.enum(['approve', 'reject', 'stop', 'restart']), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { action: 'approve' | 'reject' | 'stop' | 'restart'; reason: string };
+  sent(res, await dom.decideDomain(adminOf(req), (req.params as { id: string }).id, b.action, b.reason, req.ip), b.action === 'approve' ? 'Switched on — the domain works now' : b.action === 'reject' ? 'Turned down' : b.action === 'stop' ? 'Stopped' : 'Started again');
+}));
+adminRouter.post('/own-domains/:id/dns', shopsRole, validate({ params: addressId }), asyncHandler(async (req: Request, res: Response) => {
+  const row = await dom.adminCheckDns((req.params as { id: string }).id);
+  sent(res, row, row?.dnsOk ? 'The DNS points here' : 'The DNS does not point here yet');
+}));
+adminRouter.post('/own-domains/:id/free', moneyRole, validate({ params: addressId, body: z.object({ until: istDay.nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { until: Date | null; reason: string };
+  const until = b.until ? new Date(b.until.getTime() + 86_400_000 - 1) : null;
+  sent(res, await dom.setDomainFree(adminOf(req), (req.params as { id: string }).id, until, b.reason, req.ip), until ? 'Free time given' : 'Free time taken back');
+}));
+adminRouter.post('/own-domains/:id/note', shopsRole, validate({ params: addressId, body: z.object({ text: z.string().trim().min(2, 'Write the note').max(300) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  sent(res, await dom.addDomainNote(adminOf(req), (req.params as { id: string }).id, (req.body as { text: string }).text), 'Note saved');
+}));
+adminRouter.put('/own-domains/:id/price', moneyRole, validate({ params: addressId, body: z.object({ price: z.number().int().min(100).max(10_000_000), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { price: number; reason: string };
+  sent(res, await dom.setBuyPrice(adminOf(req), (req.params as { id: string }).id, b.price, b.reason, req.ip), 'Price saved — the owner is told');
+}));
+adminRouter.post('/own-domains/:id/payment', moneyRole, validate({ params: addressId, body: z.object({ what: z.enum(['addon', 'domain']), period: z.enum(ADDRESS_PERIODS), reference: z.string().trim().min(3, 'Type the UTR or receipt number').max(80), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { what: 'addon' | 'domain'; period: AddressPeriod; reference: string; reason: string };
+  const id = (req.params as { id: string }).id;
+  const p = await webPay.recordAddressManual(adminOf(req), id, b.period, b.reference, b.reason, req.ip, 'domain', b.what);
+  sent(res, (await dom.adminDomains()).find((x) => x.id === id), `Payment recorded — invoice ${p.invoiceNumber ?? ''}`);
 }));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));

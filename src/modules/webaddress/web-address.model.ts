@@ -45,6 +45,9 @@ const paymentSchema = new Schema(
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
     addressId: { type: Schema.Types.ObjectId, ref: 'WebAddress', required: true },
     slug: { type: String, required: true },
+    // v1.26: the shop's own domain too (addressId is then the OwnDomain, slug its name); "domain" buys the name for a year.
+    target: { type: String, enum: ['subdomain', 'domain'], default: 'subdomain' },
+    what: { type: String, enum: ['addon', 'domain'], default: 'addon' },
     period: { type: String, enum: ADDRESS_PERIODS, required: true },
     days: { type: Number, required: true },
     /** Paise, GST included; `gst` is the 18% inside it. */

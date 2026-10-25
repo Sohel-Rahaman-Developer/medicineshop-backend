@@ -137,17 +137,27 @@ async function main() {
     await WebAddressModel.updateOne({ shopId: shop._id, status: { $in: ['requested', 'active', 'stopped'] } }, { $set: { slug: b.name, status: b.approve ? 'active' : 'requested', requestedAt: new Date(), requestedByName: 'Shop Owner' } }, { upsert: true });
     if (b.price) await PlatformSettingsModel.updateOne({ _id: 'platform' }, { $set: { webAddressPrice: b.price, ...(b.yearPrice ? { webAddressYearPrice: b.yearPrice } : {}) } }, { upsert: true });
   };
+  // v1.26: own domains are *.test here; their DNS "points" at this machine.
+  const { OwnDomainModel } = await import('../src/modules/owndomain/own-domain.model.js');
+  const own = await import('../src/modules/owndomain/own-domain.service.js');
+  own.setDnsLookup((host) => Promise.resolve(host === 'localhost' || host.endsWith('.test') ? ['127.0.0.1'] : []));
+  const seedDomain = async (b: { shopName?: string; name?: string; approve?: boolean; kind?: string }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop || !b.name) throw new Error('shop or domain missing');
+    await OwnDomainModel.updateOne({ shopId: shop._id, status: { $in: ['requested', 'active', 'stopped'] } }, { $set: { domain: b.name, kind: b.kind === 'buy' ? 'buy' : 'own', status: b.approve ? 'active' : 'requested', dnsOk: true, requestedAt: new Date(), requestedByName: 'Shop Owner' } }, { upsert: true });
+    own.forgetLiveDomains();
+  };
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number };
+      const body = JSON.parse(raw) as { email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number };
       if (req.url === '/mail') {
         lastMail(body).then(
           (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),
@@ -155,7 +165,7 @@ async function main() {
         );
         return;
       }
-      (req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/domain' ? seedDomain(body) : req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

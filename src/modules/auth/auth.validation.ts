@@ -55,3 +55,7 @@ export type LogoutInput = z.infer<typeof logoutSchema>;
 /** D60: 4–6 digits; lock after 30 min to 8 hours idle (never shorter — an active user refreshes every 15 minutes). */
 export const pinSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits'), lockMinutes: z.union([z.literal(30), z.literal(60), z.literal(120), z.literal(240), z.literal(480)], 'Choose 30 minutes to 8 hours') }).strict();
 export const pinUnlockSchema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits') }).strict();
+
+// v1.26: the own domain's origin, and the one-time code from it.
+export const handoffSchema = z.object({ to: z.url().max(300) }).strict();
+export const redeemSchema = z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{40,60}$/, 'This link is not valid') }).strict();
