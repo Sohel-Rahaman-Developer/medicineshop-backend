@@ -5,8 +5,9 @@ import { tenantScoped } from '../../core/tenant-scope';
 export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD', 'CREDIT'] as const;
 export type SalePayMode = (typeof SALE_PAY_MODES)[number];
 // The server adds these, the client never sends them: ADVANCE is an order's advance (PLAN §35.1),
-// POINTS is loyalty redeemed — a settlement line, not a discount, until the CA decides (PLAN §14, Q17).
-const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE', 'POINTS'] as const;
+// POINTS is loyalty redeemed — a settlement line, not a discount, until the CA decides (PLAN §14, Q17);
+// CREDIT_NOTE is a sale return's credit spent on this bill (an exchange).
+const STORED_MODES = [...SALE_PAY_MODES, 'ADVANCE', 'POINTS', 'CREDIT_NOTE'] as const;
 
 // One line per batch: a cart line that spans two batches is two bill lines, each at its own MRP (PLAN §14).
 const lineSchema = new Schema(
@@ -101,6 +102,9 @@ const saleSchema = new Schema(
     payments: { type: [paymentSchema], default: [] },
     paymentMode: { type: String, enum: [...STORED_MODES, 'SPLIT', 'NONE'], required: true },
     cashReceived: { type: Number },
+    // Exchange: the credit note spent here, and what was left on it given back (cash counts in the drawer).
+    creditNoteId: { type: Schema.Types.ObjectId, ref: 'SaleReturn' },
+    noteBack: { type: new Schema({ amount: { type: Number, required: true }, mode: { type: String, enum: ['CASH', 'UPI'], required: true } }, { _id: false }) },
     paidAmount: { type: Number, required: true },
     dueAmount: { type: Number, required: true, default: 0 },
     paymentStatus: { type: String, enum: ['paid', 'partial', 'credit'], required: true },

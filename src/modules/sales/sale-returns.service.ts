@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
@@ -150,6 +150,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
           refundMode: input.refundMode,
           cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
           adjusted,
+          ...(input.refundMode === 'CREDIT_NOTE' ? { creditLeft: money } : {}),
           loyaltyPointsRestored: moved.restored,
           loyaltyRestoredValue: pts.restoreValue,
           loyaltyPointsReversed: moved.reversed,
@@ -176,11 +177,47 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       outsideWindow,
       adjusted,
       cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
+      creditLeft: input.refundMode === 'CREDIT_NOTE' ? money : 0,
       pointsRestored: moved.restored,
       pointsRestoredValue: pts.restoreValue,
       pointsReversed: moved.reversed,
     };
   });
+}
+
+/** Money still on a credit note; a note from before exchanges has its whole money value left. */
+export const noteLeft = (r: { refundMode: string; creditLeft?: number | null; total: number; loyaltyRestoredValue?: number | null }) =>
+  r.refundMode === 'CREDIT_NOTE' ? (r.creditLeft ?? r.total - (r.loyaltyRestoredValue ?? 0)) : 0;
+
+export interface Note {
+  id: Types.ObjectId;
+  number: string;
+  left: number;
+  stored: number | null;
+}
+
+/** A credit note about to pay a bill (an exchange): any counter may spend it, like cash. */
+export async function noteFor(t: TenantContext, id: string, session: ClientSession): Promise<Note> {
+  const r = await SaleReturnModel.findOne({ shopId: t.shopId, _id: oid(id) }).select('creditNoteNumber refundMode creditLeft total loyaltyRestoredValue').session(session).lean();
+  if (r?.refundMode !== 'CREDIT_NOTE') throw AppError.notFound('Credit note not found');
+  const left = noteLeft(r);
+  if (!left) throw AppError.conflict(`Credit note ${r.creditNoteNumber ?? ''} is already used up`);
+  return { id: r._id, number: r.creditNoteNumber ?? '', left, stored: r.creditLeft ?? null };
+}
+
+/** Takes what a bill used (and what was given back) off the note; a note spent meanwhile stops the bill. */
+export async function spendNote(t: TenantContext, n: Note, use: { saleId: Types.ObjectId; billNumber: string; amount: number; back: number; backMode?: string; at: Date }, session: ClientSession) {
+  const done = await SaleReturnModel.updateOne(
+    { shopId: t.shopId, _id: n.id, creditLeft: n.stored ?? { $exists: false } },
+    { $set: { creditLeft: n.left - use.amount - use.back }, $push: { uses: use } },
+    { session },
+  );
+  if (!done.modifiedCount) throw AppError.conflict(`Credit note ${n.number} changed meanwhile — charge again`);
+}
+
+/** A cancelled bill puts back on the note what it had spent; money already given back stays given. */
+export async function refundNote(t: TenantContext, id: Types.ObjectId, amount: number, session: ClientSession) {
+  await SaleReturnModel.updateOne({ shopId: t.shopId, _id: id }, { $inc: { creditLeft: amount } }, { session });
 }
 
 type ReturnLean = NonNullable<Awaited<ReturnType<typeof findReturn>>>;
@@ -238,6 +275,8 @@ function shape(r: ReturnLean, cost: boolean) {
     refundMode: r.refundMode,
     cashBack: r.cashBack,
     adjusted: r.adjusted,
+    creditLeft: noteLeft(r),
+    uses: (r.uses ?? []).map((u) => ({ saleId: String(u.saleId), billNumber: u.billNumber, amount: u.amount, back: u.back, backMode: u.backMode ?? null, at: u.at })),
     loyaltyPointsRestored: r.loyaltyPointsRestored ?? 0,
     loyaltyRestoredValue: r.loyaltyRestoredValue ?? 0,
     loyaltyPointsReversed: r.loyaltyPointsReversed ?? 0,

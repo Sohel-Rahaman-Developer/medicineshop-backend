@@ -103,7 +103,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
     hsn: hsnSummary(s.lines),
     totals,
     words: s.loyaltyDiscountAmount ? s.toPay : s.grandTotal,
-    foot: [`Paid: ${s.payments.length ? s.payments.map((p) => `${p.mode} ${rupees(p.amount)}`).join(' + ') : '—'}`, ...points, `Billed by ${s.createdByName}. Returns as per the shop’s policy.`],
+    foot: [`Paid: ${s.payments.length ? s.payments.map((p) => `${p.mode === 'CREDIT_NOTE' ? `Credit note ${p.reference}` : p.mode} ${rupees(p.amount)}`).join(' + ') : '—'}`, ...points, `Billed by ${s.createdByName}. Returns as per the shop’s policy.`],
     alert: cancelled ? `Cancelled by ${s.cancelledBy ?? ''}: ${s.cancelReason ?? ''}` : undefined,
     qr: qrText(s.billNumber, istIsoDay(s.billDate), s.grandTotal),
   });

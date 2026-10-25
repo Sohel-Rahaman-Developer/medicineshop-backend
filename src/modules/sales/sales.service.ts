@@ -24,7 +24,7 @@ import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { floorOf, priceSale, splitLine, type Part } from './sale.domain';
 import { SaleReturnModel } from './sale-return.model';
-import { ageDays } from './sale-returns.service';
+import * as returns from './sale-returns.service';
 import { SaleModel } from './sale.model';
 import type { SaleInput, SaleListQuery } from './sales.validation';
 
@@ -202,8 +202,15 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     // Points pay first, then an order's advance; more advance than the rest goes back in cash.
     const toPay = priced.grandTotal - points.redeemValue;
     const advanceUsed = order ? Math.min(order.advance, toPay) : 0;
-    const due = toPay - advanceUsed;
+    // Exchange: the credit note pays next; what is left on it is given back now or stays on the note.
+    const note = input.creditNoteId ? await returns.noteFor(t, input.creditNoteId, session) : null;
+    const noteUsed = note ? Math.min(note.left, toPay - advanceUsed) : 0;
+    const noteBack = note && input.noteBack ? note.left - noteUsed : 0;
+    const due = toPay - advanceUsed - noteUsed;
     const paid = input.payments.reduce((s, x) => s + x.amount, 0);
+    if (paid !== due && noteUsed) {
+      throw AppError.validation(`Payments add up to ${inr(paid)}, the bill is ${inr(priced.grandTotal)}; the credit note pays ${inr(noteUsed)}, so ${inr(due)} is left to pay`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
+    }
     if (paid !== due) {
       const [sum, bill, pts, adv, owed] = [inr(paid), inr(priced.grandTotal), inr(points.redeemValue), inr(advanceUsed), inr(due)];
       const said = points.redeemValue && advanceUsed ? `Payments add up to ${sum}, the bill is ${bill} less ${pts} points and ${adv} advance = ${owed}`
@@ -216,6 +223,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       ...input.payments,
       ...(points.redeem ? [{ mode: 'POINTS' as const, amount: points.redeemValue, reference: `${String(points.redeem)} pts` }] : []),
       ...(order && advanceUsed ? [{ mode: 'ADVANCE' as const, amount: advanceUsed, reference: order.orderNumber }] : []),
+      ...(note && noteUsed ? [{ mode: 'CREDIT_NOTE' as const, amount: noteUsed, reference: note.number }] : []),
     ];
     const cash = input.payments.filter((x) => x.mode === 'CASH').reduce((s, x) => s + x.amount, 0);
     if (input.cashReceived !== undefined && input.cashReceived < cash) throw AppError.validation('Cash received is less than the cash part', [{ field: 'body.cashReceived', message: 'Less than the cash part' }]);
@@ -318,7 +326,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           payments,
           paymentMode: modes.length > 1 ? 'SPLIT' : (modes[0] ?? 'NONE'),
           cashReceived: input.cashReceived,
-          paidAmount: paid - credit + advanceUsed + points.redeemValue,
+          ...(note ? { creditNoteId: note.id } : {}),
+          ...(noteBack && input.noteBack ? { noteBack: { amount: noteBack, mode: input.noteBack } } : {}),
+          paidAmount: paid - credit + advanceUsed + points.redeemValue + noteUsed,
           dueAmount: credit,
           paymentStatus: !credit ? 'paid' : credit === priced.grandTotal ? 'credit' : 'partial',
           totalCost,
@@ -330,6 +340,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       { session },
     );
     if (order) await orders.complete(t, order, { id: saleId, billNumber, at: now, advanceUsed }, session);
+    if (note) await returns.spendNote(t, note, { saleId, billNumber, amount: noteUsed, back: noteBack, ...(input.noteBack && noteBack ? { backMode: input.noteBack } : {}), at: now }, session);
     if (customer) await customers.afterBill(t, customer, { total: toPay, credit, at: now }, session);
     const productIds = [...new Set(lines.map((l) => String(l.productId)))].map(oid);
     await ProductModel.updateMany({ shopId: t.shopId, _id: { $in: productIds } }, { $set: { lastSoldAt: now } }, { session });
@@ -348,6 +359,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       credit ? `udhaar ${inr(credit)} to ${customer?.name ?? ''}` : '',
       points.redeem ? `${String(points.redeem)} points used (${inr(points.redeemValue)})` : '',
       order ? `order ${order.orderNumber}${advanceUsed ? `, advance ${inr(advanceUsed)}` : ''}${order.advance > advanceUsed ? `, ${inr(order.advance - advanceUsed)} advance given back` : ''}` : '',
+      note ? `exchange: credit note ${note.number} paid ${inr(noteUsed)}${noteBack && input.noteBack ? `, ${inr(noteBack)} given back by ${input.noteBack === 'CASH' ? 'cash' : 'UPI'}` : note.left > noteUsed ? `, ${inr(note.left - noteUsed)} left on it` : ''}` : '',
     ].filter(Boolean);
     await audit(
       { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(saleId), entityName: billNumber, text: `${actor.name} billed ${billNumber} · ${inr(priced.grandTotal)} · ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
@@ -360,6 +372,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       change: input.cashReceived !== undefined ? input.cashReceived - cash : 0,
       advanceUsed,
       advanceBack: order ? order.advance - advanceUsed : 0,
+      noteUsed,
+      noteBack,
+      noteLeft: note ? note.left - noteUsed - noteBack : 0,
       pointsRedeemed: points.redeem,
       pointsEarned: points.earned,
       pointsBalance: pts?.balance ?? null,
@@ -451,6 +466,7 @@ function shape(s: SaleLean, cost: boolean) {
     payments: s.payments.map((p) => ({ mode: p.mode, amount: p.amount, reference: p.reference })),
     paymentMode: s.paymentMode,
     cashReceived: s.cashReceived ?? null,
+    noteBack: s.noteBack ? { amount: s.noteBack.amount, mode: s.noteBack.mode } : null,
     paidAmount: s.paidAmount,
     dueAmount: s.dueAmount,
     paymentStatus: s.paymentStatus,
@@ -468,12 +484,12 @@ export async function get(t: TenantContext, userId: string, id: string) {
   const s = await findSale(t, userId, id);
   if (!s) throw AppError.notFound('Bill not found');
   const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing.saleReturnWindowDays').lean();
-  const rets = await SaleReturnModel.find({ shopId: t.shopId, saleId: s._id }).sort({ returnDate: 1 }).select('returnNumber creditNoteNumber returnDate total refundMode createdByName').lean();
+  const rets = await SaleReturnModel.find({ shopId: t.shopId, saleId: s._id }).sort({ returnDate: 1 }).select('returnNumber creditNoteNumber returnDate total refundMode createdByName creditLeft loyaltyRestoredValue').lean();
   return {
     ...shape(s, seesCost(t)),
-    ageDays: ageDays(s.billDate, new Date()),
+    ageDays: returns.ageDays(s.billDate, new Date()),
     returnWindowDays: shop?.settings.billing?.saleReturnWindowDays ?? 7,
-    returns: rets.map((r) => ({ id: String(r._id), returnNumber: r.returnNumber, creditNoteNumber: r.creditNoteNumber ?? null, returnDate: r.returnDate, total: r.total, refundMode: r.refundMode, createdByName: r.createdByName })),
+    returns: rets.map((r) => ({ id: String(r._id), returnNumber: r.returnNumber, creditNoteNumber: r.creditNoteNumber ?? null, returnDate: r.returnDate, total: r.total, refundMode: r.refundMode, creditLeft: returns.noteLeft(r), createdByName: r.createdByName })),
   };
 }
 
@@ -572,6 +588,8 @@ export async function cancel(t: TenantContext, actor: Actor, id: string, reason:
     }
     await refreshRollups(t.shopId, [...new Set(s.lines.map((l) => String(l.productId)))].map(oid), session, now);
     if (s.customerId) await customers.takeBack(t, s.customerId, { spend: s.toPay, credit: s.dueAmount, visit: true }, session);
+    const spent = s.payments.filter((p) => p.mode === 'CREDIT_NOTE').reduce((a, p) => a + p.amount, 0);
+    if (s.creditNoteId && spent) await returns.refundNote(t, s.creditNoteId, spent, session);
     // Cancel is only before any return, so the whole bill's points move.
     const moved = await loyalty.takeBack(t, await loyalty.rules(t, session), s, { reverse: earned - (s.loyaltyPointsReversed ?? 0), restore: redeemed - (s.loyaltyPointsRestored ?? 0), refType: 'SALE', refId: s._id, refNumber: s.billNumber, reason: 'Bill cancelled', actor, at: now }, session);
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} cancelled ${s.billNumber} · ${inr(s.grandTotal)} · reason: ${reason}${moved.reversed || moved.restored ? ` · points −${String(moved.reversed)} / +${String(moved.restored)}` : ''}`, ip }, session);

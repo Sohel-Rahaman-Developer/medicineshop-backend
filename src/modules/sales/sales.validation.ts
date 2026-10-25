@@ -41,6 +41,10 @@ export const saleSchema = z
     redeemPoints: z.number('Points must be a number').int('Points must be whole').min(0).max(10_000_000).default(0),
     /** Billing a customer order: its advance comes off this bill. */
     orderId: objectId.optional(),
+    /** Exchange: a credit note whose money pays this bill first. */
+    creditNoteId: objectId.optional(),
+    /** More on the note than the bill: give the rest back now (else it stays on the note). */
+    noteBack: z.enum(['CASH', 'UPI'], 'Give it back by cash or UPI').optional(),
     /** What the cashier saw; a different server total means stock or prices changed meanwhile (409). */
     expectedTotal: paise('Total').optional(),
   })

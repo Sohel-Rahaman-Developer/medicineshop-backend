@@ -193,7 +193,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
           body: 'Match the cash drawer with the cash line.',
           route: '/sales',
           action: 'Open sales',
-          items: [...modes.entries()].sort((a, b) => b[1] - a[1]).map(([m, v]) => ({ text: m === 'CREDIT' ? 'Udhaar' : m === 'POINTS' ? 'Points' : m.charAt(0) + m.slice(1).toLowerCase(), sub: rupees(v) })),
+          items: [...modes.entries()].sort((a, b) => b[1] - a[1]).map(([m, v]) => ({ text: m === 'CREDIT' ? 'Udhaar' : m === 'POINTS' ? 'Points' : m === 'CREDIT_NOTE' ? 'Credit note' : m.charAt(0) + m.slice(1).toLowerCase(), sub: rupees(v) })),
           at: late ? now : at8,
         }),
       );

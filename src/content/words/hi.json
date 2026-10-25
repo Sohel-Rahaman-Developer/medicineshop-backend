@@ -838,5 +838,10 @@
   "Nothing starts until you agree. The details wait for {days} days.": "आपके मानने तक कुछ शुरू नहीं होगा। जानकारी {days} दिन तक रुकी रहेगी।",
   "{shopName} is ready to start on {BRAND}": "{shopName} {BRAND} पर शुरू होने के लिए तैयार है",
   "{staffName} filled in your shop’s details — check them and start your {trialDays}-day free trial.": "{staffName} ने आपकी दुकान की जानकारी भर दी — जाँचिए और अपना {trialDays} दिन का free trial शुरू कीजिए।",
-  "{staffName} filled in your shop’s details — check them and start.": "{staffName} ने आपकी दुकान की जानकारी भर दी — जाँचिए और शुरू कीजिए।"
+  "{staffName} filled in your shop’s details — check them and start.": "{staffName} ने आपकी दुकान की जानकारी भर दी — जाँचिए और शुरू कीजिए।",
+  "Credit note {creditNoteNumber} is already used up": "Credit note {creditNoteNumber} पहले ही पूरा इस्तेमाल हो चुका है",
+  "Credit note {number} changed meanwhile — charge again": "Credit note {number} इस बीच बदल गया — फिर से charge कीजिए",
+  "Payments add up to {paid}, the bill is {grandTotal}; the credit note pays {noteUsed}, so {due} is left to pay": "भुगतान का जोड़ {paid} है, बिल {grandTotal} का है; credit note से {noteUsed} चुके, इसलिए {due} देना बाकी है",
+  "Payments must add up to {due}": "भुगतान का जोड़ {due} होना चाहिए",
+  "Give it back by cash or UPI": "Cash या UPI से वापस दीजिए"
 }

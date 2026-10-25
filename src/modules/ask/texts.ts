@@ -121,6 +121,7 @@ export const MODE: Record<string, Words> = {
   CREDIT: w('Udhaar', 'उधार', 'বাকি', 'Udhaar', 'Baki'),
   ADVANCE: w('Order advance', 'ऑर्डर का एडवांस', 'অর্ডারের অগ্রিম', 'Order advance', 'Order-er agrim'),
   POINTS: w('Loyalty points', 'पॉइंट', 'পয়েন্ট', 'Points', 'Point'),
+  CREDIT_NOTE: w('Credit note (exchange)', 'क्रेडिट नोट (बदली)', 'ক্রেডিট নোট (বদল)', 'Credit note (badli)', 'Credit note (bodol)'),
 };
 
 export type ChipGroup = { key: 'sales' | 'money' | 'stock' | 'people'; title: string; qs: string[] };

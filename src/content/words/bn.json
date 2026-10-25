@@ -838,5 +838,10 @@
   "Nothing starts until you agree. The details wait for {days} days.": "আপনি রাজি না হওয়া পর্যন্ত কিছু শুরু হবে না। তথ্য {days} দিন অপেক্ষা করবে।",
   "{shopName} is ready to start on {BRAND}": "{shopName} {BRAND}-এ শুরু করার জন্য তৈরি",
   "{staffName} filled in your shop’s details — check them and start your {trialDays}-day free trial.": "{staffName} আপনার দোকানের তথ্য ভরে দিয়েছেন — দেখে নিন আর আপনার {trialDays} দিনের free trial শুরু করুন।",
-  "{staffName} filled in your shop’s details — check them and start.": "{staffName} আপনার দোকানের তথ্য ভরে দিয়েছেন — দেখে নিন আর শুরু করুন।"
+  "{staffName} filled in your shop’s details — check them and start.": "{staffName} আপনার দোকানের তথ্য ভরে দিয়েছেন — দেখে নিন আর শুরু করুন।",
+  "Credit note {creditNoteNumber} is already used up": "Credit note {creditNoteNumber} আগেই পুরো ব্যবহার হয়ে গেছে",
+  "Credit note {number} changed meanwhile — charge again": "Credit note {number} এর মধ্যে বদলে গেছে — আবার charge করুন",
+  "Payments add up to {paid}, the bill is {grandTotal}; the credit note pays {noteUsed}, so {due} is left to pay": "পেমেন্টের যোগফল {paid}, বিল {grandTotal}-এর; credit note থেকে {noteUsed} মিটেছে, তাই {due} দেওয়া বাকি",
+  "Payments must add up to {due}": "পেমেন্টের যোগফল {due} হতে হবে",
+  "Give it back by cash or UPI": "Cash বা UPI-তে ফেরত দিন"
 }

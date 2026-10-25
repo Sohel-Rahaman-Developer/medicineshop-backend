@@ -66,6 +66,13 @@ const saleReturnSchema = new Schema(
     refundMode: { type: String, enum: REFUND_MODES, required: true },
     cashBack: { type: Number, required: true, default: 0 },
     adjusted: { type: Number, required: true, default: 0 },
+    // A credit note is money held for the customer, spent on later bills (an exchange) or the rest given back.
+    // Absent on notes from before exchanges: their whole money value is still left.
+    creditLeft: { type: Number },
+    uses: {
+      type: [new Schema({ saleId: { type: Schema.Types.ObjectId, ref: 'Sale', required: true }, billNumber: { type: String, required: true }, amount: { type: Number, required: true }, back: { type: Number, required: true, default: 0 }, backMode: { type: String }, at: { type: Date, required: true } }, { _id: false })],
+      default: undefined,
+    },
     // Redeemed points go back as points, never as cash; `total` less their value is the money refund.
     loyaltyPointsRestored: { type: Number },
     loyaltyRestoredValue: { type: Number },

@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.23.0',
+    date: '2026-10-25',
+    title: 'Exchange: swap a medicine in a few taps',
+    shop: [
+      'Counter → Exchange: find the old bill (number, phone or QR), take the medicine back, and the counter opens with that money on the new bill.',
+      'New medicine costs more — the customer pays only the difference. Costs less — give the rest back by cash or UPI, or keep it on the credit note for next time.',
+      'A credit note can now be spent: the bill shows “Use ₹… ” next to it, and the money given back is counted in Day close.',
+    ],
+    admin: [],
+    api: ['POST /sales takes creditNoteId and noteBack (CASH | UPI); a sale return’s creditLeft and uses show what is left on a credit note.'],
+  },
+  {
     version: '1.22.41',
     date: '2026-10-25',
     title: 'Pay part now, the rest on udhaar',

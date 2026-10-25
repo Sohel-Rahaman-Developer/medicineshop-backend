@@ -59,7 +59,7 @@ export async function cashDay(t: TenantContext, day: string, opening?: number) {
   const d1 = new Date(startOf(day).getTime() + DAY);
   const inDay = { $gte: d0, $lt: d1 };
   const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, shop, collections, spent, doctors] = await Promise.all([
-    SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName').lean(),
+    SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName noteBack').lean(),
     SaleModel.find({ shopId: t.shopId, status: 'cancelled', cancelledAt: inDay }).select('payments').lean(),
     SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack').lean(),
     OrderModel.find({ shopId: t.shopId, createdAt: inDay, advanceMode: 'CASH', advance: { $gt: 0 } }).select('advance').lean(),
@@ -87,7 +87,8 @@ export async function cashDay(t: TenantContext, day: string, opening?: number) {
     cashSales: pay('CASH'),
     collected: sumOf(collections, (p) => p.amount),
     advances: sumOf(advances, (o) => o.advance),
-    refunds: sumOf(returns, (x) => x.cashBack),
+    // An exchange's leftover credit given back in cash is a refund out of the drawer too.
+    refunds: sumOf(returns, (x) => x.cashBack) + sumOf(billed, (s) => (s.noteBack?.mode === 'CASH' ? s.noteBack.amount : 0)),
     orderRefunds: sumOf(orderRefunds, (o) => o.refund?.amount ?? 0),
     advanceBack: sumOf(completed, (o) => o.advanceBack),
     cancelled: sumOf(cancelledBills, (s) => sumOf(s.payments.filter((p) => p.mode === 'CASH'), (p) => p.amount)),
