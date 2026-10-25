@@ -22,6 +22,7 @@ const isoDay = () => new Date(Date.now() + IST).toISOString().slice(0, 10);
 interface Card { title: string; rows: { label: string; value: string }[]; items: { name: string; value: string; sub?: string; href?: string }[]; note?: string; href?: string }
 interface Answer { route: string; voice: string; cards?: Card[]; text?: string; canAsk?: boolean; links?: { href: string }[]; ai?: { balance: number }; suggestions?: string[] }
 const row = (c: Card | undefined, label: string) => c?.rows.find((r) => r.label === label)?.value;
+const inrOf = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: paise % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
 async function main() {
   process.env.RATE_ASK_PER_USER_PER_MIN = '200';
@@ -35,7 +36,8 @@ async function main() {
   const { settleStuckQuestions } = await import('../src/modules/ask/ask.service.js');
   const { costOf } = await import('../src/modules/ask/ask-ai.js');
   const { listPrice } = await import('../src/modules/ai/ai-settings.js');
-  const { CHIPS } = await import('../src/modules/ask/texts.js');
+  const { AI_GROUP, CHIPS } = await import('../src/modules/ask/texts.js');
+  const { PurchaseModel } = await import('../src/modules/purchases/purchase.model.js');
   const { BatchModel } = await import('../src/modules/stock/batch.model.js');
   const { CustomerModel } = await import('../src/modules/customers/customer.model.js');
   const { ProductModel } = await import('../src/modules/products/product.model.js');
@@ -184,6 +186,11 @@ async function main() {
   section('3. No ready answer: straight to the AI when it can run — never charged when it can’t');
   const off = await askAs(owner, 'Dolo kis kaam aati hai');
   check('AI off on a new platform → says so (the buttons still work), Claude not called', off.a.route === 'blocked' && off.a.text === 'Abhi AI jawab band hain. Taiyar jawab (button wale) chalte hain.' && fake.seen.length === 0, JSON.stringify(off.a));
+  const aiOffer = data<{ aiGroup: Record<string, { title: string; qs: string[] }> }>(await owner.get('/ask/offer')).aiGroup;
+  check('v1.27: the chat offers 5 AI questions in each language, apart from the free ones', ['en', 'hi', 'bn'].every((l) => aiOffer[l]?.qs.length === 5) && aiOffer.en?.title === 'AI advice' && !aiOffer.en.qs.some((q) => CHIPS.en.includes(q)), JSON.stringify(aiOffer));
+  const aiChips = [...AI_GROUP.en.qs, ...AI_GROUP.hi.qs, ...AI_GROUP.bn.qs];
+  const notFree = (await Promise.all(aiChips.map(async (q) => [q, (await askAs(owner, q)).a.route] as const))).filter(([, r]) => r === 'free');
+  check(`…none of the ${String(aiChips.length)} is caught by a ready answer (they need the AI)`, notFree.length === 0 && fake.seen.length === 0, JSON.stringify(notFree));
   check('…an older app’s “yes” changes nothing', (await askAs(owner, 'Dolo kis kaam aati hai', { confirm: true })).a.route === 'blocked' && fake.seen.length === 0);
 
   section('4. Admin: key, chat settings, prices');
@@ -241,7 +248,8 @@ async function main() {
   const ai = await askAs(owner, 'Dolo kis kaam aati hai', { history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹120' }] });
   check('answered by AI at once, a link to the product it looked up, 1 token (5 → 4)', ai.a.route === 'ai' && ai.a.text?.startsWith('Dolo 650 mein paracetamol') === true && ai.a.links?.[0]?.href === `/products/${dolo}` && ai.a.ai?.balance === 4, JSON.stringify(ai.a));
   const [first, second] = fake.seen;
-  check('Claude got Haiku 4.5, the 12 read-only tools, a cached system prompt, max 500 out', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 12 && first.cached && first.maxTokens === 500 && !first.stream, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens }));
+  check('Claude got Haiku 4.5, the 26 read-only tools, a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 26 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
+  check('v1.27: the AI calls its tools together and starts “why / vs” from compare', first?.system.includes('Call every tool you need together in one turn') === true && first.system.includes('start with compare'));
   const lastUser = JSON.stringify(first?.messages.at(-1));
   check('the AI may talk about growing the shop, not only its figures', first?.system.includes('running and growing a pharmacy in India') === true && first.system.includes("look up the shop's own figures"));
   check('…the earlier turns, and “reply in Roman Hindi” with the question', first?.messages.length === 3 && lastUser.includes('Reply in Hindi written in Roman letters'), JSON.stringify(first?.messages));
@@ -312,6 +320,52 @@ async function main() {
   check('…by language and by shop', month.voices.some((v) => v.voice === 'bn') && month.shops.some((s) => s.shopName === 'Shri Ram Medical Store'));
   const list = await viewer.get('/admin/ai/chat/questions?limit=50');
   check('the question list never carries what was asked', list.status === 200 && !JSON.stringify(list.json).includes('kaam aati') && !JSON.stringify(list.json).includes('cricket'), code(list));
+
+  section('9b. v1.27: the figures behind “why” and “what to do” — worked out by the server, copied by the AI');
+  await root.put('/admin/ai/chat', chatOn());
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 10, reason: 'tokens for the new look-ups' });
+  const gupta = data<{ id: string }>(await owner.post('/suppliers', { name: 'Gupta Pharma', contactPerson: 'Ravi', phone: '98311 99887', email: '', gstin: '', drugLicense: '', creditDays: 15, address: 'Howrah' })).id;
+  const pur2 = await owner.post('/purchases', { clientRequestId: randomUUID(), supplierId: gupta, invoiceNumber: 'GP/7', invoiceDate: isoDay(), lines: [{ productId: dolo, batchNumber: 'DL3', expiry: '2029-02', quantity: 10, freeQuantity: 0, unit: 'STRIP', rate: 1800, discountPercent: 0, mrp: 3000, gstRate: 12, rack: '' }] });
+  check('setup: Dolo also bought from Gupta Pharma at ₹18 a strip (Sharma: ₹20)', pur2.status === 201, code(pur2));
+  fake.queue.push({ tools: [{ name: 'compare', input: { period: 'month' } }, { name: 'item_margins', input: { period: 'month', order: 'low' } }, { name: 'buy_prices', input: { name: 'dolo' } }, { name: 'buy_prices', input: {} }, { name: 'busy_hours', input: { period: 'today' } }, { name: 'branch_sales', input: { period: 'month' } }, { name: 'price', input: { name: 'dolo' } }] }, { say: 'Is mahine ₹120 ki bikri; Gupta Pharma se Dolo sasta hai.' });
+  const why = await askAs(owner, 'is mahine vs pichhla mahina, kya badla aur kya karun');
+  check('one question, seven look-ups in one round, answered', why.a.route === 'ai' && fake.seen.at(-1)?.messages.length === 3, JSON.stringify(why.a));
+  const results = (fake.seen.at(-1)?.messages.at(-1)?.content ?? []) as { content: string; is_error?: boolean }[];
+  const out = (i: number) => results[i]?.content ?? '';
+  const cmp = JSON.parse(out(0)) as { now: { netSales: string; bills: number }; before: { netSales: string }; changePercent: { sales: number | null } };
+  check('compare: this month so far ₹120 in 3 bills, the same days of last month ₹0 → no % (nothing to compare with)', cmp.now.netSales === '₹120' && cmp.now.bills === 3 && cmp.before.netSales === '₹0' && cmp.changePercent.sales === null, out(0));
+  const sold = await (await import('../src/modules/sales/sale.model.js')).SaleModel.find({ shopId: shop, status: { $ne: 'cancelled' } }).lean();
+  const rev = sold.reduce((n, b) => n + b.lines.reduce((m, l) => m + l.taxableAmount, 0), 0);
+  const cost = Math.round(sold.reduce((n, b) => n + b.lines.reduce((m, l) => m + l.costPerBaseUnit * l.quantityInBase, 0), 0));
+  const margin = Math.round(((rev - cost) * 1000) / rev) / 10;
+  const mg = JSON.parse(out(1)) as { items: { name: string; revenue: string; cost: string; marginPercent: number }[] };
+  check(`item margins: Dolo — ${inrOf(rev)} before tax − ${inrOf(cost)} cost = ${String(margin)}%`, mg.items.length === 1 && mg.items[0]?.name === 'Dolo 650 Tablet' && mg.items[0].revenue === inrOf(rev) && mg.items[0].cost === inrOf(cost) && mg.items[0].marginPercent === margin, out(1));
+  const lines = (await PurchaseModel.find({ shopId: shop, status: 'active' }).lean()).flatMap((x) => x.lines.map((l) => ({ supplier: x.supplierName, per: l.costPerBaseUnit, base: l.quantityInBase + l.freeInBase })));
+  const g = lines.find((l) => l.supplier === 'Gupta Pharma');
+  const sh = lines.find((l) => l.supplier === 'Sharma Distributors');
+  const save = g && sh ? Math.round((sh.per - g.per) * sh.base) : -1;
+  const bp = JSON.parse(out(2)) as { found: { name: string; suppliers: { supplier: string; packCost: string }[]; couldSave: string } };
+  check(`buy prices of Dolo: Gupta ${inrOf(Math.round((g?.per ?? 0) * 15))} a strip first, then Sharma ${inrOf(Math.round((sh?.per ?? 0) * 15))}; Sharma’s 150 tablets at Gupta’s price save ${inrOf(save)}`, bp.found.name === 'Dolo 650 Tablet' && bp.found.suppliers.map((x) => x.supplier).join() === 'Gupta Pharma,Sharma Distributors' && bp.found.suppliers[0]?.packCost === inrOf(Math.round((g?.per ?? 0) * 15)) && bp.found.couldSave === inrOf(save) && save > 0, out(2));
+  const all = JSON.parse(out(3)) as { items: { name: string; couldSave: string }[] };
+  check('…without a name: the products where suppliers differ — Dolo, the same saving', all.items.length === 1 && all.items[0]?.name === 'Dolo 650 Tablet' && all.items[0].couldSave === inrOf(save), out(3));
+  const busy = JSON.parse(out(4)) as { byHour: { bills: number }[]; byDay: { day: string; bills: number }[] };
+  check('busy hours today: the 3 bills by hour and by weekday', busy.byHour.reduce((n, x) => n + x.bills, 0) === 3 && busy.byDay.length === 1 && busy.byDay[0]?.bills === 3 && busy.byDay[0].day === new Date(Date.now() + IST).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }), out(4));
+  const br = JSON.parse(out(5)) as { shops: { name: string; here: boolean; netSales: string }[] };
+  check('branches for the owner: one shop (no branch yet), ₹120 this month', br.shops.length === 1 && br.shops[0]?.name === 'Shri Ram Medical Store' && br.shops[0].here && br.shops[0].netSales === '₹120', out(5));
+  check('MRP goes to the AI in rupees (₹30), never as paise', out(6).includes('"mrp":"₹30"') && !out(6).includes('3000'), out(6));
+  check('no other shop’s name in any of it', !results.some((x) => x.content.includes('Mina')));
+  fake.queue.push({ tools: [{ name: 'branch_sales', input: { period: 'month' } }, { name: 'buy_prices', input: {} }] }, { say: 'Theek hai.' });
+  await askAs(manager, 'branch ke hisaab se is mahine compare karo');
+  const mr = (fake.seen.at(-1)?.messages.at(-1)?.content ?? []) as { content: string; is_error?: boolean }[];
+  check('a manager: branches are the owner’s only; supplier prices yes (manager sees cost)', mr[0]?.is_error === true && mr[0].content.includes('cannot see') && mr[1]?.is_error !== true && mr[1]?.content.includes('Gupta Pharma') === true, JSON.stringify(mr).slice(0, 300));
+  fake.queue.push({ tools: [{ name: 'low_stock', input: {} }], input: 200, cacheRead: 3800 }, { say: 'Shelcal mangaiye.' });
+  const warm = await askAs(owner, 'stock ke baare mein salah do');
+  check('a cached prompt counts at its price: 200 + 3,800 read at a tenth → (200 × $1 + 3,800 × $0.10) / $1.25 = 464 of the 8,000 cap, so the second round goes (counted in full it was 4,000 + 4,000+ → over)', warm.a.route === 'ai' && warm.a.text === 'Shelcal mangaiye.', JSON.stringify(warm.a));
+  await root.put('/admin/ai/chat', chatOn({ model: 'claude-haiku-5-5' }));
+  fake.queue.push({ say: 'Theek hai.' });
+  await askAs(owner, 'meri dukaan ka margin kaise sudhrega');
+  check('Haiku 5.5 is asked for low effort — short answers, the output cap goes to the answer', fake.seen.at(-1)?.model === 'claude-haiku-5-5' && fake.seen.at(-1)?.effort === 'low', JSON.stringify({ m: fake.seen.at(-1)?.model, e: fake.seen.at(-1)?.effort }));
+  await root.put('/admin/ai/chat', chatOn());
 
   section('10. The owner turns AI off again');
   await owner.put('/ask/ai', { on: false });

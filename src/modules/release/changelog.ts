@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.27.0',
+    date: '2026-10-25',
+    title: 'A smarter AI for your business',
+    shop: [
+      'Ask your shop: the AI now sees your whole shop — margins by medicine, what each supplier last charged, busy hours and days, this month against last month, slow stock, top customers, staff, expenses, purchases, GST and your branches.',
+      'Ask “why” or for advice and it looks up your own figures first, then gives two or three steps tied to them — like which supplier sells a medicine cheaper and how much that would have saved.',
+      'A new “AI advice” group in the chat: five ready questions for the AI, a token each. The other questions stay free.',
+    ],
+    admin: ['The chat’s input cap now counts a cached prompt at its own (lower) price, so one question can look up more without costing more than its worst case.'],
+    api: ['GET /ask/offer adds aiGroup; the AI has 14 more read-only tools (compare, item_margins, buy_prices, busy_hours, branch_sales and the ready answers’ facts).'],
+  },
+  {
     version: '1.26.0',
     date: '2026-10-25',
     title: 'Your shop on its own domain',

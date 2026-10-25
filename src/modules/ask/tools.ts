@@ -15,6 +15,9 @@ const nameInput = z.object({ name: z.string().trim().min(1).max(60).describe('In
 const maybeName = z.object({ name: z.string().trim().min(1).max(60).optional().describe('Leave out for everyone') }).strict();
 const daysInput = z.object({ days: z.number().int().min(1).max(365) }).strict();
 const none = z.object({}).strict();
+const compareInput = z.object({ period: z.enum(['today', 'week', 'month']) }).strict();
+const marginInput = periodInput.extend({ order: z.enum(['low', 'high']) }).strict();
+const gstInput = z.object({ month: z.enum(['this', 'last']) }).strict();
 
 const toPeriod = (i: z.infer<typeof periodInput>): F.Period => (i.period === 'days' ? { key: 'days', n: i.days ?? 7 } : { key: i.period });
 
@@ -46,6 +49,21 @@ export const TOOLS = [
   tool({ name: 'supplier_dues', description: 'What the shop owes suppliers: everyone (biggest first, with overdue) or suppliers matching a name.', input: maybeName, run: async (c, i) => { const d = await F.supplierDues(c.t, i.name ?? null, c.now); return { data: d, href: C.suppliersCard(d, en).href }; } }),
   tool({ name: 'same_salt', description: 'Products in stock with the same salt and strength as a product (substitutes).', input: nameInput, run: async (c, i) => { const d = await F.sameSalt(c.t, i.name); return { data: d, href: C.saltCard(d, en).href }; } }),
   tool({ name: 'cash_today', description: 'Cash that should be in the drawer today: opening, cash in, cash out.', input: none, run: async (c) => { const d = await F.cashToday(c.t, c.now); return { data: d, href: C.cashCard(d, en).href }; } }),
+  // v1.27: the rest of what the ready answers know, and the comparisons a shop owner asks "why" about.
+  tool({ name: 'compare', description: 'Today, this week or this month so far against the same stretch before it (yesterday, last week, last month): sales, bills, average bill, profit, with the change in %. Use for "why", "vs", "up or down".', input: compareInput, run: async (c, i) => ({ data: await F.compare(c.t, c.userId, i.period, c.now), href: '/analytics' }) }),
+  tool({ name: 'item_margins', description: 'Products sold in a period with their sale before tax, cost, profit and margin %; lowest or highest margin first.', input: marginInput, run: async (c, i) => ({ data: await F.itemMargins(c.t, c.userId, toPeriod(i), i.order, c.now), href: '/pnl' }) }),
+  tool({ name: 'buy_prices', description: 'What each supplier last charged per sale pack in the last 180 days. With a product name: that product by supplier, cheapest first. Without: the products where suppliers differ most and what buying at the cheapest would have saved.', input: maybeName, run: async (c, i) => { const d = await F.buyPrices(c.t, i.name ?? null, c.now); return { data: d, href: d.found ? `/products/${d.found.id}` : '/purchases' }; } }),
+  tool({ name: 'busy_hours', description: 'Bills and sales by hour of the day and by day of the week in a period — when the shop is busy or quiet.', input: periodInput, run: async (c, i) => ({ data: await F.busyHours(c.t, c.userId, toPeriod(i), c.now), href: '/sales' }) }),
+  tool({ name: 'branch_sales', description: 'The owner\'s shops (main shop and branches) side by side for a period: sales, bills, average bill, profit.', input: periodInput, run: async (c, i) => ({ data: await F.branchSales(c.t, c.userId, toPeriod(i), c.now), href: '/settings/branches' }) }),
+  tool({ name: 'not_selling', description: 'Products in stock that have not sold for N days (or never), with the money stuck in them.', input: daysInput, run: async (c, i) => { const d = await F.notSelling(c.t, i.days, c.now); return { data: d, href: C.deadCard(d, en).href }; } }),
+  tool({ name: 'top_customers', description: 'The 10 customers who spent the most in a period.', input: periodInput, run: async (c, i) => { const d = await F.topCustomers(c.t, c.userId, toPeriod(i), c.now); return { data: d, href: C.customersCard(d, en).href }; } }),
+  tool({ name: 'pay_modes', description: 'How the money came in for a period: cash, UPI, card, udhaar.', input: periodInput, run: async (c, i) => { const d = await F.payModes(c.t, c.userId, toPeriod(i), c.now); return { data: d, href: C.modesCard(d, en).href }; } }),
+  tool({ name: 'staff_sales', description: 'Who sold how much in a period: bills and amount by staff member.', input: periodInput, run: async (c, i) => { const d = await F.staffSales(c.t, toPeriod(i), c.now); return { data: d, href: C.staffCard(d, en).href }; } }),
+  tool({ name: 'expenses', description: 'Shop expenses for a period by category (rent, salary, electricity…).', input: periodInput, run: async (c, i) => { const d = await F.expensesIn(c.t, toPeriod(i), c.now); return { data: d, href: C.expensesCard(d, en).href }; } }),
+  tool({ name: 'purchases', description: 'Purchases for a period: invoices, amount, paid, still to pay, returns to suppliers.', input: periodInput, run: async (c, i) => { const d = await F.purchasesIn(c.t, toPeriod(i), c.now); return { data: d, href: C.purchasesCard(d, en).href }; } }),
+  tool({ name: 'price', description: 'MRP and GST of one product by name, by batch.', input: nameInput, run: async (c, i) => { const d = await F.priceOf(c.t, i.name); return { data: d, href: C.priceCard(d, en).href }; } }),
+  tool({ name: 'gst_month', description: 'GST of this month or last month: on sales, on purchases, and the net to pay or credit.', input: gstInput, run: async (c, i) => { const d = await F.gstOf(c.t, i.month === 'last', c.now); return { data: d, href: C.gstCard(d, en).href }; } }),
+  tool({ name: 'open_orders', description: 'Customer orders still waiting (booked, advance taken).', input: none, run: async (c) => { const d = await F.openOrders(c.t); return { data: d, href: C.ordersCard(d, en).href }; } }),
 ];
 
 export const toolDefs = (): Anthropic.Tool[] =>
@@ -55,7 +73,7 @@ export const toolDefs = (): Anthropic.Tool[] =>
     return { name: t.name, description: t.description, input_schema: schema as Anthropic.Tool.InputSchema };
   });
 
-const MONEY = new Set(['netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points']);
+const MONEY = new Set(['netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points', 'mrp', 'advance', 'advanceHeld', 'paid', 'salesTaxable', 'outTax', 'inTax', 'net', 'grossProfit', 'cost', 'packCost', 'couldSave']);
 const ISO = /^\d{4}-\d{2}-\d{2}T/;
 const MAX = 3000;
 

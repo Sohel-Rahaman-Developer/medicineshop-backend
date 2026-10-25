@@ -16,7 +16,7 @@ export const AI_MODELS = {
   'claude-sonnet-5-5': { name: 'Claude Sonnet 5.5', provider: 'anthropic', input: 2, output: 10, effort: true, free: false },
   'claude-fable-5-1': { name: 'Claude Fable 5.1', provider: 'anthropic', input: 10, output: 50, effort: true, free: false },
   // Prompts over 100K tokens cost 5× on Haiku 5.5; the chat's input cap keeps every question far below that.
-  'claude-haiku-5-5': { name: 'Claude Haiku 5.5', provider: 'anthropic', input: 0.1, output: 0.5, effort: false, free: false },
+  'claude-haiku-5-5': { name: 'Claude Haiku 5.5', provider: 'anthropic', input: 0.1, output: 0.5, effort: true, free: false },
   'claude-haiku-4-5-20251001': { name: 'Claude Haiku 4.5', provider: 'anthropic', input: 1, output: 5, effort: false, free: false },
   // Gemini prices are for prompts up to 200K tokens; the chat cap and a bill's pages stay far below that.
   'gemini-3.8-flash': { name: 'Gemini 3.8 Flash', provider: 'google', input: 0.75, output: 3.75, effort: true, free: true },

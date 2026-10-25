@@ -50,7 +50,7 @@ const G = {
   returns: words('return', 'returns', 'returned', 'wapas', 'wapsi', 'ferot', 'वापस', 'वापसी', 'ফেরত'),
   help: words('help', 'madad', 'sahajjo', 'मदद', 'সাহায্য'),
   // Why, compare, trends, advice and medicine use need thinking — the AI's job, not a card's.
-  block: words('why', 'kyon', 'kyun', 'compare', 'comparison', 'trend', 'vs', 'versus', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়'),
+  block: words('why', 'kyon', 'kyun', 'compare', 'comparison', 'trend', 'vs', 'versus', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'grow', 'improve', 'boost', 'lowest', 'least', 'cheap', 'sasta', 'sasti', 'saste', 'shosta', 'time', 'hour', 'samay', 'somoy', 'changed', 'badal', 'बनाम', 'बदल', 'सस्त', 'समय', 'বনাম', 'বদল', 'সস্তা', 'সময়','क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়'),
   // Bengali "why" only as a whole word: কেনা (to buy) starts with it.
   blockWhole: words('কেন', 'কেনো', 'keno'),
   today: words('today', 'aaj', 'aj', 'ajke', 'ajker', 'आज', 'আজ'),
@@ -117,6 +117,8 @@ export function matchIntent(text: string): Intent | null {
   };
 
   if (on.block || on.blockWhole) return null;
+  // "Sabse kam munafa": the least of something is a ranking only the AI makes; "kam stock" stays the reorder card.
+  if (on.top && on.lowWeak && !on.stock) return null;
   if (on.help) return { kind: 'help' };
   if (on.expiry) return days !== null ? { kind: 'expiring', days } : on.gone ? { kind: 'expired' } : { kind: 'expiring', days: 30 };
   if (on.supplier) return { kind: 'suppliers', name };

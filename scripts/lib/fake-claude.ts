@@ -7,7 +7,7 @@ export type Reply =
   | { text: string }
   | { stop: 'refusal' | 'max_tokens' }
   /** Chat (not streamed): call these tools, or answer this text. */
-  | { tools: { name: string; input: unknown }[]; input?: number; output?: number }
+  | { tools: { name: string; input: unknown }[]; input?: number; output?: number; cacheRead?: number; cacheWrite?: number }
   | { say: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 
 export interface Seen {
@@ -92,7 +92,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
       }
       if ('tools' in reply || 'say' in reply) {
         const content = 'tools' in reply ? reply.tools.map((t, i) => ({ type: 'tool_use', id: `toolu_fake_${String(fake.seen.length)}_${String(i)}`, name: t.name, input: t.input })) : [{ type: 'text', text: reply.say }];
-        const cache = 'say' in reply ? { cache_read_input_tokens: reply.cacheRead ?? 0, cache_creation_input_tokens: reply.cacheWrite ?? 0 } : {};
+        const cache = { cache_read_input_tokens: reply.cacheRead ?? 0, cache_creation_input_tokens: reply.cacheWrite ?? 0 };
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ id: 'msg_fake', type: 'message', role: 'assistant', model: body.model, content, stop_reason: 'tools' in reply ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: reply.input ?? 1200, output_tokens: reply.output ?? 60, ...cache } }));
         return;

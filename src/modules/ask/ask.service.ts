@@ -22,7 +22,7 @@ import * as C from './cards';
 import * as F from './facts';
 import { bareName, matchIntent, type Intent } from './intents';
 import { LANGS, langOf, voiceOf, type Voice } from './lang';
-import { CHIPS, CHIP_GROUPS, TEXT, say } from './texts';
+import { AI_GROUP, CHIPS, CHIP_GROUPS, TEXT, say } from './texts';
 
 // D81 "Ask your shop": ready answers first (no AI, free); anything else goes straight to the AI for a token, inside the admin's caps.
 
@@ -137,6 +137,7 @@ export async function offer(t: TenantContext, now = new Date()) {
     ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, balance: w?.balance ?? 0 },
     chips: CHIPS,
     groups: CHIP_GROUPS,
+    aiGroup: AI_GROUP,
   };
 }
 
@@ -210,7 +211,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
   const back = say(TEXT.back, voice);
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
-    answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut }, voice, input.text, turnsOf(input.history), used);
+    answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut, price: priceOf(s, s.chat.model) }, voice, input.text, turnsOf(input.history), used);
   } catch (err) {
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI chat question failed');
     await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail', now);

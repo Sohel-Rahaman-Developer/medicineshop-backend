@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { istDayStart, istIsoDay, istMonth } from '../../utils/date';
 import { salePack, type Units } from '../../utils/units';
+import { groupShops } from '../branches/branches.service';
 import { CustomerModel } from '../customers/customer.model';
 import { cashDay } from '../dayclose/dayclose.service';
 import { expiryBlock, kpis, seesCost, stockBlock, supplierDue, udhaar } from '../dashboard/dashboard.service';
@@ -268,6 +269,111 @@ export async function gstOf(t: TenantContext, last: boolean, now: Date) {
   const month = istMonth(last ? new Date(rangeOf({ key: 'last_month' }, now).from.getTime() + DAY) : now);
   const g = await gstMonth(t, month, now);
   return { month, salesTaxable: g.salesTaxable, outTax: g.outTax, inTax: g.inTax, net: g.net };
+}
+
+const pct = (now: number, before: number) => (before ? Math.round(((now - before) * 1000) / before) / 10 : null);
+
+/** v1.27: this today / week / month so far against the same stretch before it — the server works out the change. */
+export async function compare(t: TenantContext, userId: string, key: 'today' | 'week' | 'month', now: Date) {
+  need(t, ...SELLS);
+  const from = rangeOf({ key }, now).from;
+  const since = now.getTime() - from.getTime();
+  const back = key === 'today' ? DAY : key === 'week' ? 7 * DAY : null;
+  const prevFrom = back ? new Date(from.getTime() - back) : monthStart(now, 1);
+  const prevTo = back ? new Date(now.getTime() - back) : new Date(Math.min(prevFrom.getTime() + since, from.getTime()));
+  const [a, b] = await Promise.all([kpis(t, userId, from, now), kpis(t, userId, prevFrom, prevTo)]);
+  const side = (k: typeof a, f: Date, to: Date) => ({ from: f, to, netSales: k.netSales, bills: k.bills, avgBill: k.avgBill, returns: k.returns, grossProfit: k.profit?.gross ?? null, marginPercent: k.profit?.margin ?? null });
+  return {
+    key,
+    ownOnly: t.scopes.sales === 'own',
+    now: side(a, from, now),
+    before: side(b, prevFrom, prevTo),
+    // Percent, not money: kept off the money names so they stay plain numbers for the model.
+    changePercent: { sales: pct(a.netSales, b.netSales), bills: pct(a.bills, b.bills), averageBill: pct(a.avgBill, b.avgBill), profit: a.profit && b.profit ? pct(a.profit.gross, b.profit.gross) : null },
+  };
+}
+
+/** The owner's shops side by side for a period — each with the same figures as its own Sales screen. */
+export async function branchSales(t: TenantContext, userId: string, period: Period, now: Date) {
+  if (!t.isOwner) throw new NoAccess();
+  const { from, to } = rangeOf(period, now);
+  const shops = await groupShops(t.shopId);
+  const rows = await Promise.all(
+    shops.map(async (s) => {
+      const k = await kpis({ ...t, shopId: s._id }, userId, from, to);
+      return { name: s.name, here: s._id.equals(t.shopId), netSales: k.netSales, bills: k.bills, avgBill: k.avgBill, grossProfit: k.profit?.gross ?? null, marginPercent: k.profit?.margin ?? null };
+    }),
+  );
+  return { period, shops: rows.sort((x, y) => y.netSales - x.netSales), total: rows.reduce((n, r) => n + r.netSales, 0) };
+}
+
+/** Sale lines by product: billed before tax, cost, profit and margin; least or most margin first. */
+export async function itemMargins(t: TenantContext, userId: string, period: Period, order: 'low' | 'high', now: Date) {
+  need(t, ...SELLS);
+  if (!seesCost(t)) throw new NoAccess();
+  const { from, to } = rangeOf(period, now);
+  const rows = await SaleModel.aggregate<{ _id: Types.ObjectId; name: string; revenue: number; cost: number; bills: number }>([
+    { $match: { shopId: t.shopId, ...ownOf(t, userId), billDate: { $gte: from, $lt: to }, ...live } },
+    { $unwind: '$lines' },
+    { $group: { _id: '$lines.productId', name: { $first: '$lines.productName' }, revenue: { $sum: '$lines.taxableAmount' }, cost: { $sum: { $multiply: ['$lines.costPerBaseUnit', '$lines.quantityInBase'] } }, bills: { $sum: 1 } } },
+    // A few rupees of sale say nothing about a margin.
+    { $match: { revenue: { $gte: 10_000 } } },
+    { $addFields: { margin: { $cond: [{ $gt: ['$revenue', 0] }, { $divide: [{ $subtract: ['$revenue', '$cost'] }, '$revenue'] }, 0] } } },
+    { $sort: { margin: order === 'low' ? 1 : -1, _id: 1 } },
+    { $limit: 10 },
+  ]);
+  return {
+    period,
+    order,
+    ownOnly: t.scopes.sales === 'own',
+    note: 'Before tax, returns not taken off; products with under ₹100 of sale left out',
+    items: rows.map((r) => ({ id: String(r._id), name: r.name, revenue: r.revenue, cost: Math.round(r.cost), grossProfit: Math.round(r.revenue - r.cost), marginPercent: r.revenue ? Math.round(((r.revenue - r.cost) * 1000) / r.revenue) / 10 : 0, bills: r.bills })),
+  };
+}
+
+const BUY_DAYS = 180;
+
+/** What each supplier last charged per sale pack (after discount and free goods) — for one product, or where they differ most. */
+export async function buyPrices(t: TenantContext, name: string | null, now: Date) {
+  need(t, ['purchases']);
+  if (!seesCost(t)) throw new NoAccess();
+  const top = name ? (await findProducts(t, name))[0] : null;
+  if (name && !top) return { name, found: null, items: [] };
+  const rows = await PurchaseModel.aggregate<{ _id: { p: Types.ObjectId; s: Types.ObjectId }; name: string; supplier: string; cost: number; at: Date; base: number; invoices: number }>([
+    { $match: { shopId: t.shopId, status: 'active', invoiceDate: { $gte: new Date(now.getTime() - BUY_DAYS * DAY) }, ...(top ? { 'lines.productId': top._id } : {}) } },
+    { $unwind: '$lines' },
+    ...(top ? [{ $match: { 'lines.productId': top._id } }] : []),
+    { $sort: { invoiceDate: -1, _id: -1 } },
+    { $group: { _id: { p: '$lines.productId', s: '$supplierId' }, name: { $first: '$lines.productName' }, supplier: { $first: '$supplierName' }, cost: { $first: '$lines.costPerBaseUnit' }, at: { $first: '$invoiceDate' }, base: { $sum: { $add: ['$lines.quantityInBase', '$lines.freeInBase'] } }, invoices: { $sum: 1 } } },
+  ]);
+  const units = new Map((await ProductModel.find({ shopId: t.shopId, _id: { $in: [...new Set(rows.map((r) => String(r._id.p)))] } }).select('units').lean()).map((p) => [String(p._id), salePack(p.units as Units)]));
+  const byProduct = new Map<string, typeof rows>();
+  for (const r of rows) byProduct.set(String(r._id.p), [...(byProduct.get(String(r._id.p)) ?? []), r]);
+  const products = [...byProduct.entries()].map(([id, list]) => {
+    const pack = units.get(id) ?? 1;
+    const sorted = [...list].sort((x, y) => x.cost - y.cost);
+    const cheap = sorted[0]?.cost ?? 0;
+    // What buying everything at the cheapest supplier's last price would have saved over these months.
+    const couldSave = Math.round(sorted.reduce((n, r) => n + (r.cost - cheap) * r.base, 0));
+    return { id, name: list[0]?.name ?? '', suppliers: sorted.map((r) => ({ supplier: r.supplier, packCost: Math.round(r.cost * pack), lastBought: r.at, invoices: r.invoices })), couldSave };
+  });
+  if (top) return { name, days: BUY_DAYS, found: products[0] ?? { id: String(top._id), name: top.name, suppliers: [], couldSave: 0 }, items: [] };
+  const items = products.filter((p) => p.suppliers.length > 1).sort((x, y) => y.couldSave - x.couldSave || x.name.localeCompare(y.name)).slice(0, 10);
+  return { name: null, days: BUY_DAYS, found: null, items };
+}
+
+/** When the bills come: by hour of the day and by day of the week (IST). */
+export async function busyHours(t: TenantContext, userId: string, period: Period, now: Date) {
+  need(t, ...SELLS);
+  const { from, to } = rangeOf(period, now);
+  const match = { $match: { shopId: t.shopId, ...ownOf(t, userId), billDate: { $gte: from, $lt: to }, ...live } };
+  const [hours, days] = await Promise.all([
+    SaleModel.aggregate<{ _id: number; bills: number; amount: number }>([match, { $group: { _id: { $hour: { date: '$billDate', timezone: '+05:30' } }, bills: { $sum: 1 }, amount: { $sum: '$grandTotal' } } }, { $sort: { _id: 1 } }]),
+    SaleModel.aggregate<{ _id: number; bills: number; amount: number }>([match, { $group: { _id: { $dayOfWeek: { date: '$billDate', timezone: '+05:30' } }, bills: { $sum: 1 }, amount: { $sum: '$grandTotal' } } }, { $sort: { _id: 1 } }]),
+  ]);
+  const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const hourName = (h: number) => `${String(h % 12 || 12)}${h < 12 ? 'am' : 'pm'}–${String((h + 1) % 12 || 12)}${h + 1 < 12 || h + 1 === 24 ? 'am' : 'pm'}`;
+  return { period, ownOnly: t.scopes.sales === 'own', byHour: hours.map((h) => ({ hour: hourName(h._id), bills: h.bills, amount: h.amount })), byDay: days.map((d) => ({ day: WEEK[d._id - 1] ?? '', bills: d.bills, amount: d.amount })) };
 }
 
 /** Who sold how much — the owner's view, so reports:view. */

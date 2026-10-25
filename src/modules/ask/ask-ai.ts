@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../config/env';
 import { generate, textOf, usageOf, type GeminiContent } from '../../services/gemini';
 import type { Price } from '../ai/ai-settings';
-import type { AiModelId } from '../ai/ai.model';
+import { AI_MODELS, type AiModelId } from '../ai/ai.model';
 import type { Voice } from './lang';
 import { runTool, toolDefs, type Ctx } from './tools';
 
@@ -10,8 +10,9 @@ import { runTool, toolDefs, type Ctx } from './tools';
 // (every round), so its worst cost is known before it starts.
 
 const SYSTEM = `You are the assistant inside MedBox24, the software of a pharmacy shop in India. The shop's own staff ask you questions.
-Answer about this shop (its sales, profit, stock, expiry, customers' udhaar, suppliers, cash), about medicines (what a medicine or salt is for, substitutes with the same salt), and about running and growing a pharmacy in India: more sales, stock and expiry control, buying and margins, pricing, customers and loyalty, staff, cash and udhaar, the shop's layout and marketing. For advice, first look up the shop's own figures with the tools and build on them. For anything else (films, sport, politics, homework, coding, other trades), reply with exactly OFF_TOPIC and nothing else.
-Take every figure from the tools and copy it as given; never invent a number or a name. If a tool says the person's role cannot see something, say so plainly.
+Answer about this shop (its sales, profit and margins, stock, expiry, customers and udhaar, suppliers and their prices, purchases, expenses, GST, staff, cash, branches), about medicines (what a medicine or salt is for, substitutes with the same salt), and about running and growing a pharmacy in India: more sales, stock and expiry control, buying and margins, pricing, customers and loyalty, staff, cash and udhaar, the shop's layout and marketing. For anything else (films, sport, politics, homework, coding, other trades), reply with exactly OFF_TOPIC and nothing else.
+Call every tool you need together in one turn. For "why", "vs" or "up or down", start with compare. For advice, first look up the shop's own figures (compare, item_margins, not_selling, buy_prices, busy_hours, low_stock, customer_dues — whichever fit), say what they show, then give two or three concrete steps for this shop, each tied to a figure.
+Take every figure from the tools and copy it as given; never invent a number or a name, and never work one out yourself. If a tool says the person's role cannot see something, say so plainly.
 Medicines: general information only. Never give a dose for a patient — say to ask a doctor. GST and licences: general guidance only — for a filing, say to ask their CA.
 Reply in at most 8 short lines of plain text, no tables and no markdown.`;
 
@@ -46,7 +47,23 @@ export const costOf = (u: Usage, p: Price, usdInr: number) => Math.round(((u.inp
 /** Tokens a tool result may add, counted high (a character can be a token in Bengali). */
 const roughTokens = (s: string) => Math.ceil(s.length / 2);
 
-export async function askClaude(c: Ctx, key: string, s: { model: AiModelId; capIn: number; capOut: number }, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
+export interface Caps {
+  model: AiModelId;
+  capIn: number;
+  capOut: number;
+  price: Price;
+}
+
+/**
+ * Input tokens as the input cap counts them: each at its own price over the dearest input price, so a cached read
+ * costs a tenth of a fresh one and the worst case (cap × dearest price) still holds.
+ */
+export function inputUsed(u: Usage, p: Price) {
+  const top = Math.max(p.input, p.cacheWrite) || 1;
+  return (u.input * p.input + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / top;
+}
+
+export async function askClaude(c: Ctx, key: string, s: Caps, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
   const client = new Anthropic({ apiKey: key, baseURL: env.AI_BASE_URL, maxRetries: 1, timeout: 45_000 });
   const messages: Anthropic.MessageParam[] = [...history.map((h) => ({ role: h.role, content: h.text })), { role: 'user', content: `${question}\n\n(Reply in ${LANGUAGE[voice]}.)` }];
   const tools = toolDefs();
@@ -62,6 +79,8 @@ export async function askClaude(c: Ctx, key: string, s: { model: AiModelId; capI
       system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       tools,
       messages,
+      // Short answers from looked-up figures: little thinking, so the output cap goes to the answer.
+      ...(AI_MODELS[s.model].effort ? { output_config: { effort: 'low' as const } } : {}),
     });
     used.input += msg.usage.input_tokens;
     used.output += msg.usage.output_tokens;
@@ -83,14 +102,14 @@ export async function askClaude(c: Ctx, key: string, s: { model: AiModelId; capI
     }
     // The next round reads the whole conversation again: stop now if it would go past the input cap.
     const next = lastIn + msg.usage.output_tokens + results.reduce((a, r) => a + roughTokens(r.text), 0);
-    if (used.input + used.cacheRead + used.cacheWrite + next > s.capIn) return { kind: 'too_big', tools: called };
+    if (inputUsed(used, s.price) + next > s.capIn) return { kind: 'too_big', tools: called };
     messages.push({ role: 'assistant', content: msg.content }, { role: 'user', content: uses.map((u, i) => ({ type: 'tool_result' as const, tool_use_id: u.id, content: results[i]?.text ?? '', is_error: !results[i]?.ok })) });
   }
   return { kind: 'too_big', tools: called };
 }
 
 /** D96: the same question on Gemini — the same tools, caps and answer kinds; the model's turns go back as given (thought signatures). */
-export async function askGemini(c: Ctx, key: string, s: { model: AiModelId; capIn: number; capOut: number }, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
+export async function askGemini(c: Ctx, key: string, s: Caps, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
   const contents: GeminiContent[] = [...history.map((h): GeminiContent => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: `${question}\n\n(Reply in ${LANGUAGE[voice]}.)` }] }];
   const tools = [{ functionDeclarations: toolDefs().map((t) => ({ name: t.name, description: t.description ?? '', parametersJsonSchema: t.input_schema })) }];
   const called: string[] = [];
@@ -118,7 +137,7 @@ export async function askGemini(c: Ctx, key: string, s: { model: AiModelId; capI
       if (x.href) links.push(x.href);
     }
     const next = u.input + u.cacheRead + u.output + results.reduce((a, x) => a + roughTokens(x.text), 0);
-    if (used.input + used.cacheRead + next > s.capIn) return { kind: 'too_big', tools: called };
+    if (inputUsed(used, s.price) + next > s.capIn) return { kind: 'too_big', tools: called };
     contents.push(cand.content, { role: 'user', parts: calls.map((f, i) => ({ functionResponse: { ...(f.id ? { id: f.id } : {}), name: f.name, response: results[i]?.ok ? { result: results[i].text } : { error: results[i]?.text ?? '' } } })) });
   }
   return { kind: 'too_big', tools: called };

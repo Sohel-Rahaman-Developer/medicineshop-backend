@@ -148,5 +148,12 @@ export const CHIP_GROUPS: Record<Lang, ChipGroup[]> = {
   ],
 };
 
+/** v1.27: questions only the AI can answer (a token each) — kept apart so the ready questions stay free. */
+export const AI_GROUP: Record<Lang, { title: string; qs: string[] }> = {
+  en: { title: 'AI advice', qs: ['This month vs last month — what changed?', 'Which medicines give me the lowest margin?', 'Which supplier sells cheaper?', 'What time do most customers come?', 'How can I grow my sales this month?'] },
+  hi: { title: 'AI सलाह', qs: ['इस महीने बनाम पिछला महीना — क्या बदला?', 'किन दवाओं में मुनाफ़ा सबसे कम है?', 'कौन सा सप्लायर सस्ता देता है?', 'किस समय सबसे ज़्यादा ग्राहक आते हैं?', 'इस महीने बिक्री कैसे बढ़ाऊँ?'] },
+  bn: { title: 'AI পরামর্শ', qs: ['এই মাস বনাম গত মাস — কী বদলাল?', 'কোন ওষুধে লাভ সবচেয়ে কম?', 'কোন সাপ্লায়ার সস্তায় দেয়?', 'কোন সময়ে সবচেয়ে বেশি খদ্দের আসে?', 'এই মাসে বিক্রি কীভাবে বাড়াব?'] },
+};
+
 /** The same questions in one list (the quick chips under an answer use the first few). */
 export const CHIPS: Record<Lang, string[]> = { en: CHIP_GROUPS.en.flatMap((g) => g.qs), hi: CHIP_GROUPS.hi.flatMap((g) => g.qs), bn: CHIP_GROUPS.bn.flatMap((g) => g.qs) };

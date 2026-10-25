@@ -170,7 +170,7 @@ async function main() {
   const a = data<{ route: string; text: string; links?: { href: string }[] }>(ask);
   check('answered by Gemini (its thinking left out), with a link to the product', a.route === 'ai' && a.text.startsWith('Dolo 650 mein paracetamol') && !a.text.includes('thinking') && a.links?.[0]?.href === `/products/${dolo}`, JSON.stringify(a));
   const [c1, c2] = fake.seen.slice(n);
-  check('round 1: Flash-Lite, 12 tools as JSON schema, max 500 out, low thinking, the earlier turns as user / model', c1?.model === 'gemini-3.5-flash-lite' && c1.body.tools?.[0]?.functionDeclarations.length === 12 && Boolean(c1.body.tools[0].functionDeclarations[0]?.parametersJsonSchema) && c1.body.generationConfig?.maxOutputTokens === 500 && c1.body.generationConfig.thinkingConfig?.thinkingLevel === 'low' && c1.body.contents?.map((x) => x.role).join(',') === 'user,model,user', JSON.stringify(c1?.body.contents?.map((x) => x.role)));
+  check('round 1: Flash-Lite, 26 tools as JSON schema, max 500 out, low thinking, the earlier turns as user / model', c1?.model === 'gemini-3.5-flash-lite' && c1.body.tools?.[0]?.functionDeclarations.length === 26 && Boolean(c1.body.tools[0].functionDeclarations[0]?.parametersJsonSchema) && c1.body.generationConfig?.maxOutputTokens === 500 && c1.body.generationConfig.thinkingConfig?.thinkingLevel === 'low' && c1.body.contents?.map((x) => x.role).join(',') === 'user,model,user', JSON.stringify(c1?.body.contents?.map((x) => x.role)));
   const turns = c2?.body.contents ?? [];
   const echoed = turns.at(-2)?.parts[0] as { functionCall?: { id: string }; thoughtSignature?: string } | undefined;
   const answered = turns.at(-1)?.parts[0] as { functionResponse?: { id: string; name: string; response: { result?: string } } } | undefined;
