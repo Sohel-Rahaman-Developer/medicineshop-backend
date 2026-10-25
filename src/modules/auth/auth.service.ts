@@ -1,11 +1,14 @@
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
+import { Types } from 'mongoose';
 import { AppError } from '../../core/errors';
+import { otherShopAddress } from '../../core/origins';
 import { sendMail } from '../../services/mailer';
 import { otpEmail, sessionRevokedEmail } from '../../services/email-templates';
 import type { Lang } from '../../core/lang';
 import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, hashOtp, sha256 } from '../../utils/crypto';
+import { MembershipModel } from '../memberships/membership.model';
 import { UserModel, type UserDoc } from '../user/user.model';
 import { demoFailed, demoSignedIn, demoToken } from '../demo/demo.login';
 import { isDemoEmail } from '../demo/demo.model';
@@ -21,6 +24,8 @@ import {
 
 export interface RequestContext {
   lang?: Lang;
+  /** Signing in on a shop's own address: only that shop's people (active or invited). */
+  onlyShop?: string | null;
   ip?: string;
   userAgent?: string;
   deviceInfo?: string;
@@ -132,6 +137,9 @@ async function verify(email: string, otp: string, ctx: RequestContext & { rememb
   const now = new Date();
   const before = await UserModel.findOne({ email }).select('emailVerifiedAt status').lean();
   if (before?.status === 'disabled') throw invalid();
+  if (ctx.onlyShop && !(before && (await MembershipModel.exists({ shopId: new Types.ObjectId(ctx.onlyShop), userId: before._id, status: { $in: ['active', 'invited'] } })))) {
+    throw otherShopAddress();
+  }
   const isNewUser = !before?.emailVerifiedAt;
 
   const user = await UserModel.findOneAndUpdate(

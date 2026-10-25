@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import { Types } from 'mongoose';
 import { AppError } from '../errors';
+import { originShop, otherShopAddress } from '../origins';
 import { checkSession, claimsOf } from './require-auth';
 import { MembershipModel, type Membership } from '../../modules/memberships/membership.model';
 import { effective, type Action, type Module, type Permissions, type Scopes, can } from '../../modules/rbac/permissions';
@@ -86,6 +87,8 @@ export const shopAuth: RequestHandler = (req, _res, next) => {
     const header = req.get('x-shop-id') ?? '';
     const shopId = Types.ObjectId.isValid(header) ? new Types.ObjectId(header) : null;
     const userId = new Types.ObjectId(claims.sub);
+    const bound = await originShop(req.get('origin'));
+    if (bound && bound !== header) throw otherShopAddress();
     const [session, shop] = await Promise.allSettled([checkSession(claims), shopId ? contextFor(shopId, userId) : Promise.reject(AppError.badRequest('Choose a shop first'))]);
     if (session.status === 'rejected') throw session.reason;
     if (shop.status === 'rejected') throw shop.reason;

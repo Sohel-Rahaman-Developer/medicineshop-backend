@@ -193,6 +193,50 @@ async function main() {
   await root.post(`/admin/web-addresses/${g?.id ?? ''}/decide`, { action: 'stop', reason: 'Owner asked to stop' });
   check('a stopped address can’t be paid for → 409', (await c.post('/web-address/order', { period: 'month' })).status === 409);
 
+  section('8. An address signs in only its own shop’s people');
+  const { UserModel } = await import('../src/modules/user/user.model.js');
+  const DURGA = 'http://durga.localhost:3000';
+  const d = await shop('durga@web4.test', 'Durga Medicals');
+  const e = await shop('esha@web5.test', 'Esha Pharmacy');
+  await d.post('/web-address', { name: 'durga' });
+  await root.post(`/admin/web-addresses/${(await rowOf('durga'))?.id ?? ''}/decide`, { action: 'approve', reason });
+  type MeShop = { shopId: string; address: string | null };
+  const shopsOf = async (cl: Client) => data<{ shops: MeShop[] }>(await cl.get('/auth/me')).shops;
+  check('me: Durga’s shop carries its live address', (await shopsOf(d))[0]?.address === DURGA);
+  check('me: a shop without an address has none — the main app as before', (await shopsOf(e))[0]?.address === null);
+  const at = async (email: string) => {
+    const cl = h.client({ origin: DURGA });
+    await h.seedOtp(email, '424242');
+    return { cl, res: await cl.post('/auth/otp/verify', { email, otp: '424242' }) };
+  };
+  const other = await at('esha@web5.test');
+  check('another shop’s owner signs in on Durga’s address → 403, no session', other.res.status === 403 && other.res.json.error?.message?.startsWith('This web address is for another shop') === true && !other.res.setCookies.some((x) => x.startsWith('ms_at=')), code(other.res));
+  const users = await UserModel.countDocuments();
+  const nobody = await at('new-person@web6.test');
+  check('a new email can’t make an account there → 403', nobody.res.status === 403 && (await UserModel.countDocuments()) === users, code(nobody.res));
+  const own = await at('durga@web4.test');
+  check('Durga’s owner signs in there', own.res.status === 200, code(own.res));
+  own.cl.shopId = d.shopId;
+  check('…and works in Durga’s shop', (await own.cl.raw('GET', '/shop/context', undefined, { origin: DURGA })).status === 200);
+  const dRoles = data<{ id: string; key: string | null }[]>(await d.get('/roles'));
+  await d.post('/staff', { email: 'kavya@web4.test', name: 'Kavya', roleId: dRoles.find((r) => r.key === 'cashier')?.id });
+  const invited = await at('kavya@web4.test');
+  check('someone Durga invited may sign in there to accept', invited.res.status === 200, code(invited.res));
+  const kInv = data<{ id: string }[]>(await invited.cl.get('/invitations'))[0]?.id ?? '';
+  check('…and accept Durga’s invitation there', (await invited.cl.post(`/invitations/${kInv}/accept`, { name: 'Kavya' })).status === 200);
+  const eInv = await e.post('/staff', { email: 'kavya@web4.test', name: 'Kavya', roleId: data<{ id: string; key: string | null }[]>(await e.get('/roles')).find((r) => r.key === 'cashier')?.id });
+  const eInvId = data<{ id: string }[]>(await invited.cl.get('/invitations'))[0]?.id ?? '';
+  check('another shop’s invitation can’t be accepted on Durga’s address → 403', eInv.status < 300 && (await invited.cl.post(`/invitations/${eInvId}/accept`, { name: 'Kavya' })).status === 403);
+  const cross = await e.raw('GET', '/shop/context', undefined, { origin: DURGA });
+  check('signed in on the main site, Esha’s shop asked from Durga’s address → 403', cross.status === 403 && cross.json.error?.message?.startsWith('This web address is for another shop') === true, code(cross));
+  check('…and its products → 403', (await e.raw('GET', '/products', undefined, { origin: DURGA })).status === 403);
+  const tok = await e.loadCsrf();
+  check('…and a write → 403', (await e.raw('POST', '/customers', { name: 'Ravi', phone: '98300 11111' }, { origin: DURGA, 'x-csrf-token': tok })).status === 403);
+  check('Esha on the main site works as before', (await e.get('/shop/context')).status === 200 && (await e.get('/products')).status === 200);
+  check('a new shop can’t be made from Durga’s address → 403', (await own.cl.post('/shops', shopBody('Third Shop'))).status === 403);
+  await root.post(`/admin/web-addresses/${(await rowOf('durga'))?.id ?? ''}/decide`, { action: 'stop', reason: 'Owner asked to stop' });
+  check('address stopped → me has none, Durga works on the main site', (await shopsOf(d))[0]?.address === null && (await d.get('/shop/context')).status === 200);
+
   await h.close();
   finish();
 }

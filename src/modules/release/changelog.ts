@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.25.2',
+    date: '2026-10-25',
+    title: 'Your web address is yours alone',
+    shop: [
+      'A shop’s own web address signs in only that shop’s people. Someone from another shop is refused there, and can’t open their own shop through it.',
+      'A shop with a live web address opens there: sign in on the main site and the app moves to your address by itself. Shops without one keep using the main site as before.',
+      'Opening another shop from the shop list takes you to that shop’s own address, or to the main site.',
+    ],
+    admin: [],
+    api: ['A request from a shop’s web address works only for that shop (403 otherwise); sign-in there needs that shop’s membership or invitation; GET /auth/me gives each shop its live address.'],
+  },
+  {
     version: '1.25.1',
     date: '2026-10-25',
     title: 'Send stock between your shops',

@@ -1,10 +1,13 @@
 import type { Request, Response } from 'express';
 import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
+import { originShop } from '../../core/origins';
 import { issueCsrfToken } from '../../core/middleware/csrf';
 import { fetched, sent } from '../../core/response';
 import { langOf, type Lang } from '../../core/lang';
+import { Types } from 'mongoose';
 import { myInvitations, myShops } from '../memberships/memberships.service';
+import { liveAddresses } from '../webaddress/web-address.service';
 import { hashOtp } from '../../utils/crypto';
 import { UserModel } from '../user/user.model';
 import * as authService from './auth.service';
@@ -41,6 +44,7 @@ export async function verifyOtp(req: Request, res: Response) {
   const { tokens, user, isNewUser } = await authService.verifyOtpAndLogin(email, otp, {
     ...ctxOf(req),
     rememberMe,
+    onlyShop: await originShop(req.get('origin')),
   });
 
   setAuthCookies(res, tokens);
@@ -97,11 +101,13 @@ export async function me(req: Request, res: Response) {
     myInvitations(req.auth.userId),
   ]);
   if (!user) throw AppError.notFound('User not found');
+  // D94: a shop with its own live address is opened there.
+  const addresses = await liveAddresses(shops.map((s) => new Types.ObjectId(s.shopId)));
 
   // A read — no message, otherwise every page load fires a pointless toast.
   fetched(res, {
     user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status, hasPin: Boolean(user.pinHash), lockMinutes: user.lockMinutes, lang: user.lang ?? null },
-    shops,
+    shops: shops.map((s) => ({ ...s, address: addresses.get(s.shopId) ?? null })),
     invitations: invitations.length,
   });
 }

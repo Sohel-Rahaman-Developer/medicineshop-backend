@@ -15,6 +15,7 @@ import { Types } from 'mongoose';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
+import { originShop, otherShopAddress } from '../../core/origins';
 import { audit } from '../audit/audit.model';
 import * as retention from '../retention/retention';
 import { filesInfo, filesZipPlan, sendFilesZip } from '../attachments/files-zip';
@@ -39,6 +40,7 @@ shopsRouter.post(
   requireAuth,
   validate({ body: createShopSchema }),
   asyncHandler(async (req: Request, res: Response) => {
+    if (await originShop(req.get('origin'))) throw otherShopAddress();
     const shop = await svc.createShop(req.auth?.userId ?? '', req.body as CreateShopInput, ctxOf(req));
     created(res, shop, 'Your shop is ready. The free trial has started.');
   }),

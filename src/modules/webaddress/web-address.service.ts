@@ -255,17 +255,32 @@ export async function endingOf(shopId: Types.ObjectId, now = new Date()) {
   return { url: addressUrl(r.slug), ends: end, left: Math.max(0, left), live: s.live };
 }
 
-// The API trusts a live address as one of its own apps (CORS, CSRF). Answers are kept 30 seconds per name.
+// The API trusts a live address as one of its own apps (CORS, CSRF), for its own shop only. Answers are kept 30 seconds per name.
 const LIVE_TTL = 30_000;
-const live = new Map<string, { ok: boolean; at: number }>();
+const live = new Map<string, { shop: string | null; at: number }>();
 export const forgetLive = () => { live.clear(); };
 
-export async function isLiveOrigin(origin: string | undefined): Promise<boolean> {
-  const slug = origin ? ORIGIN.exec(origin)?.[1] : undefined;
-  if (!slug || !SLUG.test(slug)) return false;
+async function liveShop(slug: string): Promise<string | null> {
   const hit = live.get(slug);
-  if (hit && Date.now() - hit.at < LIVE_TTL) return hit.ok;
-  const ok = (await publicAddress(slug)).live;
-  live.set(slug, { ok, at: Date.now() });
-  return ok;
+  if (hit && Date.now() - hit.at < LIVE_TTL) return hit.shop;
+  const r = SLUG.test(slug) ? await WebAddressModel.findOne({ slug, status: 'active' }, null, ALL).lean<Rec>() : null;
+  const shop = r && (await stateOf(r)).live ? String(r.shopId) : null;
+  live.set(slug, { shop, at: Date.now() });
+  return shop;
+}
+
+export async function shopOfOrigin(origin: string | undefined): Promise<string | null> {
+  const slug = origin ? ORIGIN.exec(origin)?.[1] : undefined;
+  return slug ? liveShop(slug) : null;
+}
+
+export const isLiveOrigin = async (origin: string | undefined): Promise<boolean> => (await shopOfOrigin(origin)) !== null;
+
+/** Each shop's own live address, so the main app can send its people there. */
+export async function liveAddresses(shopIds: Types.ObjectId[]): Promise<Map<string, string>> {
+  if (!shopIds.length) return new Map();
+  const rs = await WebAddressModel.find({ shopId: { $in: shopIds }, status: 'active' }, null, ALL).select('shopId slug').lean<Rec[]>();
+  const out = new Map<string, string>();
+  await Promise.all(rs.map(async (r) => { if ((await liveShop(r.slug)) === String(r.shopId)) out.set(String(r.shopId), addressUrl(r.slug)); }));
+  return out;
 }

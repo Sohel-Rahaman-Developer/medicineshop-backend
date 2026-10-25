@@ -46,7 +46,7 @@ import { publicRouter } from './modules/public/public.routes';
 import { webAddressRouter } from './modules/webaddress/web-address.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
 import { transfersRouter } from './modules/transfers/transfers.routes';
-import { isLiveOrigin } from './modules/webaddress/web-address.service';
+import { isLiveOrigin, shopOfOrigin } from './modules/webaddress/web-address.service';
 import { isOurOrigin, trustMoreOrigins } from './core/origins';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { referralRouter } from './modules/referral/referral.routes';
@@ -92,7 +92,7 @@ export function createApp() {
 
   // Only our own apps get CORS headers; any other origin gets none and the browser blocks it.
   // A shop's live web address (D94) counts as the shop app.
-  trustMoreOrigins(isLiveOrigin);
+  trustMoreOrigins(isLiveOrigin, shopOfOrigin);
   app.use(
     cors({
       origin: (origin, callback) => {

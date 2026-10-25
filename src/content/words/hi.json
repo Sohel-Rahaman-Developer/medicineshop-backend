@@ -902,5 +902,6 @@
   "The sender cancelled this transfer": "भेजने वाली दुकान ने यह transfer रद्द कर दिया",
   "{productName} was deleted in the sending shop": "{productName} भेजने वाली दुकान में हटा दी गई",
   "{name} has no category in the sending shop": "भेजने वाली दुकान में {name} की category नहीं है",
-  "Already received — it can’t be cancelled": "पहले ही receive हो चुका — रद्द नहीं हो सकता"
+  "Already received — it can’t be cancelled": "पहले ही receive हो चुका — रद्द नहीं हो सकता",
+  "This web address is for another shop. Open your own shop’s address, or the main MedBox24 site.": "यह web address किसी दूसरी दुकान का है। अपनी दुकान का address खोलें, या MedBox24 की main site।"
 }

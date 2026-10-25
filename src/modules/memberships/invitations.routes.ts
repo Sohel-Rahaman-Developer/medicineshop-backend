@@ -1,11 +1,14 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { Types } from 'mongoose';
 import { asyncHandler } from '../../core/async-handler';
+import { originShop, otherShopAddress } from '../../core/origins';
 import { requireAuth } from '../../core/middleware/require-auth';
 import { validate } from '../../core/middleware/validate';
 import { fetched, sent } from '../../core/response';
 import { mobile } from '../shops/shops.validation';
 import { actorOf } from '../user/actor';
+import { MembershipModel } from './membership.model';
 import * as svc from './memberships.service';
 
 export const invitationsRouter = Router();
@@ -29,6 +32,8 @@ invitationsRouter.post(
   validate({ params: idSchema, body: acceptSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
+    const bound = await originShop(req.get('origin'));
+    if (bound && !(await MembershipModel.exists({ _id: id, shopId: new Types.ObjectId(bound) }))) throw otherShopAddress();
     const shop = await svc.accept(req.auth?.userId ?? '', id, req.body as z.infer<typeof acceptSchema>, req.ip);
     sent(res, shop, `Welcome to ${shop.shopName}`);
   }),
