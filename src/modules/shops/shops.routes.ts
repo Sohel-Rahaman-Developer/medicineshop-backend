@@ -60,11 +60,12 @@ shopRouter.get(
   '/context',
   asyncHandler(async (req: Request, res: Response) => {
     const t = tenantOf(req);
-    const [role, m] = await Promise.all([
+    const [role, m, inGroup] = await Promise.all([
       RoleModel.findOne({ shopId: t.shopId, _id: t.roleId }).select('name').lean(),
       MembershipModel.findOne({ shopId: t.shopId, _id: t.membershipId }).select('designation').lean(),
+      svc.inGroup(t.shopId),
     ]);
-    fetched(res, { ...svc.context(t, role?.name ?? '', m?.designation ?? ''), logo: await logoPathOf(t.shopId) });
+    fetched(res, { ...svc.context(t, role?.name ?? '', m?.designation ?? ''), logo: await logoPathOf(t.shopId), inGroup });
   }),
 );
 

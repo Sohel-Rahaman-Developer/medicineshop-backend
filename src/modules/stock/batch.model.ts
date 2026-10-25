@@ -24,7 +24,7 @@ const batchSchema = new Schema(
     initialQuantity: { type: Number, required: true },
     freeQuantity: { type: Number, required: true, default: 0 },
     rack: { type: String, uppercase: true, trim: true, default: '' },
-    source: { type: String, enum: ['opening', 'purchase'], required: true },
+    source: { type: String, enum: ['opening', 'purchase', 'transfer'], required: true },
     supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier' },
     purchaseId: { type: Schema.Types.ObjectId, ref: 'Purchase' },
     purchaseInvoiceNumber: { type: String },

@@ -45,6 +45,7 @@ import { brandRouter } from './modules/branding/branding.routes';
 import { publicRouter } from './modules/public/public.routes';
 import { webAddressRouter } from './modules/webaddress/web-address.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
+import { transfersRouter } from './modules/transfers/transfers.routes';
 import { isLiveOrigin } from './modules/webaddress/web-address.service';
 import { isOurOrigin, trustMoreOrigins } from './core/origins';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
@@ -189,6 +190,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/public`, publicRouter);
   app.use(`${env.API_PREFIX}/web-address`, webAddressRouter);
   app.use(`${env.API_PREFIX}/branches`, branchesRouter);
+  app.use(`${env.API_PREFIX}/transfers`, transfersRouter);
   app.use(`${env.API_PREFIX}/perf`, perfRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);

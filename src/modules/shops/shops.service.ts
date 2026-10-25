@@ -122,6 +122,12 @@ export async function createShop(userId: string, input: CreateShopInput, ctx: Ct
   }
 }
 
+/** v1.25: a branch, or a main shop with branches — the screens between shops (transfers) show then. */
+export async function inGroup(shopId: Types.ObjectId) {
+  const s = await ShopModel.findById(shopId).select('mainShopId').lean();
+  return Boolean(s?.mainShopId) || Boolean(await ShopModel.exists({ mainShopId: shopId }));
+}
+
 export function context(t: TenantContext, roleName: string, designation: string) {
   return {
     shop: { id: String(t.shopId), name: t.shopName },

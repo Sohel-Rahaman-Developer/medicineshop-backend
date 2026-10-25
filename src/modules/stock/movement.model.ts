@@ -3,7 +3,7 @@ import { tenantScoped } from '../../core/tenant-scope';
 
 export const MOVEMENT_TYPES = [
   'PURCHASE', 'SALE', 'SALE_RETURN', 'SALE_CANCEL', 'PURCHASE_RETURN', 'PURCHASE_CANCEL', 'ADJUST_IN', 'ADJUST_OUT',
-  'DAMAGE', 'EXPIRY_WRITE_OFF', 'SELF_USE', 'RACK_MOVE', 'OPENING',
+  'DAMAGE', 'EXPIRY_WRITE_OFF', 'SELF_USE', 'RACK_MOVE', 'OPENING', 'TRANSFER_OUT', 'TRANSFER_IN', 'TRANSFER_CANCEL',
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

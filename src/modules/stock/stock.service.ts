@@ -64,7 +64,7 @@ type ProductForStock = { _id: Types.ObjectId; name: string; units?: unknown; sto
 
 /** Where received stock came from: the ledger entry and the batch's purchase trail. */
 export interface ReceiveSource {
-  source: 'opening' | 'purchase';
+  source: 'opening' | 'purchase' | 'transfer';
   /** Base units, free goods included. */
   quantity: number;
   freeQuantity: number;
@@ -73,6 +73,8 @@ export interface ReceiveSource {
   costPerBaseUnit: number;
   supplierId?: Types.ObjectId;
   purchaseId?: Types.ObjectId;
+  /** v1.25.1: stock that came from another shop of the group. */
+  transferId?: Types.ObjectId;
   invoiceNumber?: string;
   refNumber?: string;
 }
@@ -161,11 +163,12 @@ export async function receiveBatch(shopId: Types.ObjectId, p: ProductForStock, i
   }
 
   const purchase = src.source === 'purchase';
+  const transfer = src.source === 'transfer';
   await applyMove(
     shopId,
     batchId,
     src.quantity,
-    { type: purchase ? 'PURCHASE' : 'OPENING', refType: purchase ? 'PURCHASE' : 'OPENING', refId: purchase ? src.purchaseId : batchId, refNumber: src.refNumber ?? batchNumber, actor, at: now },
+    { type: purchase ? 'PURCHASE' : transfer ? 'TRANSFER_IN' : 'OPENING', refType: purchase ? 'PURCHASE' : transfer ? 'TRANSFER' : 'OPENING', refId: purchase ? src.purchaseId : transfer ? src.transferId : batchId, refNumber: src.refNumber ?? batchNumber, actor, at: now },
     session,
   );
   await ProductModel.updateOne({ shopId, _id: p._id }, { $set: { lastMrp: input.mrp } }, { session });

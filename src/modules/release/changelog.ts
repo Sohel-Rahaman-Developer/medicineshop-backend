@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.25.1',
+    date: '2026-10-25',
+    title: 'Send stock between your shops',
+    shop: [
+      'Stock → Transfers → Send stock: pick the shop, the medicines and how many (strips or tablets). The stock leaves at once; the other shop presses Receive when it arrives and gets the same batch, expiry and MRP.',
+      'Same GSTIN: a delivery challan, no GST. Another GSTIN: a tax invoice at cost with GST. Both download from the transfer.',
+      'Changed your mind before it arrived? Cancel puts the stock back. The other shop hears of it in the bell; Movements shows “Sent to branch” and “From branch”.',
+    ],
+    admin: [],
+    api: ['GET/POST /transfers, POST /transfers/:id/receive and /cancel, GET /transfers/:id/pdf; /shop/context carries inGroup.'],
+  },
+  {
     version: '1.25.0',
     date: '2026-10-25',
     title: 'Branches: run more than one shop',

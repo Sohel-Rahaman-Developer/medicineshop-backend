@@ -46,6 +46,14 @@ async function groupOf(shopId: Types.ObjectId, ownerId: Types.ObjectId) {
   return { mainId, shops };
 }
 
+/** Every open shop in this shop's group — the main shop and its branches, one owner — for anyone working here. */
+export async function groupShops(shopId: Types.ObjectId) {
+  const here = await ShopModel.findById(shopId).select('mainShopId ownerUserId').lean();
+  if (!here) throw AppError.notFound('Shop not found');
+  const mainId = here.mainShopId ?? here._id;
+  return ShopModel.find({ $or: [{ _id: mainId }, { mainShopId: mainId }], ownerUserId: here.ownerUserId, status: 'active' }).select('name address phone gstin drugLicenseNumber').sort({ createdAt: 1 }).lean();
+}
+
 function ownerOnly(t: TenantContext) {
   if (!t.isOwner) throw AppError.forbidden('Only the owner sees and opens branches');
 }
