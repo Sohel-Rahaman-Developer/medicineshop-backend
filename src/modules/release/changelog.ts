@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.41',
+    date: '2026-10-25',
+    title: 'Pay part now, the rest on udhaar',
+    shop: [
+      'Counter → Cash: type what the customer gave; if it is short, one tap — “Rest ₹… on udhaar” — puts the remainder on their udhaar.',
+      'Udhaar has a “Paid now” box: cash or UPI taken now, the rest on udhaar, with the balance before and after shown.',
+      'Billing a walk-in? The payment shows “Choose customer” so the rest can go on someone’s udhaar.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.22.40',
     date: '2026-10-25',
     title: 'Book a doctor in fewer taps',
