@@ -41,6 +41,7 @@ import { plansRouter, razorpayWebhook, subscriptionRouter } from './modules/subs
 import { aiRouter } from './modules/ai/ai.routes';
 import { askRouter } from './modules/ask/ask.routes';
 import { briefRouter } from './modules/brief/brief.routes';
+import { refillsRouter } from './modules/refills/refills.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
 import { brandRouter } from './modules/branding/branding.routes';
 import { publicRouter } from './modules/public/public.routes';
@@ -188,6 +189,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/ai`, aiRouter);
   app.use(`${env.API_PREFIX}/ask`, askRouter);
   app.use(`${env.API_PREFIX}/brief`, briefRouter);
+  app.use(`${env.API_PREFIX}/refills`, refillsRouter);
   app.use(`${env.API_PREFIX}/admin`, adminRouter);
   app.use(`${env.API_PREFIX}/field`, fieldRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);

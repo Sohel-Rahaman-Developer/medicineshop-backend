@@ -964,5 +964,11 @@
   "Yesterday: {netSales} · {bills} bills": "कल: {netSales} · {bills} bill",
   "Ask the AI what to do first": "AI से पूछिए, पहले क्या करें",
   "It reads this brief and your own figures — one AI token, in Ask your shop.": "वह यह brief और आपके अपने आँकड़े पढ़ता है — Ask your shop में, एक AI token।",
-  "Your morning brief": "आपकी सुबह की brief"
+  "Your morning brief": "आपकी सुबह की brief",
+  "1 regular customer is due for a refill": "1 नियमित customer की दवा लेने की बारी है",
+  "{count} regular customers are due for a refill": "{count} नियमित customers की दवा लेने की बारी है",
+  "Marked as reminded": "याद दिला दिया — दर्ज हो गया",
+  "Taken off the refill list": "Refill की list से हटा दिया",
+  "Back on the refill list": "फिर से refill की list में",
+  "Customer or medicine not found": "Customer या दवा नहीं मिली"
 }

@@ -24,10 +24,11 @@ function card(x: Todo, tr: Tr): { head: string; lines: string[] } {
   }
   if (x.kind === 'suppliers') return { head: tr(`Pay suppliers ${rs(x.dueWeek)} this week`), lines: x.overdue ? [tr(`${rs(x.overdue)} is already overdue`)] : [] };
   if (x.kind === 'udhaar') return { head: tr(x.customers === 1 ? `Collect ${rs(x.total)} udhaar from 1 customer` : `Collect ${rs(x.total)} udhaar from ${String(x.customers)} customers`), lines: x.items.map((i) => `${i.name} — ${rs(i.due)}`) };
+  if (x.kind === 'refill') return { head: tr(x.count === 1 ? '1 regular customer is due for a refill' : `${String(x.count)} regular customers are due for a refill`), lines: x.items.map((i) => `${i.name} — ${i.product}`) };
   return { head: tr(x.count === 1 ? `${rs(x.mrpValue)} stuck in 1 medicine not sold for ${String(x.days)} days` : `${rs(x.mrpValue)} stuck in ${String(x.count)} medicines not sold for ${String(x.days)} days`), lines: [tr('Offer them, return them, or stop buying them.')] };
 }
 
-const LINK = { reorder: '/reorder', expiry: '/expiry', suppliers: '/suppliers', udhaar: '/credit', dead: '/brief' } as const;
+const LINK = { reorder: '/reorder', expiry: '/expiry', suppliers: '/suppliers', udhaar: '/credit', refill: '/refills', dead: '/brief' } as const;
 
 /** The brief as the morning mail: yesterday first, then the jobs as cards, then the AI to ask. */
 export function briefEmail(b: Brief, shop: string, lang: Lang) {

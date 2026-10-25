@@ -6,6 +6,7 @@ import * as F from '../ask/facts';
 import { kpis, supplierDue } from '../dashboard/dashboard.service';
 import { ProductModel } from '../products/product.model';
 import { can } from '../rbac/permissions';
+import { due } from '../refills/refills.service';
 import { SaleModel } from '../sales/sale.model';
 import { ShopModel } from '../shops/shop.model';
 
@@ -76,6 +77,15 @@ async function udhaar(t: TenantContext) {
   return { kind: 'udhaar' as const, total: d.total, customers: d.customers, items: d.items.slice(0, 3).map((c) => ({ id: c.id, name: c.name, due: c.due })) };
 }
 
+/** Regular customers due back for a medicine (refills screen), not yet reminded. */
+async function refill(t: TenantContext, now: Date) {
+  if (!can(t.permissions, 'customers', 'view')) return null;
+  const d = await due(t, now);
+  const open = d.rows.filter((r) => !r.reminded);
+  if (!open.length) return null;
+  return { kind: 'refill' as const, count: open.length, items: open.slice(0, 3).map((r) => ({ id: r.customerId, name: r.name, product: r.product, late: r.late })) };
+}
+
 async function dead(t: TenantContext, now: Date) {
   const d = await F.notSelling(t, DEAD_DAYS, now);
   if (!d.count) return null;
@@ -92,12 +102,12 @@ export async function brief(t: TenantContext, userId: string, now = new Date()) 
   const [k, rows, parts] = await Promise.all([
     kpis(t, userId, day, today),
     Promise.all(past.map(async (d) => ({ day: istIsoDay(d), netSales: (await kpis(t, userId, d, new Date(d.getTime() + DAY))).netSales }))),
-    Promise.all([seen(() => reorder(t, now)), seen(() => expiry(t, now)), seen(() => suppliers(t, now)), seen(() => udhaar(t)), seen(() => dead(t, now))]),
+    Promise.all([seen(() => reorder(t, now)), seen(() => expiry(t, now)), seen(() => suppliers(t, now)), seen(() => udhaar(t)), seen(() => refill(t, now)), seen(() => dead(t, now))]),
   ]);
   const average = rows.length ? Math.round(rows.reduce((n, r) => n + r.netSales, 0) / rows.length) : null;
-  const [re, ex, su, ud, de] = parts;
+  const [re, ex, su, ud, rf, de] = parts;
   // Most urgent first: nothing to sell, stock that can't be sold, money owed now, money to collect, money stuck.
-  const all = [re, ex, su, ud, de];
+  const all = [re, ex, su, ud, rf, de];
   const urgent = new Set<(typeof all)[number]>([re?.out ? re : null, ex?.expired ? ex : null, su?.overdue ? su : null]);
   const todo = [...all.filter((p) => urgent.has(p)), ...all.filter((p) => !urgent.has(p))].filter((p) => p !== null);
   return {

@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.29.0',
+    date: '2026-10-25',
+    title: 'Refills due',
+    shop: [
+      'People → Refills due: customers who buy the same medicine again and again (BP, sugar, thyroid…) show a few days before it should run out — worked out from your own bills, no AI and nothing to set up.',
+      'Each row says how often they buy, when they last came, and how late they are. WhatsApp opens your own WhatsApp with the message typed in your language; Call dials them. Either one is noted with who and when, and the row rests for a week.',
+      '“Not a regular” takes a person off for that medicine, with Undo. Buying again takes them off by itself.',
+      'The morning brief counts refills due and names the first three.',
+    ],
+    admin: [],
+    api: ['GET /refills; PUT /refills/:customerId/:productId (reminded | stop | resume).'],
+  },
+  {
     version: '1.28.0',
     date: '2026-10-25',
     title: 'Your morning brief',
