@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.31.1',
+    date: '2026-10-26',
+    title: 'Compact morning brief',
+    shop: [
+      'Dashboard: the morning brief is one line — yesterday, Ask AI and Open brief — with today’s first three jobs as tiles across the width; each tile opens its screen.',
+      'Morning brief screen: yesterday’s figures in one row beside Ask AI, and the jobs two to a row on wider screens.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.31.0',
     date: '2026-10-26',
     title: 'Morning brief and refills in Pro',
