@@ -182,7 +182,7 @@ async function main() {
   check('the CA copy is the owner’s digest', Boolean(own?.text) && mails.find((m) => m.to === 'books@ca.test')?.text === own?.text);
   const again = await tick(istAt(8, 6));
   check('the next minute: nothing runs twice', !again.ran.length && (await EmailJobModel.countDocuments({ kind: 'digest' })) === 6, again.ran.join(','));
-  check('the queued mail went out (dev SMTP fallback) — status sent', (await EmailJobModel.countDocuments({ status: 'sent' })) === 6, String(await EmailJobModel.countDocuments({ status: 'sent' })));
+  check('the queued digests went out (dev SMTP fallback) — status sent; the morning brief mails go beside them', (await EmailJobModel.countDocuments({ kind: 'digest', status: 'sent' })) === 6 && (await EmailJobModel.countDocuments({ kind: 'brief', status: 'sent' })) > 0, String(await EmailJobModel.countDocuments({ status: 'sent' })));
   const eve = await tick(istAt(22, 5));
   const sumMails = await EmailJobModel.find({ kind: 'summary' }).lean();
   check('22:05 IST: the daily summary to owner, manager and the CA copy only', eve.ran.includes('summary:Shri Ram Medical Store') && sumMails.map((m) => m.to).sort().join(',') === 'books@ca.test,rohit@notif1.test,vikram@notif1.test', sumMails.map((m) => m.to).join(','));

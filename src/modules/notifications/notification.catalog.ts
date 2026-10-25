@@ -26,6 +26,8 @@ export const TYPES = {
   CASH_SHORT: { label: 'Cash drawer', group: 'money', channels: ['inapp', 'email'] },
   LARGE_DISCOUNT: { label: 'Discount above the limit', group: 'money', channels: ['inapp'] },
   DAILY_SUMMARY: { label: 'Daily summary', group: 'system', channels: ['inapp', 'email'] },
+  // D103: the morning brief lives on its own screen and the dashboard; this is its morning mail.
+  MORNING_BRIEF: { label: 'Morning brief', group: 'system', channels: ['email'] },
   LOYALTY_SETUP: { label: 'Loyalty set-up', group: 'system', channels: ['inapp'] },
   LOYALTY_TIER_UP: { label: 'Customer tier up', group: 'system', channels: ['inapp'] },
   DL_EXPIRY: { label: 'Drug licence', group: 'system', channels: ['inapp', 'email'] },

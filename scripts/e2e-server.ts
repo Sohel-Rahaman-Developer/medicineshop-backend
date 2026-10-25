@@ -58,6 +58,15 @@ async function main() {
     await SessionModel.updateMany({ userId: u._id, revokedAt: null }, { $set: { lastUsedAt: new Date(Date.now() - (b.minutes ?? 0) * 60_000) } });
   };
 
+  // D103: a shop's bills so far move back whole days (the brief reads yesterday and the same weekday before).
+  const { SaleModel } = await import('../src/modules/sales/sale.model.js');
+  const seedBackdate = async (b: { shopName?: string; days?: number }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop) throw new Error('shop not found');
+    const by = (b.days ?? 1) * 86_400_000;
+    for (const s of await SaleModel.find({ shopId: shop._id }).select('billDate').lean()) await SaleModel.updateOne({ shopId: shop._id, _id: s._id }, { $set: { billDate: new Date(s.billDate.getTime() - by) } });
+  };
+
   const { CHAT_DEFAULTS, saveChatSettings, setApiKey, saveAiSettings } = await import('../src/modules/ai/ai-settings.js');
   const { moveCoins } = await import('../src/modules/ai/coins.js');
   const { inTransaction } = await import('../src/core/transaction.js');
@@ -150,14 +159,14 @@ async function main() {
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain', '/backdate'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number };
+      const body = JSON.parse(raw) as { email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number; days?: number };
       if (req.url === '/mail') {
         lastMail(body).then(
           (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),
@@ -165,7 +174,7 @@ async function main() {
         );
         return;
       }
-      (req.url === '/domain' ? seedDomain(body) : req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/backdate' ? seedBackdate({ shopName: body.shopName, days: body.days }) : req.url === '/domain' ? seedDomain(body) : req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

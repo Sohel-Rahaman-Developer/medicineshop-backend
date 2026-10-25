@@ -22,6 +22,9 @@ import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
 import { AdminUserModel } from '../admin/admin.model';
 import { settleStuckReads } from '../ai/bill-ai';
 import { settleStuckQuestions } from '../ask/ask.service';
+import { briefEmail } from '../brief/brief.mail';
+import { brief } from '../brief/brief.service';
+import { can } from '../rbac/permissions';
 import { demoTick } from '../demo/demo.service';
 import { welcomeMissing } from '../ai/welcome';
 import { lowCredits } from '../ai/credits';
@@ -146,6 +149,26 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
   return mails;
 }
 
+/** D103 morning brief (alertDigestTime) to those who see the shop's money and want it; nothing when the shop is quiet. */
+export async function morningBrief(shopId: Types.ObjectId, shopName: string, now: Date, copies?: Copies) {
+  let mails = 0;
+  for (const u of await people(shopId, copies)) {
+    let ctx: TenantContext;
+    try {
+      ctx = (await contextFor(shopId, u._id)).ctx;
+    } catch {
+      continue;
+    }
+    if (!can(ctx.permissions, 'reports', 'view') || !wants(await offFor(shopId, u._id), 'MORNING_BRIEF', 'email')) continue;
+    const b = await brief(ctx, String(u._id), now);
+    if (!b.yesterday.bills && !b.todo.length) continue;
+    const m = briefEmail(b, shopName, u.lang);
+    await queueMail({ kind: 'brief', shopId, to: u.email, subject: `${shopName} · ${m.title}`, html: m.html, text: m.text }, now);
+    mails++;
+  }
+  return mails;
+}
+
 /** Nightly: points past their date expire and today's birthdays get their bonus (PLAN §16). */
 async function nightly(shopId: Types.ObjectId, ownerId: Types.ObjectId, now: Date) {
   const ctx = (await contextFor(shopId, ownerId)).ctx;
@@ -162,7 +185,7 @@ export async function tick(now = new Date()) {
   const clock = istClock(now);
   const shops = await ShopModel.find({ status: 'active' }).select('name ownerUserId settings.notifications').lean();
   // Today's shop jobs already done, in one read — not three round trips per shop every minute.
-  const keys = shops.flatMap((s) => ['nightly', 'digest', 'summary'].map((k) => `${k}:${String(s._id)}:${day}`));
+  const keys = shops.flatMap((s) => ['nightly', 'digest', 'brief', 'summary'].map((k) => `${k}:${String(s._id)}:${day}`));
   const done = new Set((await JobRunModel.find({ key: { $in: keys } }).select('key').lean()).map((r) => r.key));
   const fresh = (key: string) => !done.has(key) && claim(key, now);
   const ran: string[] = [];
@@ -240,6 +263,10 @@ export async function tick(now = new Date()) {
       if (email && clock >= (n?.alertDigestTime ?? '08:00') && (await fresh(`digest:${String(s._id)}:${day}`))) {
         await digest(s._id, s.name, now, { ownerId: s.ownerUserId, to: n?.extraEmails ?? [] });
         ran.push(`digest:${s.name}`);
+      }
+      if (email && clock >= (n?.alertDigestTime ?? '08:00') && (await fresh(`brief:${String(s._id)}:${day}`))) {
+        await morningBrief(s._id, s.name, now, { ownerId: s.ownerUserId, to: n?.extraEmails ?? [] });
+        ran.push(`brief:${s.name}`);
       }
       if (email && clock >= (n?.dailySummaryTime ?? '22:00') && (await fresh(`summary:${String(s._id)}:${day}`))) {
         await summary(s._id, s.name, now, { ownerId: s.ownerUserId, to: n?.extraEmails ?? [] });

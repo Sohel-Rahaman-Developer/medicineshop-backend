@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.28.0',
+    date: '2026-10-25',
+    title: 'Your morning brief',
+    shop: [
+      'Insights → Morning brief (and a card on the dashboard): yesterday’s sale against a usual day like it — the same weekday in the weeks before, with the working — and gross profit.',
+      'Then today’s jobs, most urgent first: medicines to reorder (fastest-selling first, with how many days what’s left lasts), batches expiring or expired, supplier payments due or overdue, udhaar to collect, and money stuck in medicines that don’t sell.',
+      '“Ask AI what to do first” opens the chat with the question ready; the AI reads the same brief (a token, only when you send it).',
+      'The brief also comes by email at your morning alert time to the owner and manager — switch it off in Notifications → Preferences → Morning brief.',
+    ],
+    admin: [],
+    api: ['GET /brief (reports:view); notification type MORNING_BRIEF (email); the AI has a morning_brief tool.'],
+  },
+  {
     version: '1.27.0',
     date: '2026-10-25',
     title: 'A smarter AI for your business',

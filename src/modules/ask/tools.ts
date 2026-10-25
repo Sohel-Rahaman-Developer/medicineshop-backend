@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { dayLabel } from '../../utils/date';
 import { inr } from '../../utils/money';
+import { brief } from '../brief/brief.service';
+import { seesCost } from '../dashboard/dashboard.service';
 import * as C from './cards';
 import * as F from './facts';
 
@@ -63,6 +65,7 @@ export const TOOLS = [
   tool({ name: 'purchases', description: 'Purchases for a period: invoices, amount, paid, still to pay, returns to suppliers.', input: periodInput, run: async (c, i) => { const d = await F.purchasesIn(c.t, toPeriod(i), c.now); return { data: d, href: C.purchasesCard(d, en).href }; } }),
   tool({ name: 'price', description: 'MRP and GST of one product by name, by batch.', input: nameInput, run: async (c, i) => { const d = await F.priceOf(c.t, i.name); return { data: d, href: C.priceCard(d, en).href }; } }),
   tool({ name: 'gst_month', description: 'GST of this month or last month: on sales, on purchases, and the net to pay or credit.', input: gstInput, run: async (c, i) => { const d = await F.gstOf(c.t, i.month === 'last', c.now); return { data: d, href: C.gstCard(d, en).href }; } }),
+  tool({ name: 'morning_brief', description: 'Today\'s brief: yesterday\'s sale against a usual day like it (same weekday, last 4 weeks), then today\'s jobs most urgent first — reorder (with how long stock lasts), expiry, supplier payments, udhaar, stock not selling.', input: none, run: async (c) => { if (!seesCost(c.t)) throw new F.NoAccess(); return { data: await brief(c.t, c.userId, c.now), href: '/brief' }; } }),
   tool({ name: 'open_orders', description: 'Customer orders still waiting (booked, advance taken).', input: none, run: async (c) => { const d = await F.openOrders(c.t); return { data: d, href: C.ordersCard(d, en).href }; } }),
 ];
 
@@ -73,7 +76,7 @@ export const toolDefs = (): Anthropic.Tool[] =>
     return { name: t.name, description: t.description, input_schema: schema as Anthropic.Tool.InputSchema };
   });
 
-const MONEY = new Set(['netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points', 'mrp', 'advance', 'advanceHeld', 'paid', 'salesTaxable', 'outTax', 'inTax', 'net', 'grossProfit', 'cost', 'packCost', 'couldSave']);
+const MONEY = new Set(['netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points', 'mrp', 'advance', 'advanceHeld', 'paid', 'salesTaxable', 'outTax', 'inTax', 'net', 'grossProfit', 'cost', 'packCost', 'couldSave', 'average']);
 const ISO = /^\d{4}-\d{2}-\d{2}T/;
 const MAX = 3000;
 
