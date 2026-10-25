@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.24.0',
+    date: '2026-10-25',
+    title: 'Your shop’s own web address',
+    shop: [
+      'Settings → Web address: ask for your own address like krishna.medbox24.in — the name is checked as you type, and MedBox24 calls you to confirm.',
+      'Once approved your team opens the app there; the sign-in page carries your shop’s name and logo. Free during the trial.',
+    ],
+    admin: ['Web addresses: requests with the owner’s phone to call, notes from the call, approve or turn down, give free time, stop or start again, and the add-on price shops see.'],
+    api: ['GET/POST/DELETE /web-address, GET /web-address/check; GET /public/web-address/:name; a live address is trusted as the shop app (CORS and CSRF).'],
+  },
+  {
     version: '1.23.0',
     date: '2026-10-25',
     title: 'Exchange: swap a medicine in a few taps',

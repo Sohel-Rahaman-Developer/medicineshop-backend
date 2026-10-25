@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.23.0",
+  "version": "1.24.0",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -23,6 +23,7 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "smoke:dayclose": "tsx scripts/smoke-dayclose.ts",
     "smoke:exchange": "tsx scripts/smoke-exchange.ts",
+    "smoke:webaddress": "tsx scripts/smoke-webaddress.ts",
     "smoke:customers": "tsx scripts/smoke-customers.ts",
     "smoke:loyalty": "tsx scripts/smoke-loyalty.ts",
     "smoke:notifications": "tsx scripts/smoke-notifications.ts",
@@ -52,7 +53,7 @@
     "load:pos": "tsx scripts/load-pos.ts",
     "load:cluster": "tsx scripts/load-cluster.ts",
     "bench:screens": "tsx scripts/bench-screens.ts",
-    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:vapt && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:categories && npm run smoke:field && npm run smoke:purchase && npm run smoke:ai && npm run smoke:ask && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:exchange && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:points && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:plans && npm run smoke:clinic && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay && npm run smoke:gateway && npm run smoke:referral && npm run smoke:brand && npm run smoke:demo && npm run smoke:perf && npm run smoke:gemini && npm run smoke:guard",
+    "test": "npm run test:unit && npm run smoke:auth && npm run smoke:security && npm run smoke:vapt && npm run smoke:tenancy && npm run smoke:stock && npm run smoke:categories && npm run smoke:field && npm run smoke:purchase && npm run smoke:ai && npm run smoke:ask && npm run smoke:sale && npm run smoke:dayclose && npm run smoke:exchange && npm run smoke:customers && npm run smoke:loyalty && npm run smoke:points && npm run smoke:notifications && npm run smoke:tax && npm run smoke:expenses && npm run smoke:dashboard && npm run smoke:reports && npm run smoke:subscription && npm run smoke:plans && npm run smoke:clinic && npm run smoke:admin && npm run smoke:pin && npm run smoke:retention && npm run smoke:autopay && npm run smoke:gateway && npm run smoke:referral && npm run smoke:brand && npm run smoke:webaddress && npm run smoke:demo && npm run smoke:perf && npm run smoke:gemini && npm run smoke:guard",
     "smoke:plans": "tsx scripts/smoke-plans.ts",
     "smoke:clinic": "tsx scripts/smoke-clinic.ts",
     "smoke:categories": "tsx scripts/smoke-categories.ts",

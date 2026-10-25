@@ -36,6 +36,7 @@ import * as brand from '../branding/branding.service';
 import * as demo from '../demo/demo.service';
 import { FEATURES, TIERS } from '../subscription/features';
 import { allPlans } from '../subscription/subscription.service';
+import * as web from '../webaddress/web-address.service';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -171,6 +172,26 @@ adminRouter.post('/shops/:id/staff-code', shopsRole, validate({ params: idParams
 
 adminRouter.get('/category-requests', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await categories.adminList()); }));
 adminRouter.post('/category-requests/:id', superOnly, validate({ params: idParams, body: z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(200).default('') }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { decision: 'approve' | 'reject'; reason: string }; const a = adminOf(req); const out = await categories.decide(new Types.ObjectId((req.params as { id: string }).id), { id: a.id, name: a.name }, b.decision, b.reason, 'console', req.ip); sent(res, out, b.decision === 'approve' ? `“${out.name}” added for every shop` : `“${out.name}” turned down`); }));
+
+// D94: shops' own web addresses — call the owner, approve or turn down, give free time, set the add-on price.
+const addressId = idParams;
+adminRouter.get('/web-addresses', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await web.adminList()); }));
+adminRouter.post('/web-addresses/:id/decide', shopsRole, validate({ params: addressId, body: z.object({ action: z.enum(['approve', 'reject', 'stop', 'restart']), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { action: 'approve' | 'reject' | 'stop' | 'restart'; reason: string };
+  sent(res, await web.decide(adminOf(req), (req.params as { id: string }).id, b.action, b.reason, req.ip), b.action === 'approve' ? 'Approved — the address works now' : b.action === 'reject' ? 'Turned down' : b.action === 'stop' ? 'Stopped' : 'Started again');
+}));
+adminRouter.post('/web-addresses/:id/free', moneyRole, validate({ params: addressId, body: z.object({ until: istDay.nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { until: Date | null; reason: string };
+  const until = b.until ? new Date(b.until.getTime() + 86_400_000 - 1) : null;
+  sent(res, await web.setFree(adminOf(req), (req.params as { id: string }).id, until, b.reason, req.ip), until ? 'Free time given' : 'Free time taken back');
+}));
+adminRouter.post('/web-addresses/:id/note', shopsRole, validate({ params: addressId, body: z.object({ text: z.string().trim().min(2, 'Write the note').max(300) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  sent(res, await web.addNote(adminOf(req), (req.params as { id: string }).id, (req.body as { text: string }).text), 'Note saved');
+}));
+adminRouter.put('/web-addresses/price', moneyRole, validate({ body: z.object({ price: z.number().int().min(100).max(10_000_000).nullable(), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => {
+  const b = req.body as { price: number | null; reason: string };
+  sent(res, { price: await web.setPrice(adminOf(req), b.price, b.reason, req.ip) }, 'Price saved');
+}));
 
 adminRouter.get('/team', superOnly, asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.team()); }));
 adminRouter.post('/team', superOnly, validate({ body: z.object({ email, name: z.string().trim().min(2).max(80), role: z.enum(ADMIN_ROLES), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; name: string; role: (typeof ADMIN_ROLES)[number]; reason: string }; sent(res, await svc.invite(adminOf(req), b, b.reason, req.ip), `${b.name} added`); }));

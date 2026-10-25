@@ -4,6 +4,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import { allowedOrigins, env } from '../../config/env';
 import { readCookie } from '../cookies';
 import { AppError } from '../errors';
+import { isOurOrigin } from '../origins';
 
 export const CSRF_COOKIE = 'ms_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
@@ -49,14 +50,18 @@ export const csrfProtection: RequestHandler = (req, _res, next) => {
   if (SAFE_METHODS.has(req.method)) return next();
 
   const origin = req.get('origin');
-  if (!origin || !allowedOrigins.includes(origin)) {
-    return next(AppError.csrf('This request did not come from a MedBox24 app'));
+  const token = () => {
+    const header = req.get(CSRF_HEADER);
+    const cookie = readCookie(req, CSRF_COOKIE);
+    if (!header || !cookie || !safeEqual(header, cookie) || !isWellSigned(cookie)) {
+      next(AppError.csrf());
+      return;
+    }
+    next();
+  };
+  if (origin && allowedOrigins.includes(origin)) {
+    token();
+    return;
   }
-
-  const header = req.get(CSRF_HEADER);
-  const cookie = readCookie(req, CSRF_COOKIE);
-  if (!header || !cookie || !safeEqual(header, cookie) || !isWellSigned(cookie)) {
-    return next(AppError.csrf());
-  }
-  next();
+  isOurOrigin(origin).then((ok) => { if (ok) token(); else next(AppError.csrf('This request did not come from a MedBox24 app')); }, next);
 };

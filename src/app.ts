@@ -43,6 +43,9 @@ import { askRouter } from './modules/ask/ask.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
 import { brandRouter } from './modules/branding/branding.routes';
 import { publicRouter } from './modules/public/public.routes';
+import { webAddressRouter } from './modules/webaddress/web-address.routes';
+import { isLiveOrigin } from './modules/webaddress/web-address.service';
+import { isOurOrigin, trustMoreOrigins } from './core/origins';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { referralRouter } from './modules/referral/referral.routes';
 import { timing } from './modules/perf/perf';
@@ -86,9 +89,14 @@ export function createApp() {
   );
 
   // Only our own apps get CORS headers; any other origin gets none and the browser blocks it.
+  // A shop's live web address (D94) counts as the shop app.
+  trustMoreOrigins(isLiveOrigin);
   app.use(
     cors({
-      origin: (origin, callback) => callback(null, origin !== undefined && allowedOrigins.includes(origin)),
+      origin: (origin, callback) => {
+        if (origin !== undefined && allowedOrigins.includes(origin)) return callback(null, true);
+        isOurOrigin(origin).then((ok) => { callback(null, ok); }, () => { callback(null, false); });
+      },
       // Auth rides in httpOnly cookies; without this the browser neither sends nor stores them.
       credentials: true,
       allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'X-Shop-Id', 'X-Lang'],
@@ -178,6 +186,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
   app.use(`${env.API_PREFIX}/brand`, brandRouter);
   app.use(`${env.API_PREFIX}/public`, publicRouter);
+  app.use(`${env.API_PREFIX}/web-address`, webAddressRouter);
   app.use(`${env.API_PREFIX}/perf`, perfRouter);
   app.use(`${env.API_PREFIX}/support-access`, supportAccessRouter);
   app.use(`${env.API_PREFIX}/doctors`, doctorsRouter);

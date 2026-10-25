@@ -128,17 +128,24 @@ async function main() {
       await field.createDraft(actor, { email: b.draftFor, owner: { name: 'Mita Das', phone: '+919830066666' }, shop: { name: b.shopName ?? 'Das Medical', address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' } });
     }
   };
+  const { WebAddressModel } = await import('../src/modules/webaddress/web-address.model.js');
+  /** Web address suite (D94): the named shop asks for a name; approve: MedBox24 already said yes. */
+  const seedWeb = async (b: { shopName?: string; name?: string; approve?: boolean }) => {
+    const shop = await ShopModel.findOne({ name: b.shopName }).lean();
+    if (!shop || !b.name) throw new Error('shop or name missing');
+    await WebAddressModel.updateOne({ shopId: shop._id, status: { $in: ['requested', 'active', 'stopped'] } }, { $set: { slug: b.name, status: b.approve ? 'active' : 'requested', requestedAt: new Date(), requestedByName: 'Shop Owner' } }, { upsert: true });
+  };
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number };
+      const body = JSON.parse(raw) as { email: string; code: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean };
       if (req.url === '/mail') {
         lastMail(body).then(
           (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),
@@ -146,7 +153,7 @@ async function main() {
         );
         return;
       }
-      (req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );
