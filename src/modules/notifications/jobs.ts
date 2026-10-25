@@ -17,6 +17,7 @@ import { UserModel } from '../user/user.model';
 import { liveAlerts, type Alert } from './alerts.service';
 import { offFor, wants } from './notifications.service';
 import { digestEmail, monitorAlertEmail, summaryEmail } from '../../services/email-templates';
+import { translate } from '../../core/lang';
 import { ALERT_WINDOW_MIN, overLimit, signal } from '../../services/monitor';
 import { AdminUserModel } from '../admin/admin.model';
 import { settleStuckReads } from '../ai/bill-ai';
@@ -70,12 +71,14 @@ export interface Copies {
   to: string[];
 }
 
+/** Everyone who may get the mail, each in their own language; a copy reads in the owner's. */
 async function people(shopId: Types.ObjectId, copies?: Copies) {
   const ms = await MembershipModel.find({ shopId, status: 'active' }).select('userId').lean();
-  const users = (await UserModel.find({ _id: { $in: ms.map((m) => m.userId) } }).select('email').lean()).filter((u) => u.email).map((u) => ({ _id: u._id, email: u.email }));
+  const users = (await UserModel.find({ _id: { $in: ms.map((m) => m.userId) } }).select('email lang').lean()).filter((u) => u.email).map((u) => ({ _id: u._id, email: u.email, lang: u.lang ?? 'en' }));
   const known = new Set(users.map((u) => u.email.toLowerCase()));
   const extra = (copies?.to ?? []).filter((e) => !known.has(e.toLowerCase()));
-  return [...users, ...(copies ? extra.map((email) => ({ _id: copies.ownerId, email })) : [])];
+  const ownerLang = copies ? ((await UserModel.findById(copies.ownerId).select('lang').lean())?.lang ?? 'en') : 'en';
+  return [...users, ...(copies ? extra.map((email) => ({ _id: copies.ownerId, email, lang: ownerLang })) : [])];
 }
 
 /** Morning digest (alertDigestTime): each person's email-wanted alerts, one mail each, nothing when empty. */
@@ -91,9 +94,12 @@ export async function digest(shopId: Types.ObjectId, shopName: string, now: Date
     const off = await offFor(shopId, u._id);
     const list = (await liveAlerts(ctx, now)).filter((a) => a.type !== 'DAILY_SUMMARY' && wants(off, a.type, 'email'));
     if (!list.length) continue;
-    const blocks = list.map((a: Alert) => ({ head: a.title, lines: [a.body, ...a.items.map((i) => `${i.text} — ${i.sub}`)], link: a.route }));
-    const m = digestEmail(shopName, `${String(list.length)} ${list.length === 1 ? 'alert' : 'alerts'} for today`, blocks);
-    await queueMail({ kind: 'digest', shopId, to: u.email, subject: `${shopName} · ${list[0]?.title ?? 'alerts'}${list.length > 1 ? ` + ${String(list.length - 1)} more` : ''}`, ...m }, now);
+    const tr = (text: string) => translate(u.lang, text);
+    const blocks = list.map((a: Alert) => ({ head: tr(a.title), lines: [tr(a.body), ...a.items.map((i) => `${i.text} — ${tr(i.sub)}`)], link: a.route }));
+    const m = digestEmail(shopName, list.length === 1 ? tr('1 alert for today') : tr(`${String(list.length)} alerts for today`), blocks, u.lang);
+    const first = blocks[0]?.head ?? '';
+    const more = list.length - 1;
+    await queueMail({ kind: 'digest', shopId, to: u.email, subject: more === 0 ? `${shopName} · ${first}` : more === 1 ? `${shopName} · ${first} ${tr('+ 1 more')}` : `${shopName} · ${first} ${tr(`+ ${String(more)} more`)}`, ...m }, now);
     mails++;
   }
   return mails;
@@ -111,7 +117,7 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
   const modes = new Map<string, number>();
   for (const b of bills) for (const p of b.payments) modes.set(p.mode, (modes.get(p.mode) ?? 0) + p.amount);
   const total = bills.reduce((s, b) => s + b.grandTotal, 0);
-  const mail = summaryEmail({
+  const facts = {
     shop: shopName,
     day: istIsoDay(now),
     bills: bills.length,
@@ -121,7 +127,7 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
     returns: rets.length,
     returnsTotal: inr(rets.reduce((s, r) => s + r.total, 0)),
     cancelled,
-  });
+  };
   let mails = 0;
   for (const u of await people(shopId, copies)) {
     let ctx: TenantContext;
@@ -132,7 +138,9 @@ export async function summary(shopId: Types.ObjectId, shopName: string, now: Dat
     }
     if (!(ctx.isOwner || ctx.roleKey === 'owner' || ctx.roleKey === 'manager')) continue;
     if (!wants(await offFor(shopId, u._id), 'DAILY_SUMMARY', 'email')) continue;
-    await queueMail({ kind: 'summary', shopId, to: u.email, subject: `${shopName} · ${istIsoDay(now)}: ${String(bills.length)} bills · ${inr(total)}`, ...mail }, now);
+    const tr = (text: string) => translate(u.lang, text);
+    const head = bills.length === 1 ? tr(`${istIsoDay(now)}: 1 bill · ${inr(total)}`) : tr(`${istIsoDay(now)}: ${String(bills.length)} bills · ${inr(total)}`);
+    await queueMail({ kind: 'summary', shopId, to: u.email, subject: `${shopName} · ${head}`, ...summaryEmail(facts, u.lang) }, now);
     mails++;
   }
   return mails;

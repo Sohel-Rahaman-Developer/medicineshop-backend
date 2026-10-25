@@ -45,6 +45,8 @@ export const updateMeSchema = z
   })
   .strict();
 
+export const langSchema = z.object({ lang: z.enum(['en', 'hi', 'bn']) }).strict();
+
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

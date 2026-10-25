@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.39',
+    date: '2026-10-25',
+    title: 'Emails in your language, and tea money straight from Day close',
+    shop: [
+      'Day close: an “Add expense” button right under what the drawer should have — cash taken out for tea, biscuits or a small bill is written there and comes off the drawer at once.',
+      'Emails follow your language: the sign-in code, the morning alerts, the evening summary, the security alert and team invitations come in English, हिन्दी or বাংলা. A copy to your accountant reads in the owner’s language.',
+      'The language you pick is kept on your account too — another phone or computer takes it when you sign in.',
+    ],
+    admin: ['Partner desk: the sign-in code and the owner’s “your shop is ready” mail follow the partner’s language.'],
+    api: ['PUT /auth/lang { lang } keeps the person’s language; GET /auth/me returns it.'],
+  },
+  {
     version: '1.22.38',
     date: '2026-10-25',
     title: 'Alerts in your language',

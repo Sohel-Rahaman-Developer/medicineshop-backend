@@ -2,6 +2,7 @@ import { Types, type ClientSession } from 'mongoose';
 import { env } from '../../config/env';
 import { AppError } from '../../core/errors';
 import { fieldCodeEmail, fieldWelcomeEmail, ownerDraftEmail } from '../../services/email-templates';
+import type { Lang } from '../../core/lang';
 import { queueMail } from '../../services/mail-queue';
 import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
@@ -113,11 +114,11 @@ export interface DraftInput {
 }
 
 /** Staff fill a shop for its owner; the owner signs in with this email, checks it and accepts the Terms. */
-export async function createDraft(f: FieldActor, input: DraftInput) {
+export async function createDraft(f: FieldActor, input: DraftInput, lang: Lang = 'en') {
   const [p, me] = await Promise.all([platform(), FieldStaffModel.findById(f.id).select('code trialDays').lean()]);
   await ShopDraftModel.updateMany({ email: input.email, status: 'waiting' }, { $set: { status: 'cancelled' } });
   const d = await ShopDraftModel.create({ email: input.email, staffId: new Types.ObjectId(f.id), code: f.code, shopName: input.shop.name, form: { owner: input.owner, shop: input.shop }, expiresAt: new Date(Date.now() + DRAFT_DAYS * DAY) });
-  const mail = ownerDraftEmail({ ownerName: input.owner.name, shopName: input.shop.name, staffName: f.name, trialDays: trialOf({ trialDays: me?.trialDays ?? null }, p), link: `${env.SHOP_APP_URL}/login?email=${encodeURIComponent(input.email)}`, days: DRAFT_DAYS });
+  const mail = ownerDraftEmail({ ownerName: input.owner.name, shopName: input.shop.name, staffName: f.name, trialDays: trialOf({ trialDays: me?.trialDays ?? null }, p), link: `${env.SHOP_APP_URL}/login?email=${encodeURIComponent(input.email)}`, days: DRAFT_DAYS }, lang);
   await queueMail({ kind: 'shop_draft', to: input.email, ...mail });
   return { id: String(d._id), shopName: d.shopName, email: d.email, status: 'waiting', at: d.createdAt, expiresAt: d.expiresAt };
 }

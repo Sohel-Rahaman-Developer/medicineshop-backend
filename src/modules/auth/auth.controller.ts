@@ -3,6 +3,7 @@ import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
 import { issueCsrfToken } from '../../core/middleware/csrf';
 import { fetched, sent } from '../../core/response';
+import { langOf, type Lang } from '../../core/lang';
 import { myInvitations, myShops } from '../memberships/memberships.service';
 import { hashOtp } from '../../utils/crypto';
 import { UserModel } from '../user/user.model';
@@ -13,6 +14,7 @@ import type { LogoutInput, RequestOtpInput, UpdateMeInput, VerifyOtpInput } from
 
 function ctxOf(req: Request) {
   return {
+    lang: langOf(req),
     ip: req.ip,
     userAgent: req.get('user-agent') ?? undefined,
     deviceInfo: (req.body as { deviceInfo?: string } | undefined)?.deviceInfo,
@@ -90,7 +92,7 @@ export async function me(req: Request, res: Response) {
   if (!req.auth) throw AppError.unauthenticated();
 
   const [user, shops, invitations] = await Promise.all([
-    UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt pinHash lockMinutes').lean(),
+    UserModel.findById(req.auth.userId).select('email name phone avatar status lastLoginAt pinHash lockMinutes lang').lean(),
     myShops(req.auth.userId),
     myInvitations(req.auth.userId),
   ]);
@@ -98,7 +100,7 @@ export async function me(req: Request, res: Response) {
 
   // A read — no message, otherwise every page load fires a pointless toast.
   fetched(res, {
-    user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status, hasPin: Boolean(user.pinHash), lockMinutes: user.lockMinutes },
+    user: { id: String(user._id), email: user.email, name: user.name, phone: user.phone, status: user.status, hasPin: Boolean(user.pinHash), lockMinutes: user.lockMinutes, lang: user.lang ?? null },
     shops,
     invitations: invitations.length,
   });
@@ -121,7 +123,7 @@ export async function setPin(req: Request, res: Response) {
   if (!req.auth) throw AppError.unauthenticated();
   const { pin, lockMinutes } = req.body as { pin: string; lockMinutes: number };
   await UserModel.updateOne({ _id: req.auth.userId }, { $set: { pinHash: await hashOtp(pin), pinSetAt: new Date(), lockMinutes, pinFails: 0 } });
-  sent(res, { hasPin: true, lockMinutes }, 'PIN saved — this device locks after ' + String(lockMinutes) + ' idle minutes');
+  sent(res, { hasPin: true, lockMinutes }, `PIN saved — this device locks after ${String(lockMinutes)} idle minutes`);
 }
 
 export async function removePin(req: Request, res: Response) {
@@ -135,6 +137,14 @@ export async function updateMe(req: Request, res: Response) {
   const { name, phone } = req.body as UpdateMeInput;
   await UserModel.updateOne({ _id: req.auth.userId }, phone ? { $set: { name, phone } } : { $set: { name }, $unset: { phone: 1 } });
   sent(res, null, 'Profile saved');
+}
+
+/** The language picked in My account / Settings, kept for the emails; the app itself reads its own copy. */
+export async function setLang(req: Request, res: Response) {
+  if (!req.auth) throw AppError.unauthenticated();
+  const { lang } = req.body as { lang: Lang };
+  await UserModel.updateOne({ _id: req.auth.userId }, { $set: { lang } });
+  fetched(res, { lang });
 }
 
 export async function sessions(req: Request, res: Response) {

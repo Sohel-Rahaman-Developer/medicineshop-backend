@@ -24,6 +24,8 @@ const userSchema = new Schema(
     pinSetAt: { type: Date },
     lockMinutes: { type: Number, default: 30 },
     pinFails: { type: Number, default: 0 },
+    /** The language chosen in the app (My account / Settings); emails follow it. Absent until chosen. */
+    lang: { type: String, enum: ['en', 'hi', 'bn'] },
   },
   { timestamps: true, versionKey: false },
 );

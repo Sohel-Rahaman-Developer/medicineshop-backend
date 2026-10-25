@@ -3,6 +3,7 @@ import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
 import { sendMail } from '../../services/mailer';
 import { otpEmail, sessionRevokedEmail } from '../../services/email-templates';
+import type { Lang } from '../../core/lang';
 import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, hashOtp, sha256 } from '../../utils/crypto';
 import { UserModel, type UserDoc } from '../user/user.model';
@@ -19,6 +20,7 @@ import {
 } from './token.service';
 
 export interface RequestContext {
+  lang?: Lang;
   ip?: string;
   userAgent?: string;
   deviceInfo?: string;
@@ -59,7 +61,7 @@ export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise
     userAgent: ctx.userAgent,
   });
 
-  const mail = otpEmail(otp, env.OTP_TTL_MINUTES);
+  const mail = otpEmail(otp, env.OTP_TTL_MINUTES, ctx.lang);
   await sendMail({ to: email, ...mail });
 
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
@@ -192,9 +194,9 @@ export async function unlock(rawToken: string, pin: string, ctx: RequestContext)
 }
 
 async function notifyReuse(session: SessionDoc): Promise<void> {
-  const user = await UserModel.findById(session.userId).select('email').lean();
+  const user = await UserModel.findById(session.userId).select('email lang').lean();
   if (!user) return;
   logger.warn({ userId: String(session.userId), familyId: session.familyId }, '🚨 Refresh token reuse detected');
-  const mail = sessionRevokedEmail(session.deviceInfo || 'unknown device', new Date());
+  const mail = sessionRevokedEmail(session.deviceInfo || 'unknown device', new Date(), user.lang ?? 'en');
   await sendMail({ to: user.email, ...mail });
 }

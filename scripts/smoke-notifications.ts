@@ -165,6 +165,10 @@ async function main() {
   await EmailJobModel.deleteMany({});
   await JobRunModel.deleteMany({});
   await owner.put('/notifications/settings', { expiryAlertDays: [90, 60, 30], alertDigestTime: '08:00', dailySummaryTime: '22:00', emailEnabled: true, extraEmails: ['books@ca.test', 'rohit@notif1.test'] });
+  // The manager picked हिन्दी in the app: their mails follow it; the owner (and the CA copy) stay English.
+  check('a made-up language is refused → 422', (await manager.put('/auth/lang', { lang: 'fr' })).status === 422);
+  const setHi = await manager.put('/auth/lang', { lang: 'hi' });
+  check('PUT /auth/lang hi → kept on the account', setHi.status === 200 && data<{ user: { lang: string | null } }>(await manager.get('/auth/me')).user.lang === 'hi', code(setHi));
   const morning = await tick(istAt(8, 5));
   check('08:05 IST: nightly and the morning digest ran', morning.ran.includes('nightly:Shri Ram Medical Store') && morning.ran.includes('digest:Shri Ram Medical Store'), morning.ran.join(','));
   const mails = await EmailJobModel.find({ kind: 'digest' }).lean();
@@ -172,6 +176,9 @@ async function main() {
   check('digest mails: owner, manager, stock keeper (expiry), cashier and accountant (stock), and the CA copy — one each, the owner not twice', to.join(',') === ['arif@notif1.test', 'books@ca.test', 'meera@notif1.test', 'rohit@notif1.test', 'sunita@notif1.test', 'vikram@notif1.test'].join(','), to.join(','));
   const own = mails.find((m) => m.to === 'rohit@notif1.test');
   check('owner’s digest leads with the expired batch and skips low stock (email off)', /expired/.test(own?.subject ?? '') && !/below reorder/.test(own?.text ?? '') && /Out of stock|out of stock/.test(own?.text ?? ''), own?.subject ?? '');
+  const hiMail = mails.find((m) => m.to === 'vikram@notif1.test');
+  check('the manager’s digest is in Hindi — title, alerts and footer', /आज के लिए \d+ alerts?|आज के लिए 1 alert/.test(hiMail?.text ?? '') && /expire हो गया/.test(hiMail?.text ?? '') && /Email से क्या आए/.test(hiMail?.text ?? '') && /lang="hi"/.test(hiMail?.html ?? ''), hiMail?.subject ?? '');
+  check('the owner’s stays English', /alerts? for today/.test(own?.text ?? '') && /lang="en"/.test(own?.html ?? ''));
   check('the CA copy is the owner’s digest', Boolean(own?.text) && mails.find((m) => m.to === 'books@ca.test')?.text === own?.text);
   const again = await tick(istAt(8, 6));
   check('the next minute: nothing runs twice', !again.ran.length && (await EmailJobModel.countDocuments({ kind: 'digest' })) === 6, again.ran.join(','));
@@ -179,6 +186,7 @@ async function main() {
   const eve = await tick(istAt(22, 5));
   const sumMails = await EmailJobModel.find({ kind: 'summary' }).lean();
   check('22:05 IST: the daily summary to owner, manager and the CA copy only', eve.ran.includes('summary:Shri Ram Medical Store') && sumMails.map((m) => m.to).sort().join(',') === 'books@ca.test,rohit@notif1.test,vikram@notif1.test', sumMails.map((m) => m.to).join(','));
+  check('the summary: Hindi for the manager, English for the owner', /आज counter पर/.test(sumMails.find((m) => m.to === 'vikram@notif1.test')?.text ?? '') && /Today at the counter/.test(sumMails.find((m) => m.to === 'rohit@notif1.test')?.text ?? ''));
 
   section('7. Nightly points: expiry and birthdays');
   const lot = await LoyaltyModel.findOne({ shopId: shop1, customerId: ratna.id, remaining: { $gt: 0 } }).sort({ createdAt: 1 }).lean();

@@ -15,6 +15,7 @@ import {
   requestOtpSchema,
   sessionIdSchema,
   updateMeSchema,
+  langSchema,
   verifyOtpSchema,
   pinSchema,
   pinUnlockSchema,
@@ -59,6 +60,7 @@ authRouter.delete('/pin', requireAuth, asyncHandler(ctrl.removePin));
 
 authRouter.get('/me', requireAuth, asyncHandler(ctrl.me));
 authRouter.patch('/me', requireAuth, validate({ body: updateMeSchema }), asyncHandler(ctrl.updateMe));
+authRouter.put('/lang', requireAuth, validate({ body: langSchema }), asyncHandler(ctrl.setLang));
 authRouter.get('/sessions', requireAuth, asyncHandler(ctrl.sessions));
 authRouter.delete(
   '/sessions/:id',

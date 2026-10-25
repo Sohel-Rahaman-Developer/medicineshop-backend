@@ -91,7 +91,7 @@ export function messagesIn(path: string): string[] {
         add(msgArg(n));
         for (const a of args) addProps(a, true);
       } else if (helpers.has(callee)) add(args[helpers.get(callee) ?? 0]);
-      else if (callee === 'part') add(args[0]);
+      else if (callee === 'part' || callee === 'tr') add(args[0]);
       // Alerts and events: their title, body and item lines are read in the bell.
       else if (callee === 'alert' || callee === 'emit') for (const a of args) addProps(a, true, ['title', 'body', 'sub']);
       else if (/^(errors|warnings|notes)\.push$/.test(callee)) add(args[0]);

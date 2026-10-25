@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Types } from 'mongoose';
 import { sayNotes, translate } from '../../src/core/lang';
+import { inviteEmail, otpEmail } from '../../src/services/email-templates';
 import hi from '../../src/content/words/hi.json';
 
 void test('API messages: exact, filled-in, nested pieces; English and unknown text pass through', () => {
@@ -36,4 +37,14 @@ void test('preview notes translate; ids, dates and other strings stay as they ar
   assert.deepEqual(row.errors, ['Product का नाम नहीं है']);
   assert.equal(out.notes, 'Product not found');
   assert.equal(sayNotes('en', out), out);
+});
+
+void test('emails: the sign-in code and the invitation read in the chosen language; English stays the default', () => {
+  const hiOtp = otpEmail('482913', 10, 'hi');
+  assert.match(hiOtp.subject, /^482913 आपका .+ sign-in code है$/);
+  assert.match(hiOtp.html, /<html lang="hi">/);
+  assert.match(hiOtp.text, /यह 10 मिनट तक चलेगा।/);
+  assert.match(otpEmail('482913', 10).subject, /^482913 is your .+ sign-in code$/);
+  const bnInvite = inviteEmail({ shopName: 'Shri Ram Medical', roleName: 'Cashier', inviterName: 'Rohit Das', appUrl: 'https://x.test' }, 'bn');
+  assert.match(bnInvite.subject, /^Rohit Das আপনাকে .+-এ Shri Ram Medical-এ আমন্ত্রণ জানিয়েছেন$/);
 });

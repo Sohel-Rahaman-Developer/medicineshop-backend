@@ -6,6 +6,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { versionOf } from '../../core/version';
 import { sendMail } from '../../services/mailer';
 import { inviteEmail } from '../../services/email-templates';
+import type { Lang } from '../../core/lang';
 import { listActiveSessions, revokeAllForUser } from '../auth/token.service';
 import { audit } from '../audit/audit.model';
 import { MembershipModel, type MembershipDoc } from '../memberships/membership.model';
@@ -126,6 +127,11 @@ export async function detail(t: TenantContext, id: string) {
   };
 }
 
+/** An invitation reads in the invitee's language when they have chosen one, otherwise in the inviter's. */
+async function mailLang(own: Lang | null | undefined, inviterId: string): Promise<Lang> {
+  return own ?? (await UserModel.findById(inviterId).select('lang').lean())?.lang ?? 'en';
+}
+
 export async function invite(t: TenantContext, actor: Actor, input: InviteInput, ip?: string) {
   const role = await roleIn(t, input.roleId);
   const grants = input.grants ?? {};
@@ -156,7 +162,7 @@ export async function invite(t: TenantContext, actor: Actor, input: InviteInput,
   m.set({ ...fields, declinedAt: undefined, removedAt: undefined, removedBy: undefined });
   await m.save();
 
-  const mail = inviteEmail({ shopName: t.shopName, roleName: input.designation || role.name, inviterName: actor.name, appUrl: env.SHOP_APP_URL });
+  const mail = inviteEmail({ shopName: t.shopName, roleName: input.designation || role.name, inviterName: actor.name, appUrl: env.SHOP_APP_URL }, await mailLang(user.lang, actor.id));
   sendMail({ to: input.email, ...mail }).catch((err: unknown) => {
     logger.error({ err }, 'Invite email failed');
   });
@@ -220,7 +226,7 @@ export async function act(t: TenantContext, actor: Actor, id: string, action: 's
   }
   if (action === 'reinvite' && user) {
     const role = await RoleModel.findOne({ shopId: t.shopId, _id: m.roleId }).select('name').lean();
-    sendMail({ to: user.email, ...inviteEmail({ shopName: t.shopName, roleName: m.designation || role?.name || '', inviterName: actor.name, appUrl: env.SHOP_APP_URL }) }).catch(
+    sendMail({ to: user.email, ...inviteEmail({ shopName: t.shopName, roleName: m.designation || role?.name || '', inviterName: actor.name, appUrl: env.SHOP_APP_URL }, await mailLang(user.lang, actor.id)) }).catch(
       (err: unknown) => {
         logger.error({ err }, 'Invite email failed');
       },

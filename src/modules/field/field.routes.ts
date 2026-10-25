@@ -4,6 +4,7 @@ import { asyncHandler } from '../../core/async-handler';
 import { otpRequestByEmailLimiter, otpRequestByIpLimiter, otpVerifyLimiter } from '../../core/middleware/rate-limit';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
+import { langOf } from '../../core/lang';
 import { idParams } from '../../core/zod';
 import { STATES } from '../../utils/india';
 import { draftShopSchema, mobile, ownerSchema } from '../shops/shops.validation';
@@ -17,7 +18,7 @@ const email = z.email('Enter a valid email address').trim().toLowerCase();
 const password = z.string().min(8, 'At least 8 characters').max(72, 'At most 72 characters');
 
 fieldRouter.post('/auth/code', otpRequestByIpLimiter, otpRequestByEmailLimiter, validate({ body: z.object({ email }).strict() }), asyncHandler(async (req: Request, res: Response) => {
-  sent(res, await requestCode((req.body as { email: string }).email, req.ip), 'If this email has a MedBox24 desk, a code is on its way');
+  sent(res, await requestCode((req.body as { email: string }).email, req.ip, langOf(req)), 'If this email has a MedBox24 desk, a code is on its way');
 }));
 fieldRouter.post('/auth/verify', otpVerifyLimiter, validate({ body: z.object({ email, otp: z.string().regex(/^\d{4,8}$/) }).strict() }), asyncHandler(async (req: Request, res: Response) => {
   const b = req.body as { email: string; otp: string };
@@ -46,7 +47,7 @@ fieldRouter.put('/me/password', validate({ body: z.object({ password, current: z
 }));
 fieldRouter.get('/shops', asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.myShops(fieldOf(req))); }));
 fieldRouter.post('/drafts', validate({ body: z.object({ email, owner: ownerSchema, shop: draftShopSchema }).strict() }), asyncHandler(async (req: Request, res: Response) => {
-  const d = await svc.createDraft(fieldOf(req), req.body as svc.DraftInput);
+  const d = await svc.createDraft(fieldOf(req), req.body as svc.DraftInput, langOf(req));
   created(res, d, `Sent to ${d.email} — the shop starts when the owner signs in and agrees`);
 }));
 fieldRouter.delete('/drafts/:id', validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => {

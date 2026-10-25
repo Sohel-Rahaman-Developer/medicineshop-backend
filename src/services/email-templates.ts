@@ -1,4 +1,5 @@
 import { env } from '../config/env';
+import { translate, type Lang } from '../core/lang';
 
 // Email clients: tables, inline styles, no SVG / web fonts / CSS gradients they can't fall back from.
 const BRAND = env.MAIL_FROM_NAME;
@@ -10,6 +11,10 @@ const THEMES = {
 };
 type Theme = (typeof THEMES)[keyof typeof THEMES];
 
+/** tr('English sentence') → the reader's language (core/lang words); check-words lists every tr() text. */
+const words = (lang: Lang) => (text: string) => translate(lang, text);
+const locale = (lang: Lang) => (lang === 'en' ? 'en-IN' : `${lang}-IN`);
+
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${String(c.charCodeAt(0))};`);
 
 interface Shell {
@@ -20,12 +25,14 @@ interface Shell {
   intro?: string;
   body: string;
   footer?: string;
+  lang?: Lang;
 }
 
 /** The one frame: brand bar with the app icon, a white card, a quiet footer; 600 px, fluid on phones. */
-function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, footer }: Shell) {
+function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, footer, lang = 'en' }: Shell) {
+  const tr = words(lang);
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${esc(title)}</title>
+<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${esc(title)}</title>
 <style>@media (max-width:480px){.pad{padding-left:22px!important;padding-right:22px!important}.big{font-size:22px!important}}</style></head>
 <body style="margin:0;padding:0;background:${C.page};-webkit-text-size-adjust:100%">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${C.page}">${esc(preheader)}&#8203;&nbsp;&#8203;&nbsp;&#8203;&nbsp;</div>
@@ -49,7 +56,7 @@ function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, fo
       </table>
     </td></tr>
     <tr><td style="padding:20px 8px 0;text-align:center;font:400 12px/1.6 ${FONT};color:${C.faint}">
-      ${footer ?? `Sent by ${esc(theme.name)} · this is an automatic email, replies are not read.`}
+      ${footer ?? esc(tr(`Sent by ${theme.name} · this is an automatic email, replies are not read.`))}
     </td></tr>
   </table>
 </td></tr></table>
@@ -57,9 +64,10 @@ function shell({ theme = THEMES.shop, preheader, eyebrow, title, intro, body, fo
 }
 
 /** The code as one word in one tile: a double-tap or long-press selects all six digits, and they copy without spaces. */
-function codeBox(otp: string, theme: Theme, minutes: number) {
+function codeBox(otp: string, theme: Theme, minutes: number, lang: Lang = 'en') {
+  const tr = words(lang);
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px auto 0"><tr><td style="padding:14px 26px;border-radius:14px;background:${theme.tint};border:1px solid ${theme.accent}33;text-align:center"><span style="font:800 36px/1.1 Menlo,Consolas,'Courier New',monospace;letter-spacing:.28em;color:${theme.deep};-webkit-user-select:all;user-select:all">${esc(otp)}</span></td></tr></table>
-  <p style="margin:12px 0 0;text-align:center;font:400 13px/1.5 ${FONT};color:${C.muted}">Double-tap the code to copy it · works for <b style="color:${C.ink}">${String(minutes)} minutes</b></p>`;
+  <p style="margin:12px 0 0;text-align:center;font:400 13px/1.5 ${FONT};color:${C.muted}">${esc(tr('Double-tap the code to copy it'))} · <b style="color:${C.ink}">${esc(tr(`works for ${String(minutes)} minutes`))}</b></p>`;
 }
 
 function button(href: string, label: string, theme: Theme) {
@@ -80,18 +88,20 @@ function rows(items: [string, string][]) {
 
 const p = (html: string) => `<p style="margin:0 0 12px;font:400 15px/1.6 ${FONT};color:${C.body}">${html}</p>`;
 
-export function otpEmail(otp: string, expiryMinutes: number) {
+export function otpEmail(otp: string, expiryMinutes: number, lang: Lang = 'en') {
   const t = THEMES.shop;
+  const tr = words(lang);
   return {
-    subject: `${otp} is your ${BRAND} sign-in code`,
+    subject: tr(`${otp} is your ${BRAND} sign-in code`),
     html: shell({
-      preheader: `Your sign-in code is ${otp}. It works for ${String(expiryMinutes)} minutes.`,
+      lang,
+      preheader: tr(`Your sign-in code is ${otp}. It works for ${String(expiryMinutes)} minutes.`),
       eyebrow: 'Sign-in code',
-      title: 'Here is your code',
-      intro: `Type these 6 digits on the ${esc(BRAND)} sign-in screen.`,
-      body: `${codeBox(otp, t, expiryMinutes)}${note(`<b>Didn't try to sign in?</b> Ignore this email — nobody can get in without this code. Never share it, not even with ${esc(BRAND)} staff.`)}`,
+      title: tr('Here is your code'),
+      intro: esc(tr(`Type these 6 digits on the ${BRAND} sign-in screen.`)),
+      body: `${codeBox(otp, t, expiryMinutes, lang)}${note(`<b>${esc(tr('Didn’t try to sign in?'))}</b> ${esc(tr(`Ignore this email — nobody can get in without this code. Never share it, not even with ${BRAND} staff.`))}`)}`,
     }),
-    text: `Your ${BRAND} sign-in code: ${otp}\n\nIt works for ${String(expiryMinutes)} minutes.\nDidn't try to sign in? Ignore this email. Never share the code.`,
+    text: `${tr(`Your ${BRAND} sign-in code: ${otp}`)}\n\n${tr(`It works for ${String(expiryMinutes)} minutes.`)}\n${tr('Didn’t try to sign in? Ignore this email. Never share the code.')}`,
   };
 }
 
@@ -111,33 +121,40 @@ export function adminOtpEmail(otp: string, expiryMinutes: number) {
   };
 }
 
-export function sessionRevokedEmail(deviceInfo: string, at: Date) {
-  const when = at.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+export function sessionRevokedEmail(deviceInfo: string, at: Date, lang: Lang = 'en') {
+  const tr = words(lang);
+  const when = at.toLocaleString(locale(lang), { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+  const why = tr('An old sign-in token was used again on your account. That usually means it reached someone else, so every device was signed out to be safe.');
+  const fix = `${tr('Wasn’t you?')} ${tr('Change your email password too — the sign-in codes go there.')}`;
   return {
-    subject: `Security alert — every device was signed out of ${BRAND}`,
+    subject: tr(`Security alert — every device was signed out of ${BRAND}`),
     html: shell({
-      preheader: 'We signed out every device as a precaution. Sign in again with a fresh code.',
+      lang,
+      preheader: tr('We signed out every device as a precaution. Sign in again with a fresh code.'),
       eyebrow: 'Security alert',
-      title: 'We signed you out everywhere',
-      intro: 'An old sign-in token was used again on your account. That usually means it reached someone else, so every device was signed out to be safe.',
-      body: `${rows([['Device', deviceInfo || 'Unknown'], ['When', `${when} IST`]])}${button(`${env.SHOP_APP_URL}/login`, 'Sign in again', THEMES.shop)}${note('<b>Wasn\'t you?</b> Change your email password too — the sign-in codes go there.', 'danger')}`,
+      title: tr('We signed you out everywhere'),
+      intro: esc(why),
+      body: `${rows([['Device', deviceInfo || 'Unknown'], ['When', `${when} IST`]])}${button(`${env.SHOP_APP_URL}/login`, 'Sign in again', THEMES.shop)}${note(`<b>${esc(tr('Wasn’t you?'))}</b> ${esc(tr('Change your email password too — the sign-in codes go there.'))}`, 'danger')}`,
     }),
-    text: `Security alert — ${BRAND}\n\nAn old sign-in token was used again on your account, so every device has been signed out.\n\nDevice: ${deviceInfo || 'unknown'}\nWhen: ${when} IST\n\nSign in again: ${env.SHOP_APP_URL}/login\nWasn't you? Change your email password too.`,
+    text: `Security alert — ${BRAND}\n\n${why}\n\nDevice: ${deviceInfo || 'unknown'}\nWhen: ${when} IST\n\nSign in again: ${env.SHOP_APP_URL}/login\n${fix}`,
   };
 }
 
-export function inviteEmail(input: { shopName: string; roleName: string; inviterName: string; appUrl: string }) {
+export function inviteEmail(input: { shopName: string; roleName: string; inviterName: string; appUrl: string }, lang: Lang = 'en') {
   const t = THEMES.shop;
+  const tr = words(lang);
+  const how = tr('Sign in with this email address — a code comes to your inbox, no password to remember. Then accept the invitation.');
   return {
-    subject: `${input.inviterName} invited you to ${input.shopName} on ${BRAND}`,
+    subject: tr(`${input.inviterName} invited you to ${input.shopName} on ${BRAND}`),
     html: shell({
-      preheader: `Join ${input.shopName} as ${input.roleName} — sign in with this email, no password.`,
+      lang,
+      preheader: tr(`Join ${input.shopName} as ${input.roleName} — sign in with this email, no password.`),
       eyebrow: 'Team invitation',
-      title: `Join ${input.shopName}`,
-      intro: `<b style="color:${C.ink}">${esc(input.inviterName)}</b> added you to the team on ${esc(BRAND)}.`,
-      body: `${rows([['Shop', input.shopName], ['Your role', input.roleName], ['Invited by', input.inviterName]])}${button(`${input.appUrl}/login`, `Open ${BRAND}`, t)}${p(`<span style="font-size:13px;color:${C.muted}">Sign in with <b>this email address</b> — a code comes to your inbox, no password to remember. Then accept the invitation.</span>`)}`,
+      title: tr(`Join ${input.shopName}`),
+      intro: esc(tr(`${input.inviterName} added you to the team on ${BRAND}.`)),
+      body: `${rows([['Shop', input.shopName], ['Your role', input.roleName], ['Invited by', input.inviterName]])}${button(`${input.appUrl}/login`, `Open ${BRAND}`, t)}${p(`<span style="font-size:13px;color:${C.muted}">${esc(how)}</span>`)}`,
     }),
-    text: `${input.inviterName} invited you to ${input.shopName} as ${input.roleName} on ${BRAND}.\n\nSign in with this email address at ${input.appUrl}/login (a code comes to your inbox) and accept the invitation.`,
+    text: `${tr(`${input.inviterName} invited you to ${input.shopName} as ${input.roleName} on ${BRAND}.`)}\n\n${how}\n${input.appUrl}/login`,
   };
 }
 
@@ -148,8 +165,9 @@ export interface AlertBlock {
 }
 
 /** Morning digest: one card per alert, each with its own way in. */
-export function digestEmail(shop: string, title: string, blocks: AlertBlock[]) {
+export function digestEmail(shop: string, title: string, blocks: AlertBlock[], lang: Lang = 'en') {
   const t = THEMES.shop;
+  const tr = words(lang);
   const base = env.SHOP_APP_URL;
   const cards = blocks
     .map(
@@ -158,14 +176,14 @@ export function digestEmail(shop: string, title: string, blocks: AlertBlock[]) {
   <td style="padding:14px 16px">
     <div style="font:700 15px/1.35 ${FONT};color:${C.ink}">${esc(b.head)}</div>
     ${b.lines.map((l) => `<div style="margin-top:4px;font:400 13px/1.5 ${FONT};color:${C.muted}">${esc(l)}</div>`).join('')}
-    ${b.link ? `<a href="${esc(base + b.link)}" style="display:inline-block;margin-top:10px;font:700 13px/1 ${FONT};color:${t.accent};text-decoration:none">Open in ${esc(BRAND)} &rarr;</a>` : ''}
+    ${b.link ? `<a href="${esc(base + b.link)}" style="display:inline-block;margin-top:10px;font:700 13px/1 ${FONT};color:${t.accent};text-decoration:none">${esc(tr(`Open in ${BRAND}`))} &rarr;</a>` : ''}
   </td></tr></table>`,
     )
     .join('');
-  const footer = `${esc(shop)} · change what comes by email in ${esc(BRAND)} → Notifications → Preferences.`;
+  const prefs = tr(`Change what comes by email in ${BRAND} → Notifications → Preferences.`);
   return {
-    html: shell({ preheader: blocks.map((b) => b.head).join(' · ').slice(0, 140), eyebrow: shop, title, intro: 'What needs a look today, most urgent first.', body: cards, footer }),
-    text: `${shop}\n${title}\n\n${blocks.map((b) => `• ${b.head}\n${b.lines.map((l) => `  ${l}`).join('\n')}${b.link ? `\n  ${base}${b.link}` : ''}`).join('\n\n')}\n\nChange what comes by email in ${BRAND} → Notifications → Preferences.`,
+    html: shell({ lang, preheader: blocks.map((b) => b.head).join(' · ').slice(0, 140), eyebrow: shop, title, intro: esc(tr('What needs a look today, most urgent first.')), body: cards, footer: `${esc(shop)} · ${esc(prefs)}` }),
+    text: `${shop}\n${title}\n\n${blocks.map((b) => `• ${b.head}\n${b.lines.map((l) => `  ${l}`).join('\n')}${b.link ? `\n  ${base}${b.link}` : ''}`).join('\n\n')}\n\n${prefs}`,
   };
 }
 
@@ -182,19 +200,21 @@ export interface DaySummary {
 }
 
 /** Evening summary: the day's number big, the money by mode under it, then the one thing left to do. */
-export function summaryEmail(raw: DaySummary) {
+export function summaryEmail(raw: DaySummary, lang: Lang = 'en') {
   const t = THEMES.shop;
-  const s = { ...raw, day: new Date(`${raw.day}T00:00:00Z`).toLocaleDateString('en-IN', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) };
+  const tr = words(lang);
+  const s = { ...raw, day: new Date(`${raw.day}T00:00:00Z`).toLocaleDateString(locale(lang), { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) };
   const tile = (label: string, value: string) => `<td width="50%" style="padding:16px 18px;background:${t.tint};border-radius:14px;vertical-align:top">
     <div style="font:800 11px/1 ${FONT};letter-spacing:.1em;text-transform:uppercase;color:${t.accent}">${esc(label)}</div>
     <div class="big" style="margin-top:8px;font:800 26px/1.1 ${FONT};color:${t.deep}">${esc(value)}</div></td>`;
   const body = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:10px 0;margin:0 -10px"><tr>${tile('Sales', s.total)}${tile('Bills', String(s.bills))}</tr></table>
   ${rows([...s.modes, ['Discount given', s.discount], ['Returns', `${String(s.returns)} · ${s.returnsTotal}`], ['Cancelled bills', String(s.cancelled)]])}
   ${button(`${env.SHOP_APP_URL}/day-close`, 'Close the day', t)}
-  ${p(`<span style="font-size:13px;color:${C.muted}">Count the cash and close the drawer before tomorrow's sales mix in.</span>`)}`;
+  ${p(`<span style="font-size:13px;color:${C.muted}">${esc(tr('Count the cash and close the drawer before tomorrow’s sales mix in.'))}</span>`)}`;
+  const head = s.bills === 1 ? tr(`${s.day}: 1 bill · ${s.total}`) : tr(`${s.day}: ${String(s.bills)} bills · ${s.total}`);
   return {
-    html: shell({ preheader: `${s.day}: ${String(s.bills)} bills · ${s.total}`, eyebrow: `${s.shop} · ${s.day}`, title: 'Today at the counter', body, footer: `${esc(s.shop)} · change what comes by email in ${esc(BRAND)} → Notifications → Preferences.` }),
-    text: `${s.shop} · ${s.day}\nToday at the counter\n\nSales: ${s.total} · ${String(s.bills)} bills\n${s.modes.map(([k, v]) => `${k}: ${v}`).join('\n')}\nDiscount given: ${s.discount}\nReturns: ${String(s.returns)} · ${s.returnsTotal}\nCancelled bills: ${String(s.cancelled)}\n\nClose the day: ${env.SHOP_APP_URL}/day-close`,
+    html: shell({ lang, preheader: head, eyebrow: `${s.shop} · ${s.day}`, title: tr('Today at the counter'), body, footer: `${esc(s.shop)} · ${esc(tr(`Change what comes by email in ${BRAND} → Notifications → Preferences.`))}` }),
+    text: `${s.shop} · ${s.day}\n${tr('Today at the counter')}\n\nSales: ${s.total} · ${String(s.bills)} bills\n${s.modes.map(([k, v]) => `${k}: ${v}`).join('\n')}\nDiscount given: ${s.discount}\nReturns: ${String(s.returns)} · ${s.returnsTotal}\nCancelled bills: ${String(s.cancelled)}\n\nClose the day: ${env.SHOP_APP_URL}/day-close`,
   };
 }
 
@@ -254,20 +274,20 @@ export function aiPriceEmail(items: PriceRise[]) {
 }
 
 /** D100: a field staff member's sign-in code — no authenticator after it. */
-export function fieldOtpEmail(otp: string, expiryMinutes: number) {
+export function fieldOtpEmail(otp: string, expiryMinutes: number, lang: Lang = 'en') {
   const t = THEMES.shop;
+  const tr = words(lang);
   return {
-    subject: `${otp} is your ${BRAND} sign-in code`,
+    subject: tr(`${otp} is your ${BRAND} sign-in code`),
     html: shell({
       theme: t,
-      preheader: `Sign-in code ${otp}`,
+      lang,
+      preheader: tr(`Sign-in code ${otp}`),
       eyebrow: 'Sign in',
-      title: 'Your sign-in code',
-      body: `${codeBox(otp, t, expiryMinutes)}${note('<b>Didn’t ask for this?</b> Ignore this email — nobody can sign in without the code.')}`,
+      title: tr('Your sign-in code'),
+      body: `${codeBox(otp, t, expiryMinutes, lang)}${note(`<b>${esc(tr('Didn’t ask for this?'))}</b> ${esc(tr('Ignore this email — nobody can sign in without the code.'))}`)}`,
     }),
-    text: `Your ${BRAND} sign-in code: ${otp}
-
-It works for ${String(expiryMinutes)} minutes. Didn't ask for it? Ignore this email.`,
+    text: `${tr(`Your ${BRAND} sign-in code: ${otp}`)}\n\n${tr(`It works for ${String(expiryMinutes)} minutes.`)} ${tr('Ignore this email — nobody can sign in without the code.')}`,
   };
 }
 
@@ -315,23 +335,30 @@ Your desk: ${r.link}`,
 }
 
 /** D100: field staff filled a shop's details; the owner signs in, checks them and accepts the Terms. */
-export function ownerDraftEmail(r: { ownerName: string; shopName: string; staffName: string; trialDays: number; link: string; days: number }) {
+export function ownerDraftEmail(r: { ownerName: string; shopName: string; staffName: string; trialDays: number; link: string; days: number }, lang: Lang = 'en') {
   const t = THEMES.shop;
+  const tr = words(lang);
+  const trial = r.trialDays > 0;
+  const how = trial
+    ? tr(`${r.staffName} from ${BRAND} has filled in your shop’s details. Sign in with this email, check them, accept the Terms and your ${String(r.trialDays)}-day free trial starts.`)
+    : tr(`${r.staffName} from ${BRAND} has filled in your shop’s details. Sign in with this email, check them, accept the Terms and your shop starts.`);
+  const wait = tr(`Nothing starts until you agree. The details wait for ${String(r.days)} days.`);
   return {
-    subject: `${r.shopName} is ready to start on ${BRAND}`.slice(0, 160),
+    subject: tr(`${r.shopName} is ready to start on ${BRAND}`).slice(0, 160),
     html: shell({
       theme: t,
-      preheader: `${r.staffName} filled in your shop's details — check them and start${r.trialDays > 0 ? ` your ${String(r.trialDays)}-day free trial` : ''}.`,
+      lang,
+      preheader: trial ? tr(`${r.staffName} filled in your shop’s details — check them and start your ${String(r.trialDays)}-day free trial.`) : tr(`${r.staffName} filled in your shop’s details — check them and start.`),
       eyebrow: 'Your shop is ready',
       title: `Namaste ${r.ownerName}`,
-      intro: `${esc(r.staffName)} from ${BRAND} has filled in your shop's details. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}.`,
-      body: `${rows([['Shop', r.shopName], ['Filled by', `${r.staffName}, ${BRAND}`], ['Free trial', r.trialDays > 0 ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Check and start', t)}${note(`Nothing starts until you agree. The details wait for ${String(r.days)} days.`)}`,
+      intro: esc(how),
+      body: `${rows([['Shop', r.shopName], ['Filled by', `${r.staffName}, ${BRAND}`], ['Free trial', trial ? `${String(r.trialDays)} days` : 'None']])}${button(r.link, 'Check and start', t)}${note(esc(wait))}`,
     }),
     text: `Namaste ${r.ownerName}
 
-${r.staffName} from ${BRAND} has filled in the details of ${r.shopName}. Sign in with this email, check them, accept the Terms and ${r.trialDays > 0 ? `your ${String(r.trialDays)}-day free trial starts` : 'your shop starts'}: ${r.link}
+${how} ${r.link}
 
-Nothing starts until you agree. The details wait for ${String(r.days)} days.`,
+${wait}`,
   };
 }
 

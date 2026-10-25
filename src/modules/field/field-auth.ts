@@ -6,6 +6,7 @@ import { logger } from '../../config/logger';
 import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
 import { fieldOtpEmail } from '../../services/email-templates';
+import type { Lang } from '../../core/lang';
 import { sendMail } from '../../services/mailer';
 import { compareOtp, generateNumericOtp, generateOpaqueToken, hashOtp, sha256 } from '../../utils/crypto';
 import { OtpTokenModel } from '../auth/models/otp-token.model';
@@ -41,7 +42,7 @@ declare global {
 const wrong = () => AppError.unauthenticated('Email or password is wrong — or sign in with an email code');
 
 /** Same answer whether or not the address is field staff. */
-export async function requestCode(rawEmail: string, ip?: string) {
+export async function requestCode(rawEmail: string, ip?: string, lang: Lang = 'en') {
   const email = rawEmail.toLowerCase().trim();
   const staff = await FieldStaffModel.findOne({ email, status: 'active' }).select('_id').lean();
   if (!staff) {
@@ -51,7 +52,7 @@ export async function requestCode(rawEmail: string, ip?: string) {
   await OtpTokenModel.updateMany({ audience: 'field', email, consumedAt: null }, { $set: { consumedAt: new Date() } });
   const otp = env.DEV_STATIC_OTP ?? generateNumericOtp(env.OTP_LENGTH);
   await OtpTokenModel.create({ email, otpHash: await hashOtp(otp), audience: 'field', maxAttempts: env.OTP_MAX_ATTEMPTS, expiresAt: new Date(Date.now() + env.OTP_TTL_MINUTES * 60_000), ip });
-  await sendMail({ to: email, ...fieldOtpEmail(otp, env.OTP_TTL_MINUTES) });
+  await sendMail({ to: email, ...fieldOtpEmail(otp, env.OTP_TTL_MINUTES, lang) });
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
 }
 
