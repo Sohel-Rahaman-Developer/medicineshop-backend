@@ -15,7 +15,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 const DAY = 86_400_000;
-const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic'];
+const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills'];
 
 interface Plan { code: string; name: string; tier: string; features: string[]; isActive: boolean; maxUsers: number }
 
@@ -59,6 +59,8 @@ async function main() {
     role: await owner.post('/roles', { name: 'Night shift', color: '#0ea5e9', permissions: { pos: ['view', 'create'] }, scopes: {} }),
     aiBill: await owner.post('/purchases/import/ai', {}),
     clinic: await owner.get('/clinic/day'),
+    brief: await owner.get('/brief'),
+    refills: await owner.get('/refills'),
   };
   for (const [k, r] of Object.entries(refused)) check(`Basic: ${k} → 403 PLAN_UPGRADE`, upgrade(r), code(r));
   check('…the message names the module and Pro', /Analytics is in the Pro plan/.test(refused.analytics.json.error?.message ?? ''), code(refused.analytics));
@@ -126,7 +128,7 @@ async function main() {
   check('running it again changes nothing', (await PlanModel.countDocuments({})) === 4);
 
   section('6. A module added later (D90 clinic) joins Pro by itself, never Basic');
-  const d87 = ALL.filter((f) => f !== 'clinic');
+  const d87 = ALL.filter((f) => !['clinic', 'brief', 'refills'].includes(f));
   await PlanModel.updateMany({ tier: 'pro' }, { $set: { features: d87 }, $unset: { knows: 1 } });
   await PlanModel.updateMany({ tier: 'basic' }, { $set: { features: ['loyalty'] }, $unset: { knows: 1 } });
   forgetTiers();

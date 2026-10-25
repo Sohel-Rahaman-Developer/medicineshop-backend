@@ -79,7 +79,7 @@ async function udhaar(t: TenantContext) {
 
 /** Regular customers due back for a medicine (refills screen), not yet reminded. */
 async function refill(t: TenantContext, now: Date) {
-  if (!can(t.permissions, 'customers', 'view')) return null;
+  if (!t.features.includes('refills') || !can(t.permissions, 'customers', 'view')) return null;
   const d = await due(t, now);
   const open = d.rows.filter((r) => !r.reminded);
   if (!open.length) return null;

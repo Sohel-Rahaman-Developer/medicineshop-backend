@@ -159,7 +159,7 @@ export async function morningBrief(shopId: Types.ObjectId, shopName: string, now
     } catch {
       continue;
     }
-    if (!can(ctx.permissions, 'reports', 'view') || !wants(await offFor(shopId, u._id), 'MORNING_BRIEF', 'email')) continue;
+    if (!ctx.features.includes('brief') || !can(ctx.permissions, 'reports', 'view') || !wants(await offFor(shopId, u._id), 'MORNING_BRIEF', 'email')) continue;
     const b = await brief(ctx, String(u._id), now);
     if (!b.yesterday.bills && !b.todo.length) continue;
     const m = briefEmail(b, shopName, u.lang);

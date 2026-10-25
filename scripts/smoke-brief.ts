@@ -148,6 +148,14 @@ async function main() {
   const sent = await morningBrief(shop, 'Brief Pharmacy', istAt(8, 5));
   check('…next morning only the owner gets it', sent === 1 && (await EmailJobModel.find({ kind: 'brief' }).lean()).map((m) => m.to).join() === 'rohit@brief1.test');
 
+  section('6. Pro only: the trial has it, Basic does not');
+  await SubscriptionModel.updateOne({ shopId: shop }, { $set: { planCode: 'basic-monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
+  await JobRunModel.deleteMany({ key: /^brief:/ });
+  await EmailJobModel.deleteMany({ kind: 'brief' });
+  const basic = await owner.get('/brief');
+  check('Basic: GET /brief → 403 PLAN_UPGRADE', basic.status === 403 && basic.json.error?.code === 'PLAN_UPGRADE', code(basic));
+  check('…and no morning mail', (await morningBrief(shop, 'Brief Pharmacy', istAt(8, 5))) === 0 && (await EmailJobModel.countDocuments({ kind: 'brief' })) === 0);
+
   finish();
 }
 

@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.31.0',
+    date: '2026-10-26',
+    title: 'Morning brief and refills in Pro',
+    shop: [
+      'The morning brief and Refills due are part of the Pro plan. The free trial has them; on Basic they show the PRO tag and an upgrade card, and no morning mail is sent.',
+    ],
+    admin: [
+      'Plans list two more modules, Morning brief and Refills due — on every Pro plan, off on Basic until you tick them.',
+      'Shop chat → Chat settings: while you change the input or answer cap, a box shows what one question can cost at worst, the tokens a question then needs, and whether it is safe — before you save.',
+    ],
+    api: ['GET /brief and /refills answer 403 PLAN_UPGRADE when the plan does not open them.'],
+  },
+  {
     version: '1.30.0',
     date: '2026-10-26',
     title: 'More free answers in Ask your shop',

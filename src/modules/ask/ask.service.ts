@@ -94,6 +94,7 @@ async function cardOf(t: TenantContext, userId: string, intent: Intent, v: Voice
       case 'busy':
         return C.busyCard(await F.busyHours(t, userId, intent.period, now), v);
       case 'brief':
+        if (!t.features.includes('brief')) return C.noteCard('', say(TEXT.notInPlan, v));
         if (!can(t.permissions, 'reports', 'view')) throw new F.NoAccess();
         return C.briefCard(await brief(t, userId, now), v);
     }
