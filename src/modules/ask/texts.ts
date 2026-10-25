@@ -24,7 +24,23 @@ export const TEXT = {
   none: w('Nothing here right now.', 'अभी कुछ नहीं।', 'এখন কিছু নেই।', 'Abhi kuch nahi.', 'Ekhon kichhu nei.'),
   noSalt: w('No salt is saved for this product — add it in the product to see substitutes.', 'इस प्रोडक्ट का साल्ट भरा नहीं है — विकल्प देखने के लिए प्रोडक्ट में भरिए।', 'এই প্রোডাক্টের সল্ট দেওয়া নেই — বিকল্প দেখতে প্রোডাক্টে লিখুন।', 'Is product ka salt bhara nahi hai — vikalp dekhne ke liye product mein bhariye.', 'Ei product-er salt deoa nei — bikolpo dekhte product-e likhun.'),
   open: w('Open', 'खोलें', 'খুলুন', 'Kholein', 'Khulun'),
+  compareNote: w('Same stretch of time: {now} against {before}. Net sale = bills less returns.', 'उतना ही समय: {now} बनाम {before}। कुल बिक्री = बिल घटा वापसी।', 'একই সময়: {now} বনাম {before}। নিট বিক্রি = বিল বাদ ফেরত।', 'Utna hi samay: {now} vs {before}. Net sale = bill minus wapsi.', 'Ekoi somoy: {now} vs {before}. Net bikri = bill bad ferot.'),
+  marginNote: w('Before tax; returns not taken off; medicines with under ₹100 of sale left out.', 'टैक्स से पहले; वापसी नहीं घटाई; ₹100 से कम बिक्री वाली दवाएँ छोड़ दीं।', 'ট্যাক্সের আগে; ফেরত বাদ দেওয়া হয়নি; ₹100-এর কম বিক্রির ওষুধ বাদ।', 'Tax se pehle; wapsi nahi ghatai; ₹100 se kam bikri wali dawayein chhod di.', 'Tax-er age; ferot bad deoa hoyni; ₹100-er kom bikrir oshudh bad.'),
+  buyNote: w('Each supplier’s last price per pack in the last {n} days, after discount and free goods. Could save = all of it bought at the cheapest last price.', 'पिछले {n} दिन में हर सप्लायर का आख़िरी दाम प्रति पैक, छूट और फ़्री माल के बाद। बच सकता था = सारा माल सबसे सस्ते आख़िरी दाम पर।', 'গত {n} দিনে প্রতিটি সাপ্লায়ারের শেষ দাম প্রতি প্যাকে, ছাড় আর ফ্রি মাল ধরে। বাঁচত = সব মাল সবচেয়ে সস্তা শেষ দামে কিনলে।', 'Pichhle {n} din mein har supplier ka aakhri daam per pack, chhoot aur free maal ke baad. Bach sakta tha = saara maal sabse saste aakhri daam par.', 'Goto {n} dine protiti supplier-er shesh dam proti pack-e, chhar ar free mal dhore. Bachto = sob mal sobcheye sosta shesh dame kinle.'),
+  busyNote: w('Bills by hour and by weekday, India time.', 'घंटे और वार के हिसाब से बिल, भारत का समय।', 'ঘণ্টা আর বার অনুযায়ী বিল, ভারতের সময়।', 'Ghante aur vaar ke hisaab se bill, Bharat ka samay.', 'Ghonta ar bar onujayi bill, Bharoter somoy.'),
+  briefNote: w('Today’s jobs, most urgent first — open the brief for the whole list.', 'आज के काम, सबसे ज़रूरी पहले — पूरी list के लिए brief खोलिए।', 'আজকের কাজ, সবচেয়ে জরুরি আগে — পুরো list-এর জন্য brief খুলুন।', 'Aaj ke kaam, sabse zaroori pehle — poori list ke liye brief kholiye.', 'Ajker kaj, sobcheye joruri age — puro list-er jonno brief khulun.'),
+  briefClear: w('Nothing needs you today.', 'आज आपके लिए कोई काम नहीं।', 'আজ আপনার কোনো কাজ নেই।', 'Aaj aapke liye koi kaam nahi.', 'Aaj apnar kono kaj nei.'),
 } as const;
+
+export const WEEKDAY: Record<string, Words> = {
+  Sunday: w('Sunday', 'रविवार', 'রবিবার', 'Ravivaar', 'Robibar'),
+  Monday: w('Monday', 'सोमवार', 'সোমবার', 'Somvaar', 'Sombar'),
+  Tuesday: w('Tuesday', 'मंगलवार', 'মঙ্গলবার', 'Mangalvaar', 'Monggolbar'),
+  Wednesday: w('Wednesday', 'बुधवार', 'বুধবার', 'Budhvaar', 'Budhbar'),
+  Thursday: w('Thursday', 'गुरुवार', 'বৃহস্পতিবার', 'Guruvaar', 'Brihospotibar'),
+  Friday: w('Friday', 'शुक्रवार', 'শুক্রবার', 'Shukravaar', 'Shukrobar'),
+  Saturday: w('Saturday', 'शनिवार', 'শনিবার', 'Shanivaar', 'Shonibar'),
+};
 
 export const PERIOD = {
   today: w('Today', 'आज', 'আজ', 'Aaj', 'Aaj'),
@@ -60,6 +76,15 @@ export const TITLE = {
   orders: w('Customer orders waiting', 'बाकी ग्राहक ऑर्डर', 'বাকি গ্রাহক অর্ডার', 'Baaki customer order', 'Baki grahok order'),
   gst: w('GST — {month}', 'GST — {month}', 'GST — {month}', 'GST — {month}', 'GST — {month}'),
   staff: w('Sales by staff — {period}', 'स्टाफ़ की बिक्री — {period}', 'স্টাফের বিক্রি — {period}', 'Staff ki bikri — {period}', 'Staff-er bikri — {period}'),
+  compare_today: w('Today vs yesterday, same hours', 'आज बनाम कल, उतने ही घंटे', 'আজ বনাম গতকাল, একই সময় পর্যন্ত', 'Aaj vs kal, utne hi ghante', 'Aaj vs gotokal, ekoi somoy porjonto'),
+  compare_week: w('This week vs last week, same days', 'यह हफ़्ता बनाम पिछला हफ़्ता, उतने ही दिन', 'এই সপ্তাহ বনাম গত সপ্তাহ, একই দিন পর্যন্ত', 'Yeh hafta vs pichhla hafta, utne hi din', 'Ei saptaho vs goto saptaho, ekoi din porjonto'),
+  compare_month: w('This month vs last month, same days', 'यह महीना बनाम पिछला महीना, उतने ही दिन', 'এই মাস বনাম গত মাস, একই দিন পর্যন্ত', 'Yeh mahina vs pichhla mahina, utne hi din', 'Ei mas vs goto mas, ekoi din porjonto'),
+  marginsLow: w('Lowest margin — {period}', 'सबसे कम मुनाफ़ा — {period}', 'সবচেয়ে কম লাভ — {period}', 'Sabse kam munafa — {period}', 'Sobcheye kom labh — {period}'),
+  marginsHigh: w('Highest margin — {period}', 'सबसे ज़्यादा मुनाफ़ा — {period}', 'সবচেয়ে বেশি লাভ — {period}', 'Sabse zyada munafa — {period}', 'Sobcheye beshi labh — {period}'),
+  buyOf: w('Buy price by supplier — {name}', 'सप्लायर के हिसाब से खरीद दाम — {name}', 'সাপ্লায়ার অনুযায়ী কেনা দাম — {name}', 'Supplier ke hisaab se kharid daam — {name}', 'Supplier onujayi kena dam — {name}'),
+  cheaper: w('Same medicine, cheaper supplier', 'वही दवा, सस्ता सप्लायर', 'একই ওষুধ, সস্তা সাপ্লায়ার', 'Wahi dawa, sasta supplier', 'Ekoi oshudh, sosta supplier'),
+  busy: w('Busiest times — {period}', 'सबसे ज़्यादा भीड़ का समय — {period}', 'সবচেয়ে ভিড়ের সময় — {period}', 'Sabse zyada bheed ka samay — {period}', 'Sobcheye bhirer somoy — {period}'),
+  brief: w('Morning brief', 'सुबह की brief', 'সকালের brief', 'Subah ki brief', 'Sokaler brief'),
 } as const;
 
 export const LABEL = {
@@ -112,6 +137,11 @@ export const LABEL = {
   moneyIn: w('Money in', 'कुल आया', 'মোট এল', 'Kul aaya', 'Mot elo'),
   costValue: w('Value at cost', 'लागत पर कीमत', 'খরচে দাম', 'Laagat par value', 'Khoroche dam'),
   expected: w('Should be in the drawer', 'गल्ले में होना चाहिए', 'ক্যাশে থাকা উচিত', 'Galle mein hona chahiye', 'Cash-e thaka uchit'),
+  before: w('before', 'पहले', 'আগে', 'pehle', 'age'),
+  couldSave: w('Could save', 'बच सकता था', 'বাঁচত', 'Bach sakta tha', 'Bachto'),
+  ySale: w('Yesterday’s net sale', 'कल की कुल बिक्री', 'গতকালের নিট বিক্রি', 'Kal ki net sale', 'Gotokaler net bikri'),
+  yBills: w('Yesterday’s bills', 'कल के बिल', 'গতকালের বিল', 'Kal ke bill', 'Gotokaler bill'),
+  vsUsual: w('Against a usual day like it', 'आम दिन के मुकाबले', 'সাধারণ দিনের তুলনায়', 'Aam din ke mukable', 'Sadharon diner tulonay'),
 } as const;
 
 export const MODE: Record<string, Words> = {
@@ -129,30 +159,30 @@ export type ChipGroup = { key: 'sales' | 'money' | 'stock' | 'people'; title: st
 /** Ready questions for the chat, in groups — each one is answered by the free layer (smoke:ask checks every one). */
 export const CHIP_GROUPS: Record<Lang, ChipGroup[]> = {
   en: [
-    { key: 'sales', title: 'Sales', qs: ['Today’s sale', 'Yesterday’s sale', 'This week’s sale', 'Top sellers this month', 'UPI and card today'] },
-    { key: 'money', title: 'Money', qs: ['This month’s profit', 'Expenses this month', 'Purchases this month', 'GST this month', 'Cash in the drawer today'] },
+    { key: 'sales', title: 'Sales', qs: ['Today’s sale', 'Yesterday’s sale', 'This week’s sale', 'Top sellers this month', 'UPI and card today', 'This month vs last month', 'Busiest time of day'] },
+    { key: 'money', title: 'Money', qs: ['This month’s profit', 'Expenses this month', 'Purchases this month', 'GST this month', 'Cash in the drawer today', 'Lowest margin medicines', 'Which supplier is cheaper'] },
     { key: 'stock', title: 'Stock', qs: ['Running low on stock', 'Expiring in 30 days', 'Expired stock', 'Not selling for 60 days', 'Stock value'] },
     { key: 'people', title: 'People', qs: ['Udhaar to collect', 'Top customers this month', 'How much to pay suppliers', 'Which staff sold the most this month', 'Pending customer orders'] },
   ],
   hi: [
-    { key: 'sales', title: 'बिक्री', qs: ['आज की बिक्री', 'कल की बिक्री', 'इस हफ़्ते की बिक्री', 'इस महीने सबसे ज़्यादा क्या बिका', 'आज UPI और कार्ड से कितना आया'] },
-    { key: 'money', title: 'पैसा', qs: ['इस महीने का मुनाफ़ा', 'इस महीने का खर्च', 'इस महीने की खरीद', 'इस महीने का GST', 'आज गल्ले में कितना नकद'] },
+    { key: 'sales', title: 'बिक्री', qs: ['आज की बिक्री', 'कल की बिक्री', 'इस हफ़्ते की बिक्री', 'इस महीने सबसे ज़्यादा क्या बिका', 'आज UPI और कार्ड से कितना आया', 'इस महीने बनाम पिछला महीना', 'किस समय सबसे ज़्यादा ग्राहक आते हैं'] },
+    { key: 'money', title: 'पैसा', qs: ['इस महीने का मुनाफ़ा', 'इस महीने का खर्च', 'इस महीने की खरीद', 'इस महीने का GST', 'आज गल्ले में कितना नकद', 'सबसे कम मुनाफ़े वाली दवाएँ', 'कौन सा सप्लायर सस्ता है'] },
     { key: 'stock', title: 'स्टॉक', qs: ['कम स्टॉक', '30 दिन में एक्सपायरी', 'एक्सपायर्ड स्टॉक', '60 दिन से नहीं बिका', 'स्टॉक की कीमत'] },
     { key: 'people', title: 'लोग', qs: ['कुल उधार कितना है', 'इस महीने सबसे ज़्यादा खरीदने वाले ग्राहक', 'सप्लायर को कितना देना है', 'इस महीने किसने सबसे ज़्यादा बेचा', 'पेंडिंग ऑर्डर'] },
   ],
   bn: [
-    { key: 'sales', title: 'বিক্রি', qs: ['আজকের বিক্রি', 'গতকালের বিক্রি', 'এই সপ্তাহের বিক্রি', 'এই মাসে সবচেয়ে বেশি কী বিক্রি হলো', 'আজ UPI আর কার্ডে কত এল'] },
-    { key: 'money', title: 'টাকা', qs: ['এই মাসের লাভ', 'এই মাসের খরচ', 'এই মাসের কেনাকাটা', 'এই মাসের GST', 'আজ ক্যাশে কত নগদ'] },
+    { key: 'sales', title: 'বিক্রি', qs: ['আজকের বিক্রি', 'গতকালের বিক্রি', 'এই সপ্তাহের বিক্রি', 'এই মাসে সবচেয়ে বেশি কী বিক্রি হলো', 'আজ UPI আর কার্ডে কত এল', 'এই মাস বনাম গত মাস', 'কোন সময়ে সবচেয়ে বেশি খদ্দের আসে'] },
+    { key: 'money', title: 'টাকা', qs: ['এই মাসের লাভ', 'এই মাসের খরচ', 'এই মাসের কেনাকাটা', 'এই মাসের GST', 'আজ ক্যাশে কত নগদ', 'সবচেয়ে কম লাভের ওষুধ', 'কোন সাপ্লায়ার সস্তা'] },
     { key: 'stock', title: 'স্টক', qs: ['কম স্টক', '30 দিনে মেয়াদ শেষ', 'মেয়াদ শেষ স্টক', '60 দিন ধরে বিক্রি হয়নি', 'স্টকের দাম'] },
     { key: 'people', title: 'মানুষ', qs: ['মোট বাকি কত', 'এই মাসে সবচেয়ে বেশি কেনা গ্রাহক', 'সাপ্লায়ারকে কত দিতে হবে', 'এই মাসে কোন স্টাফ সবচেয়ে বেশি বিক্রি করল', 'পেন্ডিং অর্ডার'] },
   ],
 };
 
-/** v1.27: questions only the AI can answer (a token each) — kept apart so the ready questions stay free. */
+/** Questions only the AI can answer (a token each): open advice — v1.30 moved the fixed-logic ones to free cards. */
 export const AI_GROUP: Record<Lang, { title: string; qs: string[] }> = {
-  en: { title: 'AI advice', qs: ['This month vs last month — what changed?', 'Which medicines give me the lowest margin?', 'Which supplier sells cheaper?', 'What time do most customers come?', 'How can I grow my sales this month?'] },
-  hi: { title: 'AI सलाह', qs: ['इस महीने बनाम पिछला महीना — क्या बदला?', 'किन दवाओं में मुनाफ़ा सबसे कम है?', 'कौन सा सप्लायर सस्ता देता है?', 'किस समय सबसे ज़्यादा ग्राहक आते हैं?', 'इस महीने बिक्री कैसे बढ़ाऊँ?'] },
-  bn: { title: 'AI পরামর্শ', qs: ['এই মাস বনাম গত মাস — কী বদলাল?', 'কোন ওষুধে লাভ সবচেয়ে কম?', 'কোন সাপ্লায়ার সস্তায় দেয়?', 'কোন সময়ে সবচেয়ে বেশি খদ্দের আসে?', 'এই মাসে বিক্রি কীভাবে বাড়াব?'] },
+  en: { title: 'AI advice', qs: ['How can I grow my sales this month?', 'Why did my sales change this month?', 'What should I stock more of?', 'Suggest ways to cut my expenses', 'What should I do first today?'] },
+  hi: { title: 'AI सलाह', qs: ['इस महीने बिक्री कैसे बढ़ाऊँ?', 'इस महीने बिक्री क्यों बदली?', 'कौन सा माल ज़्यादा रखना चाहिए — सलाह दीजिए', 'खर्च कैसे कम करूँ?', 'आज पहले क्या करूँ?'] },
+  bn: { title: 'AI পরামর্শ', qs: ['এই মাসে বিক্রি কীভাবে বাড়াব?', 'এই মাসে বিক্রি কেন বদলাল?', 'কোন মাল বেশি রাখা উচিত — পরামর্শ দিন', 'খরচ কীভাবে কমাব?', 'আজ প্রথমে কী করব?'] },
 };
 
 /** The same questions in one list (the quick chips under an answer use the first few). */

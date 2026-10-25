@@ -37,6 +37,7 @@ async function main() {
   const { costOf } = await import('../src/modules/ask/ask-ai.js');
   const { listPrice } = await import('../src/modules/ai/ai-settings.js');
   const { AI_GROUP, CHIPS } = await import('../src/modules/ask/texts.js');
+  const { matchIntent } = await import('../src/modules/ask/intents.js');
   const { PurchaseModel } = await import('../src/modules/purchases/purchase.model.js');
   const { BatchModel } = await import('../src/modules/stock/batch.model.js');
   const { CustomerModel } = await import('../src/modules/customers/customer.model.js');
@@ -139,7 +140,7 @@ async function main() {
   const cash = card((await askAs(owner, 'Cash in the drawer today')).a);
   check('cash today → ₹90 in (two cash bills)', row(cash, 'Cash in') === '₹90', JSON.stringify(cash));
   const help = card((await askAs(owner, 'help')).a);
-  check(`help lists the ${String(CHIPS.en.length)} ready questions`, help?.items.length === CHIPS.en.length && CHIPS.en.length === 20);
+  check(`help lists the ${String(CHIPS.en.length)} ready questions`, help?.items.length === CHIPS.en.length && CHIPS.en.length === 24);
 
   section('1b. The questions a shop really asks: money in, buying, spending, prices, slow stock, people');
   const modes = card((await askAs(owner, 'UPI and card today')).a);
@@ -354,6 +355,27 @@ async function main() {
   check('branches for the owner: one shop (no branch yet), ₹120 this month', br.shops.length === 1 && br.shops[0]?.name === 'Shri Ram Medical Store' && br.shops[0].here && br.shops[0].netSales === '₹120', out(5));
   check('MRP goes to the AI in rupees (₹30), never as paise', out(6).includes('"mrp":"₹30"') && !out(6).includes('3000'), out(6));
   check('no other shop’s name in any of it', !results.some((x) => x.content.includes('Mina')));
+
+  section('9c. v1.30: the same figures as free cards — asked again and again, so no AI and no token');
+  const seenBefore = fake.seen.length;
+  const tokensBefore = data<{ ai: { balance: number } }>(await owner.get('/ask/offer')).ai.balance;
+  const vs = card((await askAs(owner, 'This month vs last month')).a);
+  check('“This month vs last month” → ₹120 against ₹0 (no % with nothing before), the dates in the note', vs?.title === 'This month vs last month, same days' && row(vs, 'Net sale') === '₹120 · before ₹0' && row(vs, 'Bills') === '3 · before 0' && vs.note?.startsWith('Same stretch of time: ') === true, JSON.stringify(vs));
+  check('…“today vs yesterday” is the same card for today', card((await askAs(owner, 'today vs yesterday')).a)?.title === 'Today vs yesterday, same hours');
+  const thin = card((await askAs(owner, 'Lowest margin medicines')).a);
+  check(`“Lowest margin medicines” → Dolo ${String(margin)}%, ${inrOf(rev)} before tax, last 30 days`, thin?.title === 'Lowest margin — Last 30 days' && thin.items[0]?.name === 'Dolo 650 Tablet' && thin.items[0].value === `${String(margin)}%` && thin.items[0].sub?.includes(inrOf(rev)) === true, JSON.stringify(thin));
+  const cheap = card((await askAs(owner, 'Which supplier is cheaper')).a);
+  check(`“Which supplier is cheaper” → Dolo, could save ${inrOf(save)}, Gupta first`, cheap?.title === 'Same medicine, cheaper supplier' && cheap.items[0]?.name === 'Dolo 650 Tablet' && cheap.items[0].value === `Could save ${inrOf(save)}` && cheap.items[0].sub?.startsWith('Gupta Pharma') === true, JSON.stringify(cheap));
+  const one = card((await askAs(owner, 'cheapest supplier for dolo')).a);
+  check('“cheapest supplier for dolo” → Dolo’s buy price at each supplier, cheapest first', one?.title === 'Buy price by supplier — Dolo 650 Tablet' && one.items.map((i) => i.name).join() === 'Gupta Pharma,Sharma Distributors' && row(one, 'Could save') === inrOf(save), JSON.stringify(one));
+  const rush = card((await askAs(owner, 'किस समय सबसे ज़्यादा ग्राहक आते हैं')).a);
+  const weekday = new Date(Date.now() + IST).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  check('Hindi “किस समय…” → the hours with the 3 bills, today’s weekday in Hindi', rush?.title === 'सबसे ज़्यादा भीड़ का समय — पिछले 30 दिन' && rush.rows.length >= 1 && rush.items.length === 1 && rush.items[0]?.sub === 'बिल: 3' && rush.items[0].name !== weekday, JSON.stringify(rush));
+  const mb = card((await askAs(owner, 'morning brief')).a);
+  check('“morning brief” → yesterday’s figures and today’s jobs with links', mb?.title === 'Morning brief' && row(mb, 'Yesterday’s net sale') === '₹0' && mb.items.length > 0 && mb.items.every((i) => i.href?.startsWith('/') === true) && mb.href === '/brief', JSON.stringify(mb));
+  check('a cashier: no margins, no brief (cost and reports are the owner’s)', card((await askAs(cashier, 'Lowest margin medicines')).a)?.note === 'Your role cannot see this.' && card((await askAs(cashier, 'morning brief')).a)?.note === 'Your role cannot see this.');
+  check('…the AI was not asked and no token was taken', fake.seen.length === seenBefore && data<{ ai: { balance: number } }>(await owner.get('/ask/offer')).ai.balance === tokensBefore);
+  check('with a why, a name or another topic it is still the AI’s: “why…”, “Dolo vs Calpol”, “expenses vs last month”', ['why did sales change this month', 'Dolo vs Calpol', 'expenses this month vs last month', 'sasta dawa'].every((q) => matchIntent(q) === null));
   fake.queue.push({ tools: [{ name: 'branch_sales', input: { period: 'month' } }, { name: 'buy_prices', input: {} }] }, { say: 'Theek hai.' });
   await askAs(manager, 'branch ke hisaab se is mahine compare karo');
   const mr = (fake.seen.at(-1)?.messages.at(-1)?.content ?? []) as { content: string; is_error?: boolean }[];

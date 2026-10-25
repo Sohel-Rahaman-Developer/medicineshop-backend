@@ -14,6 +14,7 @@ import { outOfCredit } from '../ai/credits';
 import { CoinWalletModel } from '../ai/ai.model';
 import { moveCoins } from '../ai/coins';
 import { audit } from '../audit/audit.model';
+import { brief } from '../brief/brief.service';
 import { can } from '../rbac/permissions';
 import type { Actor } from '../user/actor';
 import { askClaude, askGemini, costOf, type Turn, type Usage } from './ask-ai';
@@ -84,6 +85,17 @@ async function cardOf(t: TenantContext, userId: string, intent: Intent, v: Voice
         return C.gstCard(await F.gstOf(t, intent.last, now), v);
       case 'staff':
         return C.staffCard(await F.staffSales(t, intent.period, now), v);
+      case 'compare':
+        return C.compareCard(await F.compare(t, userId, intent.key, now), v);
+      case 'margins':
+        return C.marginsCard(await F.itemMargins(t, userId, intent.period, intent.order, now), v);
+      case 'cheaper':
+        return C.cheaperCard(await F.buyPrices(t, intent.name, now), v);
+      case 'busy':
+        return C.busyCard(await F.busyHours(t, userId, intent.period, now), v);
+      case 'brief':
+        if (!can(t.permissions, 'reports', 'view')) throw new F.NoAccess();
+        return C.briefCard(await brief(t, userId, now), v);
     }
   } catch (err) {
     if (err instanceof F.NoAccess) return C.noteCard('', say(TEXT.noPermission, v));

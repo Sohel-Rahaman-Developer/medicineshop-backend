@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.30.0',
+    date: '2026-10-26',
+    title: 'More free answers in Ask your shop',
+    shop: [
+      'Ask your shop answers four more questions free, with no AI token: this month vs last month (also today vs yesterday, this week vs last week), the medicines with the lowest margin, which supplier is cheaper for the same medicine, and the busiest hours and days.',
+      'Type “morning brief” to see yesterday’s sale and today’s jobs right in the chat.',
+      'Every card shows its working: the same days side by side, margins before tax, the last price each supplier charged.',
+      'AI advice now holds only the open questions — how to grow sales, why they changed, what to stock more of, how to cut costs, what to do first.',
+    ],
+    admin: [],
+    api: ['POST /ask answers compare, margins, cheaper supplier, busy hours and the brief as cards (route free).'],
+  },
+  {
     version: '1.29.0',
     date: '2026-10-25',
     title: 'Refills due',

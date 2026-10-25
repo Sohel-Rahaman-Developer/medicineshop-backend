@@ -331,7 +331,7 @@ export async function itemMargins(t: TenantContext, userId: string, period: Peri
   };
 }
 
-const BUY_DAYS = 180;
+export const BUY_DAYS = 180;
 
 /** What each supplier last charged per sale pack (after discount and free goods) — for one product, or where they differ most. */
 export async function buyPrices(t: TenantContext, name: string | null, now: Date) {

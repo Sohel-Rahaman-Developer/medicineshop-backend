@@ -19,7 +19,12 @@ export type Intent =
   | { kind: 'price'; name: string }
   | { kind: 'dead'; days: number }
   | { kind: 'orders' }
-  | { kind: 'gst'; last: boolean };
+  | { kind: 'gst'; last: boolean }
+  | { kind: 'compare'; key: 'today' | 'week' | 'month' }
+  | { kind: 'margins'; order: 'low' | 'high'; period: Period }
+  | { kind: 'cheaper'; name: string | null }
+  | { kind: 'busy'; period: Period }
+  | { kind: 'brief' };
 
 const words = (...w: string[]) => w.map(normalize);
 
@@ -49,22 +54,31 @@ const G = {
   neg: words('not', 'nahi', 'nahin', 'nai', 'hoyni', 'नहीं', 'नही', 'হয়নি'),
   returns: words('return', 'returns', 'returned', 'wapas', 'wapsi', 'ferot', 'वापस', 'वापसी', 'ফেরত'),
   help: words('help', 'madad', 'sahajjo', 'मदद', 'সাহায্য'),
-  // Why, compare, trends, advice and medicine use need thinking — the AI's job, not a card's.
-  block: words('why', 'kyon', 'kyun', 'compare', 'comparison', 'trend', 'vs', 'versus', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'grow', 'improve', 'boost', 'lowest', 'least', 'cheap', 'sasta', 'sasti', 'saste', 'shosta', 'time', 'hour', 'samay', 'somoy', 'changed', 'badal', 'बनाम', 'बदल', 'सस्त', 'समय', 'বনাম', 'বদল', 'সস্তা', 'সময়','क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়'),
+  // v1.30: the repeated "advice" questions are cards now; with anything else in them they still go to the AI.
+  compare: words('compare', 'comparison', 'vs', 'versus', 'changed', 'change', 'badla', 'badli', 'badal', 'बनाम', 'बदल', 'বনাম', 'বদল'),
+  least: words('lowest', 'least'),
+  cheap: words('cheap', 'cheaper', 'cheapest', 'sasta', 'sasti', 'saste', 'shosta', 'सस्त', 'সস্তা'),
+  time: words('time', 'hour', 'hours', 'samay', 'somoy', 'समय', 'সময়'),
+  busy: words('busy', 'busiest', 'rush', 'peak', 'crowd', 'bheed', 'bhir', 'come', 'aate', 'aata', 'ashe', 'भीड़', 'आते', 'आता', 'ভিড়', 'আসে'),
+  goods: words('medicine', 'medicines', 'product', 'products', 'dawa', 'dawai', 'dawaon', 'oshudh', 'osudh', 'दवा', 'दवाई', 'दवाओं', 'ওষুধ'),
+  brief: words('brief', 'briefing', 'ब्रीफ', 'ব্রিফ'),
+  morning: words('morning', 'subah', 'sokal', 'sokaler', 'सुबह', 'সকাল'),
+  // Why, trends, advice and medicine use need thinking — the AI's job, not a card's.
+  block: words('why', 'kyon', 'kyun', 'trend', 'difference', 'fark', 'predict', 'forecast', 'should', 'suggest', 'advice', 'salah', 'kaise', 'use', 'uses', 'dose', 'dosage', 'side', 'effect', 'kaam', 'kaj', 'khurak', 'increase', 'decrease', 'badh', 'ghat', 'gir', 'grow', 'improve', 'boost', 'क्यों', 'फ़र्क', 'फर्क', 'सलाह', 'कैसे', 'काम', 'खुराक', 'बढ़', 'घट', 'गिर', 'करूँ', 'करूं', 'পার্থক্য', 'পরামর্শ', 'কীভাবে', 'কাজ', 'ডোজ', 'বাড়', 'করব'),
   // Bengali "why" only as a whole word: কেনা (to buy) starts with it.
   blockWhole: words('কেন', 'কেনো', 'keno'),
   today: words('today', 'aaj', 'aj', 'ajke', 'ajker', 'आज', 'আজ'),
   yesterday: words('yesterday', 'kal', 'gotokal', 'कल', 'গতকাল'),
   week: words('week', 'hafte', 'hafta', 'saptaho', 'shoptaho', 'saptah', 'हफ़्ते', 'हफ्ते', 'हफ़्ता', 'हफ्ता', 'सप्ताह', 'সপ্তাহ'),
   month: words('month', 'mahine', 'mahina', 'mas', 'mase', 'maser', 'महीने', 'महीना', 'মাস'),
-  last: words('last', 'previous', 'pichhle', 'pichle', 'goto', 'पिछले', 'গত'),
+  last: words('last', 'previous', 'pichhle', 'pichle', 'goto', 'पिछले', 'पिछला', 'पिछली', 'গত'),
   days: words('day', 'days', 'din', 'dine', 'diner', 'दिन', 'দিন'),
   stop: words(
     'what', 'whats', 'how', 'much', 'many', 'is', 'are', 'was', 'were', 'the', 'of', 'for', 'in', 'on', 'do', 'does', 'we', 'i', 'have', 'has', 'had', 'me', 'show', 'tell', 'my', 'our', 'a', 'an', 'with', 'as', 'to', 'there', 'any', 'its', 'it', 's', 'r', 'this', 'that', 'please', 'pls', 'give', 'list', 'all', 'total', 'current', 'now', 'so', 'far', 'till', 'until', 'next', 'coming', 'within', 'which', 'who', 'from', 'by', 'at', 'amount', 'value', 'quantity', 'qty', 'pay', 'paid', 'payment', 'running', 'sellers', 'items', 'item',
-    'ka', 'ki', 'ke', 'hai', 'hain', 'tha', 'thi', 'kitna', 'kitni', 'kitne', 'kya', 'mein', 'me', 'se', 'ko', 'aur', 'batao', 'bataiye', 'bata', 'dikhao', 'dikhaiye', 'mera', 'meri', 'mere', 'hamara', 'kaun', 'kaunsa', 'ab', 'abhi', 'tak', 'agle', 'is', 'ye', 'yeh', 'wo', 'woh', 'koi', 'hua', 'hui', 'hue', 'par', 'pe', 'raha', 'rahi', 'kar', 'karna', 'karo', 'chahiye', 'kab', 'sab', 'saare', 'kul',
-    'का', 'की', 'के', 'है', 'हैं', 'था', 'थी', 'कितना', 'कितनी', 'कितने', 'क्या', 'में', 'से', 'को', 'और', 'बताओ', 'बताइए', 'दिखाओ', 'मेरा', 'मेरी', 'मेरे', 'हमारा', 'कौन', 'कौनसा', 'अब', 'अभी', 'तक', 'अगले', 'इस', 'यह', 'ये', 'वो', 'कोई', 'हुआ', 'हुई', 'हुए', 'पर', 'रहा', 'रही', 'कर', 'करना', 'चाहिए', 'कब', 'सब', 'कुल',
-    'er', 'koto', 'kotota', 'kon', 'konta', 'amar', 'amader', 'dekhao', 'bolo', 'bolun', 'ta', 'ti', 'theke', 'te', 'e', 'ei', 'porer', 'agami', 'holo', 'hoyeche', 'hocche', 'mot', 'gulo', 'kar', 'kader', 'korte', 'hobe', 'dite',
-    'এর', 'কত', 'কতটা', 'কী', 'কি', 'আছেন', 'কোন', 'কোনটা', 'আমার', 'আমাদের', 'দেখাও', 'বলো', 'বলুন', 'টা', 'টি', 'থেকে', 'তে', 'এ', 'এই', 'পরের', 'আগামী', 'হলো', 'হয়েছে', 'হচ্ছে', 'মোট', 'সব', 'গুলো', 'কার', 'কাদের', 'করতে', 'হবে', 'দিতে',
+    'ka', 'ki', 'ke', 'hai', 'hain', 'tha', 'thi', 'kitna', 'kitni', 'kitne', 'kya', 'mein', 'me', 'se', 'ko', 'aur', 'batao', 'bataiye', 'bata', 'dikhao', 'dikhaiye', 'mera', 'meri', 'mere', 'hamara', 'kaun', 'kaunsa', 'ab', 'abhi', 'tak', 'agle', 'is', 'ye', 'yeh', 'wo', 'woh', 'koi', 'hua', 'hui', 'hue', 'par', 'pe', 'raha', 'rahi', 'kar', 'karna', 'karo', 'chahiye', 'kab', 'sab', 'saare', 'kul', 'kis', 'kin', 'sa', 'deta', 'dete', 'wala', 'wali', 'wale', 'gives',
+    'का', 'की', 'के', 'है', 'हैं', 'था', 'थी', 'कितना', 'कितनी', 'कितने', 'क्या', 'में', 'से', 'को', 'और', 'बताओ', 'बताइए', 'दिखाओ', 'मेरा', 'मेरी', 'मेरे', 'हमारा', 'कौन', 'कौनसा', 'अब', 'अभी', 'तक', 'अगले', 'इस', 'यह', 'ये', 'वो', 'कोई', 'हुआ', 'हुई', 'हुए', 'पर', 'रहा', 'रही', 'कर', 'करना', 'चाहिए', 'कब', 'सब', 'कुल', 'किस', 'किन', 'सा', 'देता', 'देते', 'वाला', 'वाली', 'वाले',
+    'er', 'koto', 'kotota', 'kon', 'konta', 'amar', 'amader', 'dekhao', 'bolo', 'bolun', 'ta', 'ti', 'theke', 'te', 'e', 'ei', 'porer', 'agami', 'holo', 'hoyeche', 'hocche', 'mot', 'gulo', 'kar', 'kader', 'korte', 'hobe', 'dite', 'dey',
+    'এর', 'কত', 'কতটা', 'কী', 'কি', 'আছেন', 'কোন', 'কোনটা', 'আমার', 'আমাদের', 'দেখাও', 'বলো', 'বলুন', 'টা', 'টি', 'থেকে', 'তে', 'এ', 'এই', 'পরের', 'আগামী', 'হলো', 'হয়েছে', 'হচ্ছে', 'মোট', 'সব', 'গুলো', 'কার', 'কাদের', 'করতে', 'হবে', 'দিতে', 'দেয়',
   ),
 };
 
@@ -117,6 +131,16 @@ export function matchIntent(text: string): Intent | null {
   };
 
   if (on.block || on.blockWhole) return null;
+  // v1.30: the repeated advice questions get a card — only when nothing else (a name, another topic) is in them.
+  const other = on.stock || on.supplier || on.udhaar || on.expense || on.purchase || on.gst || on.staff || on.modes || on.cash || on.expiry || on.order || on.dead || on.salt || on.price;
+  const least = on.least || (on.top && on.lowWeak);
+  const recent = (): Period => (days !== null || on.today || on.yesterday || on.week || on.month ? period('month') : { key: 'days', n: 30 });
+  if (on.cheap) return (on.supplier || on.purchase) && (!name || latinName) ? { kind: 'cheaper', name: latinName } : null;
+  if (on.compare) return !name && !other && days === null ? { kind: 'compare', key: on.today || on.yesterday ? 'today' : on.week ? 'week' : 'month' } : null;
+  if (on.profit && !name && !other && (least || (on.top && on.goods))) return { kind: 'margins', order: least ? 'low' : 'high', period: recent() };
+  if ((on.time || on.busy) && !name && !other && (on.busy || on.customer || on.sale || on.top)) return { kind: 'busy', period: recent() };
+  if (on.least || on.time) return null;
+  if (on.brief) return name ? null : { kind: 'brief' };
   // "Sabse kam munafa": the least of something is a ranking only the AI makes; "kam stock" stays the reorder card.
   if (on.top && on.lowWeak && !on.stock) return null;
   if (on.help) return { kind: 'help' };

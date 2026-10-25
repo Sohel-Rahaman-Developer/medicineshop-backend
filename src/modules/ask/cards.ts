@@ -1,8 +1,11 @@
 import { dayLabel, monthLabel } from '../../utils/date';
 import { inr } from '../../utils/money';
+import { LINK, todoHead } from '../brief/brief.mail';
+import type { Brief } from '../brief/brief.service';
+import { BUY_DAYS } from './facts';
 import type * as F from './facts';
 import { langOf, type Voice } from './lang';
-import { CHIPS, LABEL, MODE, PERIOD, TEXT, TITLE, say } from './texts';
+import { CHIPS, LABEL, MODE, PERIOD, TEXT, TITLE, WEEKDAY, say } from './texts';
 
 // D81: a free answer is a card — numbers the server worked out, labels in the asker's language, and a link to the
 // screen with the whole picture (show the working).
@@ -275,6 +278,90 @@ export function staffCard(d: Awaited<ReturnType<typeof F.staffSales>>, v: Voice)
     items: d.items.map((s) => ({ name: s.name, value: rs(s.amount), sub: `${say(LABEL.bills, v)}: ${String(s.bills)}` })),
     note: d.items.length ? undefined : say(TEXT.none, v),
     href: '/sales',
+  });
+}
+
+const change = (p: number | null) => (p === null ? '' : p === 0 ? ' · 0%' : ` · ${p > 0 ? '▲' : '▼'} ${String(Math.abs(p))}%`);
+const toneOf = (p: number | null) => (p === null || p === 0 ? undefined : p > 0 ? ('ok' as const) : ('warn' as const));
+const span = (from: Date, to: Date) => {
+  const a = dayLabel(from);
+  const b = dayLabel(new Date(to.getTime() - 1));
+  return a === b ? a : `${a} – ${b}`;
+};
+
+/** v1.30: the same stretch of time side by side — the free answer to "this month vs last month". */
+export function compareCard(d: Awaited<ReturnType<typeof F.compare>>, v: Voice): Card {
+  const was = say(LABEL.before, v);
+  const pair = (a: string, b: string, p: number | null) => `${a} · ${was} ${b}${change(p)}`;
+  const { now: a, before: b, changePercent: c } = d;
+  return card(say(TITLE[`compare_${d.key}`], v), {
+    rows: [
+      { label: say(LABEL.netSale, v), value: pair(rs(a.netSales), rs(b.netSales), c.sales), tone: toneOf(c.sales) },
+      { label: say(LABEL.bills, v), value: pair(String(a.bills), String(b.bills), c.bills), tone: toneOf(c.bills) },
+      { label: say(LABEL.avgBill, v), value: pair(rs(a.avgBill), rs(b.avgBill), c.averageBill) },
+      ...(a.grossProfit !== null && b.grossProfit !== null ? [{ label: say(LABEL.grossProfit, v), value: pair(rs(a.grossProfit), rs(b.grossProfit), c.profit), tone: toneOf(c.profit) }] : []),
+    ],
+    note: say(TEXT.compareNote, v, { now: span(a.from, a.to), before: span(b.from, b.to) }),
+    href: '/sales',
+  });
+}
+
+export function marginsCard(d: Awaited<ReturnType<typeof F.itemMargins>>, v: Voice): Card {
+  return card(say(d.order === 'low' ? TITLE.marginsLow : TITLE.marginsHigh, v, { period: periodText(d.period, v) }), {
+    items: d.items.map((i) => ({ name: i.name, value: `${String(i.marginPercent)}%`, sub: `${say(LABEL.revenue, v)}: ${rs(i.revenue)} · ${say(LABEL.grossProfit, v)}: ${rs(i.grossProfit)}`, href: `/products/${i.id}` })),
+    note: say(d.items.length ? TEXT.marginNote : TEXT.none, v),
+    href: '/pnl',
+  });
+}
+
+export function cheaperCard(d: Awaited<ReturnType<typeof F.buyPrices>>, v: Voice): Card {
+  const note = say(TEXT.buyNote, v, { n: BUY_DAYS });
+  if (d.name !== null) {
+    const p = d.found;
+    if (!p) return card(say(TITLE.buyOf, v, { name: d.name }), { note: say(TEXT.notFound, v, { name: d.name }), href: '/products' });
+    return card(say(TITLE.buyOf, v, { name: p.name }), {
+      rows: p.couldSave ? [{ label: say(LABEL.couldSave, v), value: rs(p.couldSave), tone: 'warn' }] : [],
+      items: p.suppliers.map((s) => ({ name: s.supplier, value: rs(s.packCost), sub: dayLabel(s.lastBought) })),
+      note: p.suppliers.length ? note : say(TEXT.none, v),
+      href: `/products/${p.id}`,
+    });
+  }
+  return card(say(TITLE.cheaper, v), {
+    items: d.items.map((p) => {
+      const cheap = p.suppliers[0];
+      const dear = p.suppliers.at(-1);
+      return { name: p.name, value: `${say(LABEL.couldSave, v)} ${rs(p.couldSave)}`, sub: cheap && dear ? `${cheap.supplier} ${rs(cheap.packCost)} · ${dear.supplier} ${rs(dear.packCost)}` : undefined, href: `/products/${p.id}` };
+    }),
+    note: d.items.length ? note : say(TEXT.none, v),
+    href: '/purchases',
+  });
+}
+
+export function busyCard(d: Awaited<ReturnType<typeof F.busyHours>>, v: Voice): Card {
+  const most = <T extends { bills: number }>(xs: T[]) => [...xs].sort((x, y) => y.bills - x.bills);
+  const bills = (n: number) => `${say(LABEL.bills, v)}: ${String(n)}`;
+  return card(say(TITLE.busy, v, { period: periodText(d.period, v) }), {
+    rows: most(d.byHour).slice(0, 3).map((h) => ({ label: h.hour, value: bills(h.bills) })),
+    items: most(d.byDay).map((x) => {
+      const day = WEEKDAY[x.day];
+      return { name: day ? say(day, v) : x.day, value: rs(x.amount), sub: bills(x.bills) };
+    }),
+    note: say(d.byHour.length ? TEXT.busyNote : TEXT.none, v),
+    href: '/sales',
+  });
+}
+
+export function briefCard(b: Brief, v: Voice): Card {
+  const p = b.changePercent;
+  return card(say(TITLE.brief, v), {
+    rows: [
+      { label: say(LABEL.ySale, v), value: rs(b.yesterday.netSales) },
+      { label: say(LABEL.yBills, v), value: String(b.yesterday.bills) },
+      ...(p === null ? [] : [{ label: say(LABEL.vsUsual, v), value: change(p).slice(3), tone: toneOf(p) }]),
+    ],
+    items: b.todo.map((x) => ({ name: todoHead(x, langOf(v)), value: '', href: LINK[x.kind] })),
+    note: say(b.todo.length ? TEXT.briefNote : TEXT.briefClear, v),
+    href: '/brief',
   });
 }
 

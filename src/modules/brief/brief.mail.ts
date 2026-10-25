@@ -28,7 +28,10 @@ function card(x: Todo, tr: Tr): { head: string; lines: string[] } {
   return { head: tr(x.count === 1 ? `${rs(x.mrpValue)} stuck in 1 medicine not sold for ${String(x.days)} days` : `${rs(x.mrpValue)} stuck in ${String(x.count)} medicines not sold for ${String(x.days)} days`), lines: [tr('Offer them, return them, or stop buying them.')] };
 }
 
-const LINK = { reorder: '/reorder', expiry: '/expiry', suppliers: '/suppliers', udhaar: '/credit', refill: '/refills', dead: '/brief' } as const;
+export const LINK = { reorder: '/reorder', expiry: '/expiry', suppliers: '/suppliers', udhaar: '/credit', refill: '/refills', dead: '/brief' } as const;
+
+/** One job's headline in the reader's language — the chat's brief card uses the mail's own sentences. */
+export const todoHead = (x: Todo, lang: Lang) => card(x, (text) => translate(lang, text)).head;
 
 /** The brief as the morning mail: yesterday first, then the jobs as cards, then the AI to ask. */
 export function briefEmail(b: Brief, shop: string, lang: Lang) {
