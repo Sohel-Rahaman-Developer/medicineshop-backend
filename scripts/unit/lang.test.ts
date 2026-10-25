@@ -28,10 +28,12 @@ void test('preview notes translate; ids, dates and other strings stay as they ar
   const id = new Types.ObjectId();
   const at = new Date('2026-10-25T00:00:00Z');
   const out = sayNotes('hi', { rows: [{ id, at, name: 'Product not found', errors: ['Product name is missing'], warnings: [] }], notes: 'Product not found' });
-  assert.equal(out.rows[0].id, id);
-  assert.equal(out.rows[0].at, at);
-  assert.equal(out.rows[0].name, 'Product not found');
-  assert.deepEqual(out.rows[0]?.errors, ['Product का नाम नहीं है']);
+  const [row] = out.rows;
+  assert.ok(row);
+  assert.equal(row.id, id);
+  assert.equal(row.at, at);
+  assert.equal(row.name, 'Product not found');
+  assert.deepEqual(row.errors, ['Product का नाम नहीं है']);
   assert.equal(out.notes, 'Product not found');
   assert.equal(sayNotes('en', out), out);
 });

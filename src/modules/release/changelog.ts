@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.37',
+    date: '2026-10-25',
+    title: 'The app’s own messages follow your language too',
+    shop: [
+      'Pop-up messages the app shows itself — “Ratna Sen added”, “Day closed · Cash matched”, “Link copied”, “Added · Dolo 650” at the counter — now come in English, हिन्दी or বাংলা, whichever you chose.',
+      '“Something went wrong” and what a purchase line still needs (batch, expiry, rate…) follow your language as well.',
+    ],
+    admin: ['Partner desk: the fallback error follows the partner’s language.'],
+    api: [],
+  },
+  {
     version: '1.22.36',
     date: '2026-10-25',
     title: 'Messages from MedBox24 in your language',
