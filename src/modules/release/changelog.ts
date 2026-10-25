@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.24.2',
+    date: '2026-10-25',
+    title: 'Stock adjustments explain themselves',
+    shop: [
+      'Stock → New adjustment: each kind says when to use it (counted a rack, broken strip, expired, own use, moved rack) and what it does — “Stock goes down”, “Stock becomes what you counted”, “Only the rack changes”.',
+      'After you choose, only that kind stays on screen with the steps and a Change button; plain words instead of “ledger”.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.24.1',
     date: '2026-10-25',
     title: 'Pay for your web address in the app',
