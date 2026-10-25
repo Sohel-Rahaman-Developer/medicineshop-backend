@@ -872,5 +872,16 @@
   "MedBox24 stopped this address — call MedBox24": "MedBox24 এই address বন্ধ করেছে — MedBox24-কে call করুন",
   "Renew your plan first — the web address works with a running plan": "আগে আপনার plan renew করুন — web address চালু plan-এর সাথেই চলে",
   "Choose a period": "সময়কাল বেছে নিন",
-  "Online payment is off — MedBox24 will call you": "Online payment বন্ধ আছে — MedBox24 আপনাকে call করবে"
+  "Online payment is off — MedBox24 will call you": "Online payment বন্ধ আছে — MedBox24 আপনাকে call করবে",
+  "Choose the GSTIN": "GSTIN বেছে নিন",
+  "Bill series: 2 to 6 letters or numbers, like SLT": "Bill series: 2 থেকে 6টি অক্ষর বা সংখ্যা, যেমন SLT",
+  "{name} is open — {copied} medicines copied, stock starts at 0": "{name} খোলা হয়েছে — {copied}টি ওষুধ copy হয়েছে, stock 0 থেকে শুরু",
+  "Only the owner sees and opens branches": "Branch শুধু owner দেখতে ও খুলতে পারেন",
+  "The main shop has no GSTIN — give this branch its own, or leave it empty": "Main দোকানের GSTIN নেই — এই branch-এর নিজেরটা দিন, বা খালি রাখুন",
+  "A branch in another state needs its own GSTIN": "অন্য রাজ্যের branch-এর নিজের GSTIN লাগবে",
+  "Your shop is GST registered — a branch in another state needs its own GSTIN": "আপনার দোকান GST-তে registered — অন্য রাজ্যের branch-এর নিজের GSTIN লাগবে",
+  "Another shop in your group uses this bill series": "আপনার অন্য দোকানে এই bill series আগে থেকেই আছে",
+  "Only the owner opens branches": "Branch শুধু owner খুলতে পারেন",
+  "Open branches from the main shop": "Main দোকান থেকে branch খুলুন",
+  "At most 20 branches": "সর্বোচ্চ 20টি branch"
 }

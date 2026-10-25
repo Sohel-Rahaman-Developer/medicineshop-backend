@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.25.0',
+    date: '2026-10-25',
+    title: 'Branches: run more than one shop',
+    shop: [
+      'Settings → Branches → Add branch: another shop of yours with its own stock, bills, cash and staff. Settings, roles and your medicine list come along; stock starts at 0.',
+      'Same state: use the main GSTIN or its own; another state needs its own GSTIN. Every branch gets its own bill series (like SLT-2026-27-0001) so numbers never clash.',
+      'Branches shows today in every shop — sales, bills, udhaar, low stock — with one tap to open any of them. No new free trial: a branch’s trial ends with the main shop’s.',
+    ],
+    admin: ['Shops: a branch is tagged and links to its main shop; the main shop lists its branches.'],
+    api: ['GET/POST /branches; /auth/me shops carry branchOf; admin shop list and detail carry branchOf / branches.'],
+  },
+  {
     version: '1.24.2',
     date: '2026-10-25',
     title: 'Stock adjustments explain themselves',

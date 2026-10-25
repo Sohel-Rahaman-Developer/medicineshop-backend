@@ -79,15 +79,17 @@ export async function shops(q: { q?: string; status?: string; cursor?: string; l
   // D80: a referral code finds its shop too.
   if (q.q) filter.$and = [{ $or: [{ name: { $regex: q.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }, { referralCode: normCode(q.q) }] }];
   if (q.status === 'suspended') filter.status = 'suspended';
-  const rows = await ShopModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).select('name address phone ownerUserId drugLicenseNumber drugLicenseExpiry status createdAt demo').lean<{ _id: Types.ObjectId; name: string; address?: { city?: string }; phone?: string; ownerUserId: Types.ObjectId; drugLicenseNumber: string; drugLicenseExpiry: Date; status: string; createdAt: Date; demo?: boolean }[]>();
+  const rows = await ShopModel.find({ ...filter, ...afterCursor(q.cursor, sort) }).sort(sortOf(sort)).limit(q.limit + 1).select('name address phone ownerUserId drugLicenseNumber drugLicenseExpiry status createdAt demo mainShopId').lean<{ _id: Types.ObjectId; mainShopId?: Types.ObjectId; name: string; address?: { city?: string }; phone?: string; ownerUserId: Types.ObjectId; drugLicenseNumber: string; drugLicenseExpiry: Date; status: string; createdAt: Date; demo?: boolean }[]>();
   const { items, meta } = page(rows, q.limit, (r) => r.createdAt);
   const ids = items.map((s) => s._id);
-  const [subs, owners, users] = await Promise.all([
+  const [subs, owners, users, mains] = await Promise.all([
     SubscriptionModel.find({ shopId: { $in: ids } }).select('shopId status planCode endDate maxUsers').lean(),
     UserModel.find({ _id: { $in: items.map((s) => s.ownerUserId) } }).select('name email').lean(),
     MembershipModel.aggregate<{ _id: Types.ObjectId; n: number; last: Date | null }>([{ $match: { shopId: { $in: ids } } }, { $group: { _id: '$shopId', n: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } }, last: { $max: '$lastActiveAt' } } }]),
+    ShopModel.find({ _id: { $in: items.flatMap((s) => (s.mainShopId ? [s.mainShopId] : [])) } }).select('name').lean(),
   ]);
   const out = items.map((s) => {
+    const main = s.mainShopId ? mains.find((m) => m._id.equals(s.mainShopId)) : undefined;
     const sub = subs.find((x) => x.shopId.equals(s._id));
     const o = owners.find((x) => x._id.equals(s.ownerUserId));
     const u = users.find((x) => x._id.equals(s._id));
@@ -97,6 +99,7 @@ export async function shops(q: { q?: string; status?: string; cursor?: string; l
       drugLicense: { number: s.drugLicenseNumber, expiry: s.drugLicenseExpiry, expired: s.drugLicenseExpiry.getTime() < now.getTime() },
       plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, endDate: sub.endDate, maxUsers: sub.maxUsers } : null,
       users: u?.n ?? 0, lastActiveAt: u?.last ?? null,
+      branchOf: s.mainShopId ? { id: String(s.mainShopId), name: main?.name ?? '' } : null,
     };
   });
   return { items: q.status && q.status !== 'suspended' ? out.filter((s) => s.plan?.status === q.status) : out, meta };
@@ -107,7 +110,7 @@ export async function shop(id: string, now = new Date()) {
   const shopId = new Types.ObjectId(id);
   const doc = await ShopModel.findById(shopId).lean();
   if (!doc) throw AppError.notFound('Shop not found');
-  const [sub, owner, members, pays, log, prices, autopay, referral, code] = await Promise.all([
+  const [sub, owner, members, pays, log, prices, autopay, referral, code, main, branches] = await Promise.all([
     SubscriptionModel.findOne({ shopId }).lean(),
     UserModel.findById(doc.ownerUserId).select('name email phone').lean(),
     MembershipModel.find({ shopId }).select('designation status lastActiveAt').lean(),
@@ -117,11 +120,15 @@ export async function shop(id: string, now = new Date()) {
     autopayOf(shopId),
     referralsOf(shopId),
     codeOf(shopId),
+    doc.mainShopId ? ShopModel.findById(doc.mainShopId).select('name').lean() : null,
+    ShopModel.find({ mainShopId: shopId }).select('name address.city').lean(),
   ]);
   return {
     id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null, demo: doc.demo === true,
     address: doc.address, phone: doc.phone, gstin: doc.gstin ?? '', drugLicense: { number: doc.drugLicenseNumber, expiry: doc.drugLicenseExpiry },
     owner: { name: owner?.name ?? '', email: owner?.email ?? '' },
+    branchOf: doc.mainShopId ? { id: String(doc.mainShopId), name: main?.name ?? '' } : null,
+    branches: branches.map((b) => ({ id: String(b._id), name: b.name, city: b.address?.city ?? '' })),
     plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, startDate: sub.startDate, endDate: sub.endDate, maxUsers: sub.maxUsers, trialExtensions: sub.trialExtensions, cancelReason: sub.cancelReason ?? null } : null,
     users: { active: members.filter((m) => m.status === 'active').length, invited: members.filter((m) => m.status === 'invited').length },
     payments: pays.map(shapePayment),

@@ -18,7 +18,7 @@ export const phone = (label: string) =>
 export const mobile = (label: string) =>
   phone(label).refine((v) => v === '' || isMobile(v), `${label} should be a mobile number`);
 
-const upper = (re: RegExp, message: string) =>
+export const upper = (re: RegExp, message: string) =>
   z
     .string()
     .trim()
@@ -37,7 +37,7 @@ const address = z
   })
   .strict();
 
-const shopFields = {
+export const shopFields = {
   name: text('Shop name'),
   address,
   phone: phone('Shop phone'),
@@ -49,9 +49,9 @@ const shopFields = {
   fssai: optionalText(20),
 };
 
-const gstinMatchesState = (s: { gstin?: string; address: { state: string } }) =>
+export const gstinMatchesState = (s: { gstin?: string; address: { state: string } }) =>
   !s.gstin || STATES.find((x) => x.name === s.address.state)?.code === s.gstin.slice(0, 2);
-const gstinMessage = { message: 'The GSTIN belongs to a different state than the address', path: ['gstin'] };
+export const gstinMessage = { message: 'The GSTIN belongs to a different state than the address', path: ['gstin'] };
 
 export const ownerSchema = z.object({ name: text('Your name', 80), phone: mobile('Your phone') }).strict();
 const shopObject = z.object({ ...shopFields, pricingMode: z.enum(['MRP_INCLUSIVE', 'EXCLUSIVE']).default('MRP_INCLUSIVE') });

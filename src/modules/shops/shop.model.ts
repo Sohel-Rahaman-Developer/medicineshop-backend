@@ -98,11 +98,14 @@ const shopSchema = new Schema(
     publicCode: { type: String },
     /** The marketing team's demo shop: free for life, left out of every platform number. */
     demo: { type: Boolean },
+    /** v1.25: a branch — its own stock, bills and plan; this is the main shop it was opened from. */
+    mainShopId: { type: Schema.Types.ObjectId, ref: 'Shop' },
   },
   { timestamps: true, versionKey: 'version', optimisticConcurrency: true },
 );
 
 shopSchema.index({ gstin: 1 }, { sparse: true });
+shopSchema.index({ mainShopId: 1 }, { partialFilterExpression: { mainShopId: { $type: 'objectId' } } });
 shopSchema.index({ referralCode: 1 }, { unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } });
 shopSchema.index({ publicCode: 1 }, { unique: true, partialFilterExpression: { publicCode: { $type: 'string' } } });
 

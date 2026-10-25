@@ -16,13 +16,15 @@ export async function myShops(userId: string) {
   if (!ms.length) return [];
   const shopIds = ms.map((m) => m.shopId);
   const [shops, roles, subs] = await Promise.all([
-    ShopModel.find({ _id: { $in: shopIds }, status: 'active' }).select('name address.city address.line2').lean(),
+    ShopModel.find({ _id: { $in: shopIds }, status: 'active' }).select('name address.city address.line2 mainShopId').lean(),
     RoleModel.find({ shopId: { $in: shopIds }, _id: { $in: ms.map((m) => m.roleId) } }).select('name systemKey color').lean(),
     SubscriptionModel.find({ shopId: { $in: shopIds } }).select('shopId status endDate').lean(),
   ]);
   const shopMap = byId(shops);
   const roleMap = byId(roles);
   const subMap = new Map(subs.map((s) => [String(s.shopId), s]));
+  // v1.25: a branch shows which shop it belongs to.
+  const mains = byId(await ShopModel.find({ _id: { $in: shops.flatMap((s) => (s.mainShopId ? [s.mainShopId] : [])) } }).select('name').lean());
   return ms.flatMap((m) => {
     const shop = shopMap.get(String(m.shopId));
     const role = roleMap.get(String(m.roleId));
@@ -36,6 +38,7 @@ export async function myShops(userId: string) {
       designation: m.designation,
       isOwner: role.systemKey === 'owner',
       subscription: { status: sub.status, endDate: sub.endDate },
+      branchOf: shop.mainShopId ? (mains.get(String(shop.mainShopId))?.name ?? '') : null,
     }];
   });
 }
