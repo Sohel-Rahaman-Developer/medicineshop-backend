@@ -79,3 +79,14 @@ export function sayNotes<T>(lang: Lang, data: T): T {
   };
   return walk(data) as T;
 }
+
+/** The bell: an alert's title, body and item lines in the person's language; names and amounts inside stay as they are. */
+export function sayFields<T>(lang: Lang, data: T, keys: readonly string[]): T {
+  if (lang === 'en') return data;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object' || Object.getPrototypeOf(v) !== Object.prototype) return v;
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, keys.includes(k) && typeof x === 'string' ? translate(lang, x) : walk(x)]));
+  };
+  return walk(data) as T;
+}

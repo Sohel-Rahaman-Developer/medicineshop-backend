@@ -5,6 +5,7 @@ import { AppError } from '../../core/errors';
 import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched, sent } from '../../core/response';
+import { langOf, sayFields } from '../../core/lang';
 import * as svc from './notifications.service';
 import { alertSettingsSchema, listSchema, prefsSchema, readSchema, snoozeSchema, type AlertSettingsInput, type PrefsInput } from './notifications.validation';
 
@@ -21,7 +22,7 @@ notificationsRouter.get(
   '/',
   validate({ query: listSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    fetched(res, await svc.list(tenantOf(req), userOf(req), { all: (req.query as { all?: string }).all === '1' }));
+    fetched(res, sayFields(langOf(req), await svc.list(tenantOf(req), userOf(req), { all: (req.query as { all?: string }).all === '1' }), ['title', 'body', 'sub']));
   }),
 );
 

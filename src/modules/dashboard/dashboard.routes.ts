@@ -5,6 +5,7 @@ import { AppError } from '../../core/errors';
 import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { fetched } from '../../core/response';
+import { langOf, sayFields } from '../../core/lang';
 import { istDay } from '../../core/zod';
 import * as svc from './dashboard.service';
 
@@ -28,7 +29,8 @@ dashboardRouter.get(
   validate({ query: rangeSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as unknown as { from: Date; to: Date };
-    fetched(res, await svc.overview(tenantOf(req), userOf(req), q.from, q.to));
+    const o = await svc.overview(tenantOf(req), userOf(req), q.from, q.to);
+    fetched(res, { ...o, alerts: sayFields(langOf(req), o.alerts, ['title']) });
   }),
 );
 

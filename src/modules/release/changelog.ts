@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.22.38',
+    date: '2026-10-25',
+    title: 'Alerts in your language',
+    shop: [
+      'The bell, the Notifications screen and the dashboard’s alerts now speak English, हिन्दी or বাংলা — “1 batch expired — take it off the shelf”, low stock, udhaar to collect, licence and plan reminders, the daily summary, ready orders, big discounts, tier ups and MedBox24 support requests.',
+      'Settings → Inventory: the expiry alert windows read in your language too.',
+    ],
+    admin: [],
+    api: ['GET /notifications and the dashboard alerts follow X-Lang.'],
+  },
+  {
     version: '1.22.37',
     date: '2026-10-25',
     title: 'The app’s own messages follow your language too',

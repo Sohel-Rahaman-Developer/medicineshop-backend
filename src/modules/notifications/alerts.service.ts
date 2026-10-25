@@ -16,7 +16,15 @@ import { typeInfo, type Group, type NotificationType, type Priority } from './no
 
 const DAY = 24 * 60 * 60 * 1000;
 const rupees = (p: number) => inr(p).replace(/\.00$/, '');
-const plural = (n: number, w: string) => `${String(n)} ${w}${n === 1 ? '' : 's'}`;
+// Whole sentences, one and many apart: each one is translated as it stands (core/lang).
+const batchesTitle = (n: number, from: number | null, to: number) => {
+  const c = n === 200 ? '200+' : String(n);
+  if (from === null) return n === 1 ? '1 batch expired — take it off the shelf' : `${c} batches expired — take them off the shelf`;
+  if (from) return n === 1 ? `1 batch expires in ${String(from + 1)}–${String(to)} days` : `${c} batches expire in ${String(from + 1)}–${String(to)} days`;
+  return n === 1 ? `1 batch expires within ${String(to)} days` : `${c} batches expire within ${String(to)} days`;
+};
+const planTitle = (trial: boolean, n: number) => (trial ? (n === 1 ? 'Trial ends in 1 day' : `Trial ends in ${String(n)} days`) : n === 1 ? 'Plan renews in 1 day' : `Plan renews in ${String(n)} days`);
+const summaryTitle = (today: boolean, n: number, total: string) => (today ? (n === 1 ? `Today: 1 bill · ${total}` : `Today: ${String(n)} bills · ${total}`) : n === 1 ? `Yesterday: 1 bill · ${total}` : `Yesterday: ${String(n)} bills · ${total}`);
 
 export interface Alert {
   key: string;
@@ -66,7 +74,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     if (!expiryAudience(t)) return [];
     const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.inventory.expiryAlertDays').lean();
     const days = shop?.settings.inventory?.expiryAlertDays;
-    const found = await Promise.all(expiryWindows(days?.length ? days : DEFAULT_ALERT_DAYS).map(async ({ type, priority, what, from, to, bucket }): Promise<Alert[]> => {
+    const found = await Promise.all(expiryWindows(days?.length ? days : DEFAULT_ALERT_DAYS).map(async ({ type, priority, from, to, bucket }): Promise<Alert[]> => {
       const at = (n: number) => new Date(now.getTime() + n * DAY);
       const expiryDate = from === null ? { $lt: now } : { [from ? '$gt' : '$gte']: from ? at(from) : now, $lte: at(to) };
       const match = { shopId: t.shopId, status: 'active' as const, quantity: { $gt: 0 }, expiryDate };
@@ -77,7 +85,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
         alert(type, {
           key: `${type}:${String(to)}:${day}`,
           priority,
-          title: `${String(rows.length)}${rows.length === 200 ? '+' : ''} ${rows.length === 1 ? `batch ${what.replace(/^expire /, 'expires ')}` : `batches ${what}`}`,
+          title: batchesTitle(rows.length, from, to),
           body: from === null ? 'Expired stock can’t be sold. Return it to the supplier or write it off.' : 'Sell these first or return them to the supplier in time.',
           route: `/expiry?bucket=${bucket}`,
           action: 'Open expiry',
@@ -98,7 +106,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
         alert(type, {
           key: `${type}:${day}`,
           priority,
-          title: status === 'out' ? `${plural(rows.length, 'product')} out of stock` : `${plural(rows.length, 'product')} below reorder level`,
+          title: status === 'out' ? (rows.length === 1 ? '1 product out of stock' : `${String(rows.length)} products out of stock`) : rows.length === 1 ? '1 product below reorder level' : `${String(rows.length)} products below reorder level`,
           body: status === 'out' ? 'Customers are being turned away — reorder the fast movers first.' : 'Suggested quantities are on the reorder list.',
           route: '/reorder',
           action: 'Reorder list',
@@ -131,7 +139,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
         alert('UDHAAR_OVERDUE', {
           key: `UDHAAR_OVERDUE:${day}`,
           priority: 'medium',
-          title: `${plural(late.length, 'customer')} owe udhaar older than 30 days`,
+          title: late.length === 1 ? '1 customer owes udhaar older than 30 days' : `${String(late.length)} customers owe udhaar older than 30 days`,
           body: `${rupees(late.reduce((s, c) => s + c.creditBalance, 0))} outstanding. A reminder usually brings it back.`,
           route: '/credit',
           action: 'Open udhaar',
@@ -164,12 +172,12 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     }
     const dl = shop ? Math.ceil((shop.drugLicenseExpiry.getTime() - now.getTime()) / DAY) : 999;
     if (dl < 0) out.push(alert('DL_EXPIRY', { key: `DL_EXPIRED:${day}`, priority: 'critical', title: `Drug licence expired on ${dayLabel(shop?.drugLicenseExpiry ?? now)}`, body: 'Selling medicines needs a valid licence. Update it in Settings → Shop profile.', route: '/settings', action: 'Update licence', at: at8 }));
-    else if (dl <= 60) out.push(alert('DL_EXPIRY', { key: `DL_SOON:${day}`, priority: 'high', title: `Drug licence expires in ${plural(dl, 'day')}`, body: `On ${dayLabel(shop?.drugLicenseExpiry ?? now)}. Apply for renewal now — it takes weeks.`, route: '/settings', action: 'Shop profile', at: at8 }));
+    else if (dl <= 60) out.push(alert('DL_EXPIRY', { key: `DL_SOON:${day}`, priority: 'high', title: dl === 1 ? 'Drug licence expires in 1 day' : `Drug licence expires in ${String(dl)} days`, body: `On ${dayLabel(shop?.drugLicenseExpiry ?? now)}. Apply for renewal now — it takes weeks.`, route: '/settings', action: 'Shop profile', at: at8 }));
 
     const sub = t.subscription;
     const left = Math.ceil((sub.endDate.getTime() - now.getTime()) / DAY);
-    if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: `Subscription ${sub.status} — read-only`, body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
-    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : `${sub.status === 'trial' ? 'Trial ends' : 'Plan renews'} in ${plural(Math.max(0, left), 'day')}`, body: `On ${dayLabel(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
+    if (sub.status === 'expired' || sub.status === 'cancelled') out.push(alert('SUBSCRIPTION_EXPIRED', { key: `SUBSCRIPTION_EXPIRED:${day}`, priority: 'critical', title: sub.status === 'expired' ? 'Subscription expired — read-only' : 'Subscription cancelled — read-only', body: 'Your data is safe. Renew to start billing again.', route: '/settings/plan', action: 'Renew', at: at8 }));
+    else if (sub.status === 'grace' || left <= 7) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `SUBSCRIPTION_EXPIRING:${day}`, priority: 'high', title: sub.status === 'grace' ? 'Plan ended · grace period' : planTitle(sub.status === 'trial', Math.max(0, left)), body: `On ${dayLabel(sub.endDate)}.`, route: '/settings/plan', action: 'Choose a plan', at: at8 }));
 
     // B8c: a failed autopay charge — Razorpay retries (pending), then gives up (halted); the plan screen has the fix.
     if (auto) out.push(alert('SUBSCRIPTION_EXPIRING', { key: `AUTOPAY_${auto.status.toUpperCase()}:${day}`, priority: 'high', title: auto.status === 'pending' ? 'Autopay payment failed' : 'Autopay stopped after failed payments', body: auto.status === 'pending' ? 'Razorpay will try again. Keep money in the account, or pay once so the shop never stops.' : 'Pay once, or turn autopay on again, before the plan ends.', route: '/settings/plan', action: 'Open plan', at: at8 }));
@@ -181,7 +189,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
         alert('DAILY_SUMMARY', {
           key: `DAILY_SUMMARY:${istIsoDay(d0)}`,
           priority: 'low',
-          title: `${late ? 'Today' : 'Yesterday'}: ${plural(bills.length, 'bill')} · ${rupees(bills.reduce((s, b) => s + b.grandTotal, 0))}`,
+          title: summaryTitle(late, bills.length, rupees(bills.reduce((s, b) => s + b.grandTotal, 0))),
           body: 'Match the cash drawer with the cash line.',
           route: '/sales',
           action: 'Open sales',
@@ -192,7 +200,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     }
 
     for (const c of closes) {
-      out.push(alert('CASH_SHORT', { key: `CASH_SHORT:${String(c._id)}`, priority: 'high', title: `Cash short ${rupees(-c.diff)} on ${c.day}`, body: `Counted ${rupees(c.counted)}, expected ${rupees(c.expected)} · closed by ${c.byName}${c.note ? ` · “${c.note}”` : ''}`, route: '/day-close', action: 'See the day', at: c.at }));
+      out.push(alert('CASH_SHORT', { key: `CASH_SHORT:${String(c._id)}`, priority: 'high', title: `Cash short ${rupees(-c.diff)} on ${c.day}`, body: c.note ? `Counted ${rupees(c.counted)}, expected ${rupees(c.expected)} · closed by ${c.byName} · “${c.note}”` : `Counted ${rupees(c.counted)}, expected ${rupees(c.expected)} · closed by ${c.byName}`, route: '/day-close', action: 'See the day', at: c.at }));
     }
     if (soldYesterday && !closedYesterday) {
       out.push(alert('CASH_SHORT', { key: `DAY_OPEN:${day}`, priority: 'medium', title: 'Yesterday’s cash was not closed', body: `Count the drawer and close ${yDay} before today’s cash mixes in.`, route: '/day-close', action: 'Close the day', at: at8 }));
@@ -204,8 +212,8 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     const out: Alert[] = [];
     if (!can(t.permissions, 'pos', 'create')) return out;
     const o = await orders.summary(t);
-    if (o.ready) out.push(alert('ORDER_READY', { key: `ORDER_READY:${day}:${String(o.ready)}`, priority: 'high', title: `${plural(o.ready, 'customer order')} ${o.ready === 1 ? 'is' : 'are'} ready — call them`, body: 'The stock has come in. Bill it from Orders when they arrive — the advance is taken off.', route: '/orders', action: 'Open orders', at: now }));
-    if (o.stale && boss(t)) out.push(alert('ORDER_READY', { key: `ORDER_STALE:${day}`, priority: 'medium', title: `${plural(o.stale, 'order')} not collected for over 10 days`, body: `${rupees(o.advanceHeld)} of advance is held on open orders. Call, or cancel and refund.`, route: '/orders', action: 'Open orders', at: at8 }));
+    if (o.ready) out.push(alert('ORDER_READY', { key: `ORDER_READY:${day}:${String(o.ready)}`, priority: 'high', title: o.ready === 1 ? '1 customer order is ready — call them' : `${String(o.ready)} customer orders are ready — call them`, body: 'The stock has come in. Bill it from Orders when they arrive — the advance is taken off.', route: '/orders', action: 'Open orders', at: now }));
+    if (o.stale && boss(t)) out.push(alert('ORDER_READY', { key: `ORDER_STALE:${day}`, priority: 'medium', title: o.stale === 1 ? '1 order not collected for over 10 days' : `${String(o.stale)} orders not collected for over 10 days`, body: `${rupees(o.advanceHeld)} of advance is held on open orders. Call, or cancel and refund.`, route: '/orders', action: 'Open orders', at: at8 }));
     return out;
   };
   return (await Promise.all([s1(), s2(), s3(), s4(), s5(), s6()])).flat();

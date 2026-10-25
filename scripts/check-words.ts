@@ -6,12 +6,14 @@ import ts from 'typescript';
 
 const ROOT = join(__dirname, '..', 'src');
 // Server-only text (env checks) and the platform team's console stay English.
-const SKIP = [/^config[\\/]/, /^modules[\\/]admin[\\/](?!field)/];
+const SKIP = [/^config[\\/]/, /^modules[\\/]admin[\\/](?!field|support)/];
 const ZOD = new Set(['min', 'max', 'length', 'regex', 'email', 'uuid', 'url', 'refine', 'int', 'positive', 'nonnegative', 'nonempty', 'number', 'string', 'boolean', 'array', 'date', 'iso', 'enum', 'startsWith', 'endsWith', 'gt', 'gte', 'lt', 'lte', 'multipleOf', 'finite', 'safe']);
 
 const files = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? files(join(dir, d.name)) : d.name.endsWith('.ts') ? [join(dir, d.name)] : []));
 
+// Functions that hand back a sentence to show: unitsProblem(), batchesTitle()…
+const SAYS = /(Problem|Title)$/;
 const WRAP = new Set(['String', 'Number', 'inr', 'rs', 'await', 'Math', 'abs', 'round', 'replace', 'toLowerCase', 'toUpperCase', 'join', 'toFixed', 'trim', 'day', 'pct']);
 
 /** `${input.name} is out` → "{name} is out": the placeholder is the last plain word of the expression, made unique. */
@@ -74,12 +76,12 @@ export function messagesIn(path: string): string[] {
     const t = textOf(n);
     if (t && /[a-z]/i.test(t.replace(/\{\w+\}/g, ''))) found.push(t);
   };
-  const addProps = (n: ts.Node | undefined, deep = false) => {
+  const addProps = (n: ts.Node | undefined, deep = false, keys = ['message', 'error']) => {
     if (!n) return;
     if (ts.isObjectLiteralExpression(n)) {
-      for (const p of n.properties) if (ts.isPropertyAssignment(p) && ['message', 'error'].includes(p.name.getText())) add(p.initializer);
+      for (const p of n.properties) if (ts.isPropertyAssignment(p) && keys.includes(p.name.getText())) add(p.initializer);
     }
-    if (deep) ts.forEachChild(n, (c) => addProps(c, true));
+    if (deep) ts.forEachChild(n, (c) => { addProps(c, true, keys); });
   };
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
@@ -90,6 +92,8 @@ export function messagesIn(path: string): string[] {
         for (const a of args) addProps(a, true);
       } else if (helpers.has(callee)) add(args[helpers.get(callee) ?? 0]);
       else if (callee === 'part') add(args[0]);
+      // Alerts and events: their title, body and item lines are read in the bell.
+      else if (callee === 'alert' || callee === 'emit') for (const a of args) addProps(a, true, ['title', 'body', 'sub']);
       else if (/^(errors|warnings|notes)\.push$/.test(callee)) add(args[0]);
       else if (callee === 'sent' || callee === 'created') add(args[2]);
       else if (callee.endsWith('addIssue')) addProps(args[0]);
@@ -105,8 +109,9 @@ export function messagesIn(path: string): string[] {
     if (ts.isReturnStatement(n) && n.expression) {
       let f: ts.Node = n.parent;
       while (!ts.isFunctionLike(f) && !ts.isSourceFile(f)) f = f.parent;
-      if (/Problem$/.test(fnName(f) ?? '')) add(n.expression);
+      if (SAYS.test(fnName(f) ?? '')) add(n.expression);
     }
+    if (ts.isArrowFunction(n) && !ts.isBlock(n.body) && SAYS.test(fnName(n) ?? '')) add(n.body);
     ts.forEachChild(n, visit);
   };
   visit(src);

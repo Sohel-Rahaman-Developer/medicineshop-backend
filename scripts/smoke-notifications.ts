@@ -73,6 +73,12 @@ async function main() {
   const o1 = await get(owner);
   check('owner: expired (critical, first), 30-day, 60-day, low stock, out of stock, loyalty not set up', o1.items[0]?.type === 'EXPIRED' && o1.items[0].priority === 'critical' && ['EXPIRY_SOON', 'EXPIRY_NEXT', 'STOCK_LOW', 'STOCK_OUT', 'LOYALTY_SETUP'].every((x) => types(o1).includes(x)), types(o1).join(','));
   check('owner: 1 expired batch named, unread counts it, urgent = critical + high', /^1 batch expired/.test(o1.items[0]?.title ?? '') && o1.unread === o1.items.length && o1.urgent === o1.items.filter((i) => ['critical', 'high'].includes(i.priority)).length, `${o1.items[0]?.title ?? ''} ${String(o1.urgent)}`);
+  owner.lang = 'hi';
+  const hiList = await get(owner);
+  check('hi: the bell in Hindi — “1 batch expire हो गया”, its body too; the batch line keeps its number', hiList.items[0]?.title === '1 batch expire हो गया — इसे शेल्फ़ से हटाइए' && (hiList.items[0] as { body?: string } | undefined)?.body === 'Expire हुआ stock बेचा नहीं जा सकता। Supplier को वापस कीजिए या write off कीजिए।', hiList.items[0]?.title ?? '');
+  owner.lang = 'bn';
+  check('bn: the same alert in Bengali', (await get(owner)).items[0]?.title === '1টা batch-এর মেয়াদ শেষ — তাক থেকে সরান');
+  owner.lang = undefined;
   const c1 = await get(cashier);
   check('cashier (stock: view) gets stock alerts but no expiry — D22', types(c1).includes('STOCK_LOW') && !types(c1).some((x) => x.startsWith('EXP')), types(c1).join(','));
   check('cashier: no owner-only loyalty set-up', !types(c1).includes('LOYALTY_SETUP'));
