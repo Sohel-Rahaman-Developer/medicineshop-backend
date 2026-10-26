@@ -91,7 +91,30 @@ const LABEL: Record<LoyaltyType, string> = {
   BIRTHDAY: 'Birthday bonus',
 };
 
-/** The page behind a customer's secret link: their points, last bill and history — first name only, no phone. */
+/** How far back the customer's own page shows bills and points. */
+export const SHOW_YEARS = 2;
+const EARNED: LoyaltyType[] = ['EARN', 'MANUAL_ADD', 'SIGNUP', 'BIRTHDAY'];
+
+type BillLine = { item: number; productName: string; quantityInBase: number; unit: string; baseUnit: string; salePack: number; returnedQuantity: number };
+
+/** A bill's medicines, one per cart line (batches joined): "2 strip", "1 strip + 5 tablet". */
+function itemsOf(lines: BillLine[]) {
+  const byItem = new Map<number, { name: string; base: number; back: number; unit: string; baseUnit: string; pack: number }>();
+  for (const l of lines) {
+    const x = byItem.get(l.item) ?? { name: l.productName, base: 0, back: 0, unit: l.unit, baseUnit: l.baseUnit, pack: Math.max(1, l.salePack) };
+    x.base += l.quantityInBase;
+    x.back += l.returnedQuantity;
+    byItem.set(l.item, x);
+  }
+  return [...byItem.values()].map((x) => {
+    const packs = Math.floor(x.base / x.pack);
+    const loose = x.base % x.pack;
+    const qty = [packs ? `${String(packs)} ${x.unit.toLowerCase()}` : '', loose ? `${String(loose)} ${x.baseUnit.toLowerCase()}` : ''].filter(Boolean).join(' + ');
+    return { name: x.name, qty, returned: x.back >= x.base ? 'all' : x.back > 0 ? 'some' : null };
+  });
+}
+
+/** The page behind a customer's secret link: their points, bills and history — first name only, no phone. */
 export async function publicPoints(token: string) {
   const c = await CustomerModel.findOne({ pointsToken: token, status: 'active' })
     .setOptions({ crossTenant: true })
@@ -102,11 +125,20 @@ export async function publicPoints(token: string) {
   if (!s) throw AppError.notFound('This link doesn’t open any more — ask the shop for a new one');
   const r = await liveRules(s._id, s.settings.loyalty);
   const now = new Date();
-  const [history, last, soon] = await Promise.all([
-    LoyaltyModel.find({ shopId: c.shopId, customerId: c._id }).sort({ createdAt: -1, _id: -1 }).limit(50).select('type points balanceAfter refNumber createdAt').lean(),
-    SaleModel.findOne({ shopId: c.shopId, customerId: c._id, status: { $ne: 'cancelled' } }).sort({ billDate: -1, _id: -1 }).select('billNumber billDate grandTotal loyaltyPointsEarned loyaltyPointsRedeemed').lean(),
+  const since = new Date(now);
+  since.setFullYear(since.getFullYear() - SHOW_YEARS);
+  const [history, bills, sums, soon] = await Promise.all([
+    LoyaltyModel.find({ shopId: c.shopId, customerId: c._id, createdAt: { $gte: since } }).sort({ createdAt: -1, _id: -1 }).limit(50).select('type points balanceAfter refNumber createdAt').lean(),
+    SaleModel.find({ shopId: c.shopId, customerId: c._id, status: { $ne: 'cancelled' }, billDate: { $gte: since } })
+      .sort({ billDate: -1, _id: -1 })
+      .limit(300)
+      .select('billNumber billDate grandTotal status loyaltyPointsEarned loyaltyPointsRedeemed lines.item lines.productName lines.quantityInBase lines.unit lines.baseUnit lines.salePack lines.returnedQuantity')
+      .lean(),
+    LoyaltyModel.aggregate<{ _id: LoyaltyType; points: number }>([{ $match: { shopId: c.shopId, customerId: c._id, createdAt: { $gte: since } } }, { $group: { _id: '$type', points: { $sum: '$points' } } }]),
     r ? LoyaltyModel.find({ shopId: c.shopId, customerId: c._id, remaining: { $gt: 0 }, expiresAt: { $gte: now, $lte: new Date(now.getTime() + r.expiryWarningDays * DAY) } }).sort({ expiresAt: 1 }).select('remaining expiresAt').lean() : Promise.resolve([]),
   ]);
+  const sum = (types: LoyaltyType[]) => Math.abs(sums.filter((x) => types.includes(x._id)).reduce((t, x) => t + x.points, 0));
+  const last = bills[0];
   const next = r ? nextTier(c.lifetimePointsEarned, r.tiers) : null;
   return {
     shop: await shopFace(s),
@@ -118,6 +150,10 @@ export async function publicPoints(token: string) {
     nextTier: next ? { name: next.name, need: next.minLifetimePoints - c.lifetimePointsEarned } : null,
     expiring: soon.length ? { points: soon.reduce((n, l) => n + (l.remaining ?? 0), 0), from: soon[0]?.expiresAt ?? null } : null,
     lastBill: last ? { number: last.billNumber, date: last.billDate, total: last.grandTotal, earned: last.loyaltyPointsEarned, used: last.loyaltyPointsRedeemed } : null,
+    years: SHOW_YEARS,
+    since,
+    totals: { earned: sum(EARNED), used: sum(['REDEEM']), expired: sum(['EXPIRE']), takenBack: sum(['REVERSAL', 'MANUAL_DEDUCT']), spent: bills.reduce((t, b) => t + b.grandTotal, 0), bills: bills.length },
+    bills: bills.map((b) => ({ number: b.billNumber, date: b.billDate, total: b.grandTotal, earned: b.loyaltyPointsEarned ?? 0, used: b.loyaltyPointsRedeemed ?? 0, returned: b.status === 'returned' ? 'all' : b.status === 'partially_returned' ? 'some' : null, items: itemsOf(b.lines) })),
     history: history.map((h) => ({ type: h.type, label: LABEL[h.type], points: h.points, balanceAfter: h.balanceAfter, bill: h.refNumber || null, at: (h as { createdAt?: Date }).createdAt ?? null })),
     rules: r ? plainRules(r) : null,
   };

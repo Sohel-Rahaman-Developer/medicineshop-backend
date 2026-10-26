@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.32.0',
+    date: '2026-10-26',
+    title: 'Your bills on your points page; every browser',
+    shop: [
+      'A customer’s own points page now shows the last 2 years: points earned, used and expired, what they spent, and every bill — tap a bill to see the medicines in it.',
+      'Show QR: on the customer’s loyalty card and after a bill, a big QR of their own page that they scan with their phone camera. The counter QR stays the same for everyone and never shows anyone’s bills.',
+      'Fits every phone and browser: checked on iPhone Safari, Mac Safari and Firefox as well as Chrome. Add product on a small phone no longer scrolls sideways; a long name wraps.',
+    ],
+    admin: ['The admin console loads cleanly in Firefox (no blocked-script errors).'],
+    api: ['GET /public/points/:token adds totals and bills for the last 2 years (date, number, total, points, items).'],
+  },
+  {
     version: '1.31.2',
     date: '2026-10-26',
     title: 'Morning brief polish',

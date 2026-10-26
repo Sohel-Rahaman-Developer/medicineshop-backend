@@ -66,6 +66,24 @@ async function main() {
   check('a made-up secret → 404', (await pub.get(`/public/points/${'A'.repeat(24)}`)).status === 404);
   check('not even shaped like a secret → 422', (await pub.get('/public/points/hello')).status === 422);
 
+  section('3b. v1.32: every bill of the last 2 years, what was in it, and the points totals');
+  const { SaleModel } = await import('../src/modules/sales/sale.model.js');
+  const { LoyaltyModel } = await import('../src/modules/loyalty/loyalty.model.js');
+  const { Types } = await import('mongoose');
+  await owner.post('/loyalty/adjust', { clientRequestId: randomUUID(), customerId: ratna, points: 200, reason: 'Diwali gift' });
+  const old = data<{ id: string; billNumber: string }>(await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 1, unit: 'STRIP' }], customerId: ratna, payments: [{ mode: 'CASH', amount: 3000 }] }));
+  const threeYears = new Date(Date.now() - 3 * 366 * 86_400_000);
+  await SaleModel.updateOne({ shopId: new Types.ObjectId(shop1), _id: new Types.ObjectId(old.id) }, { $set: { billDate: threeYears } });
+  await LoyaltyModel.collection.updateMany({ shopId: new Types.ObjectId(shop1), refNumber: old.billNumber }, { $set: { createdAt: threeYears } });
+  const big = await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 20, unit: 'STRIP' }, { productId: dolo, quantity: 5, unit: 'TABLET' }], customerId: ratna, redeemPoints: 100, payments: [{ mode: 'CASH', amount: 51_000 }] });
+  const bill2 = data<{ billNumber: string; pointsEarned: number }>(big);
+  check('setup: +200 points by the shop, a 3-year-old bill, a ₹610 bill using 100 points', big.status === 201, code(big));
+  interface Mine { years: number; totals: { earned: number; used: number; expired: number; spent: number; bills: number }; bills: { number: string; total: number; earned: number; used: number; items: { name: string; qty: string; returned: string | null }[] }[] }
+  const mine = data<Mine>(await pub.get(`/public/points/${token}`));
+  check('2 years: the two recent bills, newest first — not the 3-year-old one', mine.years === 2 && mine.bills.map((b) => b.number).join() === `${bill2.billNumber},${bill.billNumber}` && !JSON.stringify(mine).includes(old.billNumber), JSON.stringify(mine.bills.map((b) => b.number)));
+  check('the ₹610 bill: 20 strip and 5 tablet of Dolo, 100 points used', mine.bills[0]?.total === 61_000 && mine.bills[0].used === 100 && mine.bills[0].items.map((i) => `${i.name}:${i.qty}`).join() === 'Dolo 650 Tablet:20 strip,Dolo 650 Tablet:5 tablet', JSON.stringify(mine.bills[0]));
+  check(`totals: earned 3 + 200 + ${String(bill2.pointsEarned)}, used 100, spent ₹910 on 2 bills`, mine.totals.earned === 3 + 200 + bill2.pointsEarned && mine.totals.used === 100 && mine.totals.expired === 0 && mine.totals.spent === 91_000 && mine.totals.bills === 2, JSON.stringify(mine.totals));
+
   section('4. A new link kills the old one');
   const renewed = await owner.post(`/customers/${ratna}/points-link`, {});
   const token2 = data<{ url: string }>(renewed).url.split('/p/')[1] ?? '';
