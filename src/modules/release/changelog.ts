@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.32.1',
+    date: '2026-10-26',
+    title: 'Compact page tops on a phone',
+    shop: [
+      'On a phone a page’s main button (Add product, New customer, New bill, the date range) now sits right of the page title instead of on its own row.',
+      'Beside another button the date range is a small calendar button; the range it picked is written under the title.',
+      'The number tiles on top of a list (Products, Customers, Sales and more) all show at once in a grid — no more sideways swiping.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.32.0',
     date: '2026-10-26',
     title: 'Your bills on your points page; every browser',
