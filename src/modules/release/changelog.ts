@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.31.2',
+    date: '2026-10-26',
+    title: 'Morning brief polish',
+    shop: [
+      'Dashboard brief tiles carry a second line — which medicines, which customer, how much is overdue — and a light tint in each job’s colour.',
+      'Morning brief screen: tighter job cards that stack two columns wide with no gaps; names read in the normal font, numbers in the figure font.',
+      'On a phone the card’s top is one line: the title, ✨ for Ask AI and Open brief.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.31.1',
     date: '2026-10-26',
     title: 'Compact morning brief',
