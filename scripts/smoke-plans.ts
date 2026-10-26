@@ -15,7 +15,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 const DAY = 86_400_000;
-const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills'];
+const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels'];
 
 interface Plan { code: string; name: string; tier: string; features: string[]; isActive: boolean; maxUsers: number }
 

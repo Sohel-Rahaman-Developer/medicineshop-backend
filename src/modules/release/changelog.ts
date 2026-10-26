@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.33.0',
+    date: '2026-10-26',
+    title: 'Barcode labels',
+    shop: [
+      'Barcode labels (Pro, optional): print barcode stickers as a PDF — A4 sheets of 65 or 24, or a 50×25 / 38×25 label-printer roll. Name, barcode and MRP; batch, expiry and the shop name if you want them.',
+      'Items without a barcode can get the shop’s own (starts with 29) — only when you tap “Give barcodes”. It stays on the product and the counter scans it from then on. Nothing is forced: items without one still sell by name.',
+      'Open it from a product (Print label), from a purchase (More → Print labels: one label per strip received), or from Stock → Barcode labels. A half-used sheet? Start at the first empty sticker.',
+    ],
+    admin: ['Plans: “Barcode labels” is a new Pro module.'],
+    api: ['GET /labels/items, POST /labels/barcodes, POST /labels/pdf (Pro).'],
+  },
+  {
     version: '1.32.3',
     date: '2026-10-26',
     title: 'Scanner reads the right code',

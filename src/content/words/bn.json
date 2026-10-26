@@ -970,5 +970,12 @@
   "Marked as reminded": "মনে করানো হয়েছে — লেখা হলো",
   "Taken off the refill list": "Refill-এর list থেকে সরানো হলো",
   "Back on the refill list": "আবার refill-এর list-এ",
-  "Customer or medicine not found": "Customer বা ওষুধ পাওয়া যায়নি"
+  "Customer or medicine not found": "Customer বা ওষুধ পাওয়া যায়নি",
+  "Pick products or a purchase": "প্রোডাক্ট বা কোনো কেনা বেছে নিন",
+  "At most {MAX_LABELS} labels at a time": "একবারে সর্বোচ্চ {MAX_LABELS}টি লেবেল",
+  "Barcode given": "বারকোড দেওয়া হয়েছে",
+  "{length} barcodes given": "{length}টি বারকোড দেওয়া হয়েছে",
+  "A sheet has {per} labels": "একটি শিটে {per}টি লেবেল থাকে",
+  "{name} has no barcode yet — give it one first": "{name}-এর এখনও বারকোড নেই — আগে একটি বারকোড দিন",
+  "That batch is not {name}’s": "এই ব্যাচ {name}-এর নয়"
 }
