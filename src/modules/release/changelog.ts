@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.32.2',
+    date: '2026-10-26',
+    title: 'Focus in the scanner',
+    shop: [
+      'Scanner: tap the barcode in the picture to focus there. Phones that allow it get a Focus button with a near–far slider; Auto goes back to focusing by itself.',
+      'Switch camera: phones with more than one back camera can pick the lens. The scanner also finds the back camera that can focus by itself (the wide lens often can’t), and remembers the pick on that phone.',
+      'A camera the page can’t steer (iPhone) says how to help it: hold the pack 15–20 cm away.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.32.1',
     date: '2026-10-26',
     title: 'Compact page tops on a phone',
