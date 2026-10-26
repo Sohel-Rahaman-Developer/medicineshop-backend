@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.32.3',
+    date: '2026-10-26',
+    title: 'Scanner reads the right code',
+    shop: [
+      'A code counts only when two looks in a row agree, so one blurry frame can no longer add a wrong item or fill wrong details.',
+      'Barcodes are read only along the red line, inside what the preview shows. With several codes in sight, the one in the middle wins, not a pack at the edge.',
+      'At the counter, a pack left in front of the camera is added once; take it away and show it again to add another.',
+      'Tap-to-focus is gone (it blurred some phones); the camera focuses by itself again. Focus (near–far) and Switch camera stay.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.32.2',
     date: '2026-10-26',
     title: 'Focus in the scanner',
