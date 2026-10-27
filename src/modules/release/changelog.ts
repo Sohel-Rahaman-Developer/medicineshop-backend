@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.34.1',
+    date: '2026-10-27',
+    title: 'Offline bills stay safe',
+    shop: [
+      'While any bill made offline is still on the device, every screen says so: don’t clear the browser’s data or uninstall the app until it reaches MedBox24.',
+      'At 25 bills or 8 hours waiting the note turns red — connect soon. At 50 bills or 24 hours the counter stops making offline bills (the cart is kept) until the waiting ones are sent. Bills with internet never stop.',
+      'The browser is asked to keep the waiting bills even when the device runs low on space.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.34.0',
     date: '2026-10-27',
     title: 'Billing with no internet',
