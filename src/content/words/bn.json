@@ -977,5 +977,14 @@
   "{length} barcodes given": "{length}টি বারকোড দেওয়া হয়েছে",
   "A sheet has {per} labels": "একটি শিটে {per}টি লেবেল থাকে",
   "{name} has no barcode yet — give it one first": "{name}-এর এখনও বারকোড নেই — আগে একটি বারকোড দিন",
-  "That batch is not {name}’s": "এই ব্যাচ {name}-এর নয়"
+  "That batch is not {name}’s": "এই ব্যাচ {name}-এর নয়",
+  "This counter is not set up for offline bills — open the counter once with the internet on": "এই কাউন্টার অফলাইন বিলের জন্য সেট করা নেই — ইন্টারনেট চালু রেখে কাউন্টার একবার খুলুন",
+  "This bill is dated in the future — check the date and time on this device": "এই বিলের তারিখ সামনের — এই ডিভাইসের তারিখ আর সময় দেখুন",
+  "This offline bill is more than {OFFLINE_DAYS} days old — ask the owner to enter it by hand": "এই অফলাইন বিল {OFFLINE_DAYS} দিনের বেশি পুরনো — মালিককে দিয়ে হাতে তোলান",
+  "Bill number {number} is already used by another bill": "বিল নম্বর {number} আগেই অন্য একটি বিলে আছে",
+  "{name} has never had stock — add its stock, then send this bill again": "{name}-এর কখনও স্টক ছিল না — স্টক যোগ করে বিলটি আবার পাঠান",
+  "{billNumber}: offline bill to check": "{billNumber}: দেখে নেওয়ার মতো অফলাইন বিল",
+  "When was it sold?": "এটা কবে বিক্রি হয়েছিল?",
+  "Offline bills are paid by cash, UPI or card": "অফলাইন বিলের টাকা ক্যাশ, UPI বা কার্ডে নেওয়া হয়",
+  "Missing device id": "ডিভাইসের পরিচয় পাওয়া যায়নি"
 }

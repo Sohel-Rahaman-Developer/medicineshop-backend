@@ -10,9 +10,13 @@ import { rangeSchema } from '../purchases/purchases.validation';
 import { actorOf } from '../user/actor';
 import * as returns from './sale-returns.service';
 import { billPdf, returnPdf } from './sale.pdf';
+import * as offline from './offline.service';
 import * as svc from './sales.service';
 import {
   cancelSaleSchema,
+  deviceSchema,
+  offlineSaleSchema,
+  type OfflineSaleInput,
   posSearchSchema,
   returnListSchema,
   saleListSchema,
@@ -48,6 +52,36 @@ posRouter.get(
   requirePermission('pos', 'view'),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.posSettings(tenantOf(req)));
+  }),
+);
+
+// D104: offline billing — the counter's own series, its copy of what it sells, and its bills arriving later.
+posRouter.post(
+  '/offline/device',
+  requirePermission('pos', 'create'),
+  validate({ body: deviceSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await offline.registerDevice(tenantOf(req), await actorOf(req), req.body as { key: string; name: string }));
+  }),
+);
+
+posRouter.get(
+  '/offline/catalog',
+  requirePermission('pos', 'view'),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await offline.catalog(tenantOf(req)));
+  }),
+);
+
+posRouter.post(
+  '/offline/sales',
+  requirePermission('pos', 'create'),
+  validate({ body: offlineSaleSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { result, replayed } = await offline.createOffline(tenantOf(req), await actorOf(req), req.body as OfflineSaleInput, req.ip);
+    const msg = `${result.billNumber} saved`;
+    if (replayed) sent(res, result, msg);
+    else created(res, result, msg);
   }),
 );
 

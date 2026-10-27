@@ -10,7 +10,7 @@ const discount = z.discriminatedUnion('type', [
   z.object({ type: z.literal('flat'), value: paise('Discount') }).strict(),
 ]);
 
-const itemSchema = z
+const itemFields = z
   .object({
     productId: objectId,
     quantity: z.number('Quantity must be a number').int('Quantity must be a whole number').min(1, 'Quantity must be at least 1').max(100_000, 'Quantity is too large'),
@@ -21,8 +21,8 @@ const itemSchema = z
     price: paise('Price').nullable().optional(),
     discount: discount.nullable().optional(),
   })
-  .strict()
-  .refine((v) => v.price === undefined || v.price === null || !v.discount, { message: 'A typed price already includes the discount', path: ['discount'] });
+  .strict();
+const itemSchema = itemFields.refine((v) => v.price === undefined || v.price === null || !v.discount, { message: 'A typed price already includes the discount', path: ['discount'] });
 
 const text = (label: string, max: number) => z.string().trim().max(max, `${label} is at most ${String(max)} characters`);
 
@@ -109,7 +109,25 @@ export const returnListSchema = z
   })
   .strict();
 
+/** D104: a bill made with no internet — paid in full (cash, UPI, card), every line at the amount charged. */
+export const offlineSaleSchema = z
+  .object({
+    clientRequestId,
+    deviceId: objectId,
+    seq: z.number().int().min(1).max(999_999),
+    soldAt: z.coerce.date('When was it sold?'),
+    items: z.array(itemFields.omit({ batchId: true, discount: true }).extend({ price: paise('Price') }).strict()).min(1, 'Add at least one item').max(100, 'At most 100 lines in one bill'),
+    customer: saleSchema.shape.customer,
+    rx: saleSchema.shape.rx,
+    customerId: objectId.optional(),
+    payments: z.array(z.object({ mode: z.enum(['CASH', 'UPI', 'CARD'], 'Offline bills are paid by cash, UPI or card'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
+    cashReceived: paise('Cash received').optional(),
+  })
+  .strict();
+export const deviceSchema = z.object({ key: z.uuid('Missing device id'), name: text('Name', 60).default('') }).strict();
+
 export type SaleInput = z.infer<typeof saleSchema>;
+export type OfflineSaleInput = z.infer<typeof offlineSaleSchema>;
 export type SaleReturnInput = z.infer<typeof saleReturnSchema>;
 export type ReturnListQuery = z.infer<typeof returnListSchema>;
 export type SaleItem = z.infer<typeof itemSchema>;

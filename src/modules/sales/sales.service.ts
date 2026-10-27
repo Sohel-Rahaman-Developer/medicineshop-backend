@@ -4,8 +4,9 @@ import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
+import { istIsoDay } from '../../utils/date';
 import { fyOf } from '../../utils/fy';
-import { inr } from '../../utils/money';
+import { amountFor, inr } from '../../utils/money';
 import { conv, salePack, unitWords, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import * as customers from '../customers/customers.service';
@@ -14,6 +15,7 @@ import { emit } from '../notifications/notifications.service';
 import * as orders from '../orders/orders.service';
 import { CategoryModel } from '../categories/category.model';
 import { nextNumber } from '../counters/counter.model';
+import { DayCloseModel } from '../dayclose/dayclose.model';
 import { ProductModel } from '../products/product.model';
 import { seesCost } from '../products/products.service';
 import { can } from '../rbac/permissions';
@@ -34,7 +36,16 @@ const itemError = (i: number, message: string) => AppError.validation(message, [
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-type SaleBatch = BatchLike & { _id: Types.ObjectId; productId: Types.ObjectId; batchNumber: string; rack: string; minPrice?: number | null };
+/** "2 strip", "1 strip + 5 tablet": base units the way the counter says them. */
+function qtyWords(qtyBase: number, u: Units) {
+  const pack = salePack(u);
+  if (pack <= 1) return unitWords(qtyBase, u.base);
+  const packs = Math.floor(qtyBase / pack);
+  const rest = qtyBase % pack;
+  return [packs ? unitWords(packs, u.sale) : '', rest ? unitWords(rest, u.base) : ''].filter(Boolean).join(' + ');
+}
+
+export type SaleBatch = BatchLike & { _id: Types.ObjectId; productId: Types.ObjectId; batchNumber: string; rack: string; minPrice?: number | null };
 
 /** Cashier and the like see only their own bills (record scope, PLAN §7). */
 const ownOnly = (t: TenantContext) => t.scopes.sales === 'own';
@@ -45,7 +56,7 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
   const cost = seesCost(t);
   const filter: Record<string, unknown> = { shopId: t.shopId, isActive: true };
   const tokens = norm(q).split(' ').filter(Boolean).slice(0, 6);
-  const fields = 'name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId';
+  const fields = POS_FIELDS;
   if (ids?.length) filter._id = { $in: ids.map(oid) };
   else if (tokens.length) filter.$and = tokens.map((w) => ({ searchKey: { $regex: `(^| )${escape(w)}` } }));
   else filter['stock.sellable'] = { $gt: 0 };
@@ -62,44 +73,50 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
   const rows = hit ? [hit] : found;
   const [batches, categories] = await Promise.all([
     BatchModel.find({ shopId: t.shopId, productId: { $in: rows.map((p) => p._id) }, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now } })
-      .select('productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit')
+      .select(SALE_BATCH)
       .lean<SaleBatch[]>(),
     CategoryModel.find({ shopId: t.shopId }).select('name').lean(),
   ]);
   const byProduct = new Map<string, SaleBatch[]>();
   for (const b of batches) byProduct.set(String(b.productId), [...(byProduct.get(String(b.productId)) ?? []), b]);
   const cats = new Map(categories.map((c) => [String(c._id), c.name]));
-  const items = rows.map((p) => {
-    const u = p.units as Units;
-    const list = fefo(byProduct.get(String(p._id)) ?? [], now);
-    return {
-      id: String(p._id),
-      name: p.name,
-      company: p.company,
-      salt: [p.salt, p.strength].filter(Boolean).join(' '),
-      category: cats.get(String(p.categoryId)) ?? '',
-      scheduleType: p.scheduleType,
-      gstRate: p.gstRate,
-      units: { base: u.base, sale: u.sale, salePack: salePack(u), allowLooseSale: u.allowLooseSale },
-      rack: list[0]?.rack || p.defaultRack,
-      cold: p.storageType === 'COLD',
-      hasPhoto: Boolean(p.photo?.bytes),
-      sellable: list.reduce((s, b) => s + b.quantity, 0),
-      batches: list.map((b) => ({
-        id: String(b._id),
-        batchNumber: b.batchNumber,
-        expiryDate: b.expiryDate,
-        daysLeft: daysLeftOut(b.expiryDate, now),
-        quantity: b.quantity,
-        mrp: b.mrp,
-        minPrice: b.minPrice ?? null,
-        rack: b.rack,
-        ...(cost ? { costPerBaseUnit: b.costPerBaseUnit } : {}),
-      })),
-    };
-  });
+  const items = rows.map((p) => posItem(p, byProduct.get(String(p._id)) ?? [], cats, now, cost));
   items.sort((a, b) => Number(b.sellable > 0) - Number(a.sellable > 0));
   return { items, exact: exactId };
+}
+
+export const POS_FIELDS = 'name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId';
+interface PosProduct { _id: Types.ObjectId; name: string; company?: string; salt?: string; strength?: string; categoryId?: Types.ObjectId; scheduleType: string; gstRate: number; units?: unknown; defaultRack?: string; storageType?: string; photo?: { bytes?: number } | null }
+
+/** One product as the counter sees it: its sellable batches in FEFO order (search and the offline catalog). */
+export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, string>, now: Date, cost: boolean) {
+  const u = p.units as Units;
+  const list = fefo(batches, now);
+  return {
+    id: String(p._id),
+    name: p.name,
+    company: p.company,
+    salt: [p.salt, p.strength].filter(Boolean).join(' '),
+    category: cats.get(String(p.categoryId)) ?? '',
+    scheduleType: p.scheduleType,
+    gstRate: p.gstRate,
+    units: { base: u.base, sale: u.sale, salePack: salePack(u), allowLooseSale: u.allowLooseSale },
+    rack: list[0]?.rack || p.defaultRack,
+    cold: p.storageType === 'COLD',
+    hasPhoto: Boolean(p.photo?.bytes),
+    sellable: list.reduce((s, b) => s + b.quantity, 0),
+    batches: list.map((b) => ({
+      id: String(b._id),
+      batchNumber: b.batchNumber,
+      expiryDate: b.expiryDate,
+      daysLeft: daysLeftOut(b.expiryDate, now),
+      quantity: b.quantity,
+      mrp: b.mrp,
+      minPrice: b.minPrice ?? null,
+      rack: b.rack,
+      ...(cost ? { costPerBaseUnit: b.costPerBaseUnit } : {}),
+    })),
+  };
 }
 
 /** What the counter needs to price a cart the way the server will (no settings: view needed). */
@@ -119,26 +136,33 @@ export async function posSettings(t: TenantContext) {
 }
 
 interface Built {
-  parts: (Part & { item: number; p: ProductLean; b: SaleBatch })[];
+  parts: (Part & { item: number; p: ProductLean; b: SaleBatch; short: boolean })[];
   picked: Set<number>;
+  /** Offline only: what was sold beyond the stock the system had. */
+  short: { item: number; name: string; qtyBase: number; units: Units }[];
 }
 type ProductLean = { _id: Types.ObjectId; name: string; categoryId: Types.ObjectId; hsnCode: string; scheduleType: string; gstRate: number; units: unknown; isActive: boolean };
+export const SALE_BATCH = 'productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit';
 
-/** Cart items → FEFO parts with the server's own stock; the same batch is never promised twice in one bill. */
-async function buildParts(t: TenantContext, input: SaleInput, now: Date, session: ClientSession): Promise<Built> {
+/**
+ * Cart items → FEFO parts with the server's own stock; the same batch is never promised twice in one bill.
+ * `offline`: the medicine is already with the customer, so nothing is refused — a part the system didn't have is billed
+ * on the product's latest batch with no stock taken (the owner is told), and a deactivated product still bills.
+ */
+async function buildParts(t: TenantContext, input: SaleInput, now: Date, session: ClientSession, offline = false): Promise<Built> {
   const ids = [...new Set(input.items.map((i) => i.productId))].map(oid);
   const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: ids } }).select('name categoryId hsnCode scheduleType gstRate units isActive').session(session).lean<ProductLean[]>();
   const byId = new Map(products.map((p) => [String(p._id), p]));
   const batches = await BatchModel.find({ shopId: t.shopId, productId: { $in: ids }, status: 'active', quantity: { $gt: 0 } })
-    .select('productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit')
+    .select(SALE_BATCH)
     .session(session)
     .lean<SaleBatch[]>();
   const used = new Map<string, number>();
-  const out: Built = { parts: [], picked: new Set() };
+  const out: Built = { parts: [], picked: new Set(), short: [] };
   for (const [i, it] of input.items.entries()) {
     const p = byId.get(it.productId);
     if (!p) throw itemError(i, `Item ${String(i + 1)}: product not found`);
-    if (!p.isActive) throw itemError(i, `${p.name} is deactivated`);
+    if (!p.isActive && !offline) throw itemError(i, `${p.name} is deactivated`);
     const u = p.units as Units;
     const loose = it.unit === u.base && u.base !== u.sale;
     if (it.unit !== u.sale && !(loose && u.allowLooseSale)) throw itemError(i, u.allowLooseSale && u.base !== u.sale ? `${p.name} sells by ${u.sale.toLowerCase()} or ${u.base.toLowerCase()}` : `${p.name} sells by ${u.sale.toLowerCase()}`);
@@ -150,24 +174,40 @@ async function buildParts(t: TenantContext, input: SaleInput, now: Date, session
       if (String(fefo(left, now)[0]?._id) !== it.batchId) out.picked.add(i);
     }
     const al = allocate(left, qtyBase, now, it.batchId);
+    const parts = al.parts.map((x) => ({ batch: x.batch, qty: x.qty, short: false }));
     if (al.short > 0) {
       const have = qtyBase - al.short;
-      throw AppError.conflict(`Only ${unitWords(have, u.base)} of ${p.name} left to sell`, { reason: 'SHORT', index: i, available: have });
+      if (!offline) throw AppError.conflict(`Only ${unitWords(have, u.base)} of ${p.name} left to sell`, { reason: 'SHORT', index: i, available: have });
+      const last = parts.at(-1)?.batch ?? (await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1 }).select(SALE_BATCH).session(session).lean<SaleBatch>());
+      if (!last) throw itemError(i, `${p.name} has never had stock — add its stock, then send this bill again`);
+      parts.push({ batch: last, qty: al.short, short: true });
+      out.short.push({ item: i, name: p.name, qtyBase: al.short, units: u });
     }
     const pack = salePack(u);
-    const split = splitLine(al.parts.map((x) => ({ mrp: x.batch.mrp, qtyBase: x.qty })), pack, it.price ?? null, it.discount ?? null);
-    al.parts.forEach((x, j) => {
-      used.set(String(x.batch._id), (used.get(String(x.batch._id)) ?? 0) + x.qty);
+    // Offline every line carries what was charged; exactly MRP is not a typed price.
+    const atMrp = parts.reduce((s, x) => s + amountFor(x.batch.mrp, x.qty, pack), 0);
+    const typed = offline && it.price === atMrp ? null : (it.price ?? null);
+    const split = splitLine(parts.map((x) => ({ mrp: x.batch.mrp, qtyBase: x.qty })), pack, typed, it.discount ?? null);
+    parts.forEach((x, j) => {
+      if (!x.short) used.set(String(x.batch._id), (used.get(String(x.batch._id)) ?? 0) + x.qty);
       const s = split[j];
-      out.parts.push({ item: i, p, b: x.batch, mrp: x.batch.mrp, qtyBase: x.qty, salePack: pack, gstRate: p.gstRate, sell: s?.sell ?? null, discount: s?.discount ?? null });
+      out.parts.push({ item: i, p, b: x.batch, mrp: x.batch.mrp, qtyBase: x.qty, salePack: pack, gstRate: p.gstRate, sell: s?.sell ?? null, discount: s?.discount ?? null, short: x.short });
     });
   }
   return out;
 }
 
-export async function create(t: TenantContext, actor: Actor, input: SaleInput, ip?: string) {
+/** D104: a bill made offline on a counter's own series; `soldAt` is when it was sold. */
+export interface OfflineBill {
+  deviceId: Types.ObjectId;
+  code: string;
+  seq: number;
+  soldAt: Date;
+}
+
+export async function create(t: TenantContext, actor: Actor, input: SaleInput, ip?: string, off?: OfflineBill) {
   return once(t.shopId, 'sale', input.clientRequestId, async (session) => {
-    const now = new Date();
+    const now = off?.soldAt ?? new Date();
     const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings').session(session).lean();
     if (!shop) throw AppError.notFound('Shop not found');
     const billing = shop.settings.billing;
@@ -175,7 +215,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     if (!billing || !inv) throw AppError.internal('Shop settings are missing');
 
     const order = input.orderId ? await orders.forBill(t, input.orderId, session) : null;
-    const built = await buildParts(t, input, now, session);
+    const built = await buildParts(t, input, now, session, Boolean(off));
     if (built.picked.size && !(inv.allowBatchOverride && can(t.permissions, 'stock', 'edit'))) {
       throw AppError.forbidden('Choosing a batch by hand needs stock edit permission — FEFO picks the batch.');
     }
@@ -208,10 +248,12 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const noteBack = note && input.noteBack ? note.left - noteUsed : 0;
     const due = toPay - advanceUsed - noteUsed;
     const paid = input.payments.reduce((s, x) => s + x.amount, 0);
+    // Offline the money is already in the drawer: a different sum is recorded and the owner told, never refused.
+    const paidDiff = off ? paid - due : 0;
     if (paid !== due && noteUsed) {
       throw AppError.validation(`Payments add up to ${inr(paid)}, the bill is ${inr(priced.grandTotal)}; the credit note pays ${inr(noteUsed)}, so ${inr(due)} is left to pay`, [{ field: 'body.payments', message: `Payments must add up to ${inr(due)}` }]);
     }
-    if (paid !== due) {
+    if (paid !== due && !off) {
       const [sum, bill, pts, adv, owed] = [inr(paid), inr(priced.grandTotal), inr(points.redeemValue), inr(advanceUsed), inr(due)];
       const said = points.redeemValue && advanceUsed ? `Payments add up to ${sum}, the bill is ${bill} less ${pts} points and ${adv} advance = ${owed}`
         : points.redeemValue ? `Payments add up to ${sum}, the bill is ${bill} less ${pts} points = ${owed}`
@@ -268,12 +310,16 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
         lineProfit: r.taxable - lineCost,
         returnedQuantity: 0,
         noPoints: !loyalty.earnsPoints(catOf(x), rules),
+        ...(x.short ? { stockShort: true } : {}),
       };
     });
 
     const saleId = new Types.ObjectId();
-    const billNumber = await nextNumber(t.shopId, 'sale', now, session, billing.billPrefix);
+    const billNumber = off ? `${off.code}-${fyOf(now)}-${String(off.seq).padStart(4, '0')}` : await nextNumber(t.shopId, 'sale', now, session, billing.billPrefix);
+    // A day already closed counted its drawer without this bill's cash.
+    const afterClose = off ? Boolean(await DayCloseModel.exists({ shopId: t.shopId, day: { $gte: istIsoDay(now) } }).session(session)) : false;
     for (const l of lines) {
+      if (l.stockShort) continue;
       await applyMove(t.shopId, l.batchId, -l.quantityInBase, { type: 'SALE', refType: 'SALE', refId: saleId, refNumber: billNumber, actor, at: now }, session);
     }
     const pts = customer ? await loyalty.afterBill(t, rules, customer, { saleId, billNumber, redeem: points.redeem, earned: points.earned, actor, at: now }, session) : null;
@@ -335,6 +381,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           grossProfit: priced.taxable - totalCost,
           createdBy: oid(actor.id),
           createdByName: actor.name,
+          ...(off ? { offline: { deviceId: off.deviceId, device: off.code, seq: off.seq, syncedAt: new Date(), shortLines: built.short.length, afterClose, paidDiff } } : {}),
         },
       ],
       { session },
@@ -352,7 +399,20 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     if (customer && pts?.tierUp) {
       await emit(t.shopId, { key: `LOYALTY_TIER_UP:${String(customer._id)}:${pts.tierUp.to}`, type: 'LOYALTY_TIER_UP', priority: 'low', title: `${customer.name} moved up to ${pts.tierUp.to}`, body: `On ${billNumber} — earns more points from the next bill.`, route: `/customers/${String(customer._id)}`, perm: { module: 'customers', action: 'view' } }, session);
     }
+    // D104: the owner hears what an offline bill did that the system couldn't check at the time.
+    const offIssues = off
+      ? [
+          ...built.short.map((s) => `${s.name}: ${qtyWords(s.qtyBase, s.units)} more than the system had — count the shelf and fix it with an adjustment`),
+          afterClose ? `sold on ${istIsoDay(now)}, which was already closed — its cash was not in that day’s count` : '',
+          paidDiff ? `paid ${inr(paid)} for a ${inr(due)} bill (${paidDiff > 0 ? 'more' : 'less'} by ${inr(Math.abs(paidDiff))})` : '',
+        ].filter(Boolean)
+      : [];
+    if (off && offIssues.length) {
+      await emit(t.shopId, { key: `OFFLINE_SYNC:${billNumber}`, type: 'OFFLINE_SYNC', priority: built.short.length ? 'high' : 'medium', title: `${billNumber}: offline bill to check`, body: offIssues.join(' · '), route: `/sales/${String(saleId)}`, perm: { module: 'stock', action: 'edit' } }, session);
+    }
     const flags = [
+      off ? `offline on ${off.code} at ${now.toISOString()}` : '',
+      ...offIssues,
       discountAboveLimit ? `discount ${String(priced.discountPercent)}% is above the ${String(billing.maxDiscountPercent)}% limit` : '',
       priced.aboveMrp ? `${inr(priced.aboveMrp)} above MRP` : '',
       belowMinPrice ? 'sold under the lowest price' : '',
@@ -379,6 +439,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
       pointsEarned: points.earned,
       pointsBalance: pts?.balance ?? null,
       tierUp: pts?.tierUp ?? null,
+      offline: off ? { short: built.short.map((s) => ({ name: s.name, quantity: qtyWords(s.qtyBase, s.units) })), afterClose, paidDiff } : null,
     };
   });
 }
@@ -438,8 +499,10 @@ function shape(s: SaleLean, cost: boolean) {
       totalAmount: l.totalAmount,
       returnedQuantity: l.returnedQuantity,
       noPoints: l.noPoints ?? false,
+      stockShort: l.stockShort ?? false,
       ...(cost ? { costPerBaseUnit: l.costPerBaseUnit, lineCost: l.lineCost, lineProfit: l.lineProfit } : {}),
     })),
+    offline: s.offline ? { device: s.offline.device, syncedAt: s.offline.syncedAt, shortLines: s.offline.shortLines, afterClose: s.offline.afterClose, paidDiff: s.offline.paidDiff } : null,
     subtotal: s.subtotal,
     lineDiscountAmount: s.lineDiscountAmount,
     billDiscountAmount: s.billDiscountAmount,

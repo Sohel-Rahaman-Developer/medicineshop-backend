@@ -36,6 +36,8 @@ export const TYPES = {
   CATEGORY_DECIDED: { label: 'New category approved or not', group: 'system', channels: ['inapp'] },
   WEB_ADDRESS: { label: 'Web address', group: 'system', channels: ['inapp'] },
   STOCK_TRANSFER: { label: 'Stock from your other shops', group: 'stock', channels: ['inapp'] },
+  // D104: an offline bill sold more than the system had, reached after its day was closed, or paid a different sum.
+  OFFLINE_SYNC: { label: 'Offline bills to check', group: 'stock', channels: ['inapp', 'email'] },
   // The owner must see a support request; it can't be switched off (D15).
   SUPPORT_ACCESS: { label: 'MedBox24 support access', group: 'system', channels: ['inapp'], locked: true },
 } as const satisfies Record<string, TypeInfo>;

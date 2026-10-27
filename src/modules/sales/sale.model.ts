@@ -46,6 +46,8 @@ const lineSchema = new Schema(
     returnedQuantity: { type: Number, required: true, default: 0 },
     // An excluded category earns no points, so a return of it takes none back.
     noPoints: { type: Boolean },
+    // D104: sold offline beyond the stock the system had — no stock moved for this part; the owner was told.
+    stockShort: { type: Boolean },
   },
   { _id: false },
 );
@@ -118,6 +120,21 @@ const saleSchema = new Schema(
     cancelledDue: { type: Number },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },
+    // D104: billed with no internet on a counter's own series; billDate is when it was sold, syncedAt when it arrived.
+    offline: {
+      type: new Schema(
+        {
+          deviceId: { type: Schema.Types.ObjectId, ref: 'PosDevice', required: true },
+          device: { type: String, required: true },
+          seq: { type: Number, required: true },
+          syncedAt: { type: Date, required: true },
+          shortLines: { type: Number, required: true, default: 0 },
+          afterClose: { type: Boolean, required: true, default: false },
+          paidDiff: { type: Number, required: true, default: 0 },
+        },
+        { _id: false },
+      ),
+    },
   },
   { timestamps: true, versionKey: false },
 );

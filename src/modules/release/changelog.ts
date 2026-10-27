@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.34.0',
+    date: '2026-10-27',
+    title: 'Billing with no internet',
+    shop: [
+      'The counter keeps billing when the internet goes: search, scan and charge work from a copy of your stock kept on the device, and the app opens even with no internet.',
+      'Offline bills get this counter’s own number at once (OFL1-2026-27-0001) — paid by cash, UPI or card. Udhaar, points, orders and exchanges wait for the internet.',
+      'When the internet is back the bills go to MedBox24 by themselves, each exactly once, dated when they were sold. “Waiting” on the counter shows any not sent yet.',
+      'Nothing an offline bill sold is refused later: if another counter sold the last strips meanwhile, the bill is saved, the line is marked “short”, and the owner is told to count the shelf.',
+    ],
+    admin: [],
+    api: ['POST /pos/offline/device, GET /pos/offline/catalog, POST /pos/offline/sales (a bill made offline, idempotent).'],
+  },
+  {
     version: '1.33.0',
     date: '2026-10-26',
     title: 'Barcode labels',
