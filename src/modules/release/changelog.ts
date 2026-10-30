@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.36.1',
+    date: '2026-10-30',
+    title: 'Counter fixes',
+    shop: [
+      'Phone: the medicine list on New bill scrolls again — the page no longer moves instead, the last medicine isn’t hidden under the bill bar, and moving the list puts the keyboard away.',
+      'Every bill line shows the lowest price set on its batch (“Lowest ₹30.00”), so the seller knows how low it may go without calling the owner. Selling under it is still allowed and flagged, as before. It never prints on the customer’s bill.',
+      'Return: when “Take another medicine” is off, it now says why (a credit is already on the open bill) with one tap to take that credit off — the credit note stays for later. An empty bill shows a credit waiting on it.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.36.0',
     date: '2026-10-30',
     title: 'Returns at the counter',
