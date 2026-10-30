@@ -17,7 +17,7 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 const DAY = 86_400_000;
 const istDay = (at: number) => new Date(at + 5.5 * 3600_000).toISOString().slice(0, 10);
 
-interface Cash { day: string; from: string; days: number; firstClose: boolean; opening: number; openingFrom: string | null; cashSales: number; advances: number; refunds: number; orderRefunds: number; advanceBack: number; cancelled: number; suppliers: number; cashIn: number; cashOut: number; expected: number; upi: number; card: number; advanceUsed: number; bills: number; byUser: { name: string; cash: number }[] }
+interface Cash { day: string; from: string; days: number; firstClose: boolean; opening: number; openingFrom: string | null; cashSales: number; advances: number; refunds: number; orderRefunds: number; advanceBack: number; cancelled: number; suppliers: number; cashIn: number; cashOut: number; expected: number; upi: number; upiBack: number; card: number; advanceUsed: number; bills: number; byUser: { name: string; cash: number }[] }
 interface Status { day: string; today: string; isToday: boolean; yesterday: string | null; lastClosed: string | null; closed: { counted: number; diff: number; leftInDrawer: number; takenOut: number } | null; cash: Cash | null }
 
 async function main() {
@@ -56,7 +56,15 @@ async function main() {
   await SubscriptionModel.updateOne({ shopId: shop1 }, { $set: { maxUsers: 10 } });
   await ShopModel.updateOne({ _id: shop1 }, { $set: { 'settings.billing.openingFloat': 200_000 } });
   const a = data<{ id: string }>(await ok('bill A', owner.post('/sales', bill([{ productId: dolo, quantity: 2, unit: 'STRIP' }, { productId: amox, quantity: 1, unit: 'STRIP' }], { payments: cash(15_200), cashReceived: 20_000 }))));
-  await ok('bill B', owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: [{ mode: 'UPI', amount: 9200 }] })));
+  const b = data<{ id: string }>(await ok('bill B', owner.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { payments: [{ mode: 'UPI', amount: 9200 }] }))));
+  // Half the strip back, sent from the shop's own phone by UPI: the drawer doesn't change.
+  const upiRet = data<{ id: string; refundMode: string; cashBack: number; upiBack: number }>(
+    await ok('UPI return', owner.post('/sale-returns', { clientRequestId: randomUUID(), saleId: b.id, items: [{ line: 0, quantity: 5, reason: 'Bought extra' }], refundMode: 'UPI', refundRef: 'T2610301234' })),
+  );
+  check('UPI refund ₹46: none of it from the drawer', upiRet.refundMode === 'UPI' && upiRet.cashBack === 0 && upiRet.upiBack === 4600, JSON.stringify(upiRet));
+  const upiDetail = data<{ refundRef: string | null; upiBack: number }>(await owner.get(`/sale-returns/${upiRet.id}`));
+  check('the UPI reference is kept on the return', upiDetail.refundRef === 'T2610301234' && upiDetail.upiBack === 4600, JSON.stringify(upiDetail));
+  check('a UPI reference over 40 characters → 422', (await owner.post('/sale-returns', { clientRequestId: randomUUID(), saleId: b.id, items: [{ line: 0, quantity: 1, reason: 'Bought extra' }], refundMode: 'UPI', refundRef: 'x'.repeat(41) })).status === 422);
   const cbill = data<{ id: string }>(await ok('bill C', owner.post('/sales', bill([{ productId: dolo, quantity: 1, unit: 'STRIP' }], { payments: cash(3000) }))));
   await ok('cancel C', owner.post(`/sales/${cbill.id}/cancel`, { reason: 'Wrong item' }));
   await ok('return', owner.post('/sale-returns', { clientRequestId: randomUUID(), saleId: a.id, items: [{ line: 0, quantity: 7, reason: 'Bought extra' }], refundMode: 'CASH' }));
@@ -81,6 +89,7 @@ async function main() {
   check('out: return ₹14 · advance refund ₹50 · advance back on a bill ₹408 · cancelled ₹30 · supplier ₹300 (not the ₹1,000 from the owner)', x?.refunds === 1400 && x.orderRefunds === 5000 && x.advanceBack === 40_800 && x.cancelled === 3000 && x.suppliers === 30_000, JSON.stringify(x));
   check('expected = 2,000 + 832 − 802 = ₹2,030', x?.cashIn === 83_200 && x.cashOut === 80_200 && x.expected === 203_000, String(x?.expected));
   check('apart: UPI ₹92 · card ₹0 · advance used ₹92 · 4 bills', x?.upi === 9200 && x.card === 0 && x.advanceUsed === 9200 && x.bills === 4);
+  check('UPI sent back ₹46, shown beside UPI — not in the drawer’s refunds', x?.upiBack === 4600, String(x?.upiBack));
   check('cash by person: Rohit ₹182', x?.byUser.length === 1 && x.byUser[0]?.cash === 18_200);
 
   section('2. Close');

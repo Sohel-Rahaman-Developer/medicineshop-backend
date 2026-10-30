@@ -141,7 +141,7 @@ export async function returnPdf(t: TenantContext, userId: string, id: string) {
     hsn: hsnSummary(lines),
     totals,
     words: money,
-    foot: [`Refund: ${r.refundMode === 'CASH' ? 'cash' : r.refundMode === 'ADJUST_CREDIT' ? 'against udhaar' : `credit note ${number}`} ${rupees(money)}`, `Taken back by ${r.createdByName}.`],
+    foot: [`Refund: ${r.refundMode === 'CASH' ? 'cash' : r.refundMode === 'UPI' ? `UPI${r.refundRef ? ` (${r.refundRef})` : ''}` : r.refundMode === 'ADJUST_CREDIT' ? 'against udhaar' : `credit note ${number}`} ${rupees(money)}`, `Taken back by ${r.createdByName}.`],
   });
   return { pdf, name: `CreditNote-${number}` };
 }

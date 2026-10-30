@@ -591,7 +591,6 @@
   "A line is in the return twice": "Return-এ একটা লাইন দুবার আছে",
   "Choose what came back": "কী ফেরত এসেছে বেছে নিন",
   "Choose a line": "একটা লাইন বেছে নিন",
-  "Choose cash, credit note or against udhaar": "Cash, credit note বা ধারের বদলে — বেছে নিন",
   "Your shop is ready. The free trial has started.": "আপনার দোকান তৈরি। Free trial শুরু হয়েছে।",
   "Code {code} added — your free trial is longer now": "Code {code} যোগ হয়েছে — আপনার free trial এখন লম্বা",
   "Code {code} added": "Code {code} যোগ হয়েছে",
@@ -986,5 +985,6 @@
   "{billNumber}: offline bill to check": "{billNumber}: দেখে নেওয়ার মতো অফলাইন বিল",
   "When was it sold?": "এটা কবে বিক্রি হয়েছিল?",
   "Offline bills are paid by cash, UPI or card": "অফলাইন বিলের টাকা ক্যাশ, UPI বা কার্ডে নেওয়া হয়",
-  "Missing device id": "ডিভাইসের পরিচয় পাওয়া যায়নি"
+  "Missing device id": "ডিভাইসের পরিচয় পাওয়া যায়নি",
+  "Choose cash, UPI, credit note or against udhaar": "Cash, UPI, credit note বা ধারের বদলে — বেছে নিন"
 }

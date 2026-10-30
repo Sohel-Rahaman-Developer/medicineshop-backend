@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.35.0',
+    date: '2026-10-30',
+    title: 'Returns made easy',
+    shop: [
+      'Returns now says the three ways at the top: money back, another medicine instead (Exchange), or keep it for later (credit note) — each with its button.',
+      '“Scan the bill”: scan the QR on the customer’s bill and the bill opens at once. Typing the number or phone and pressing Enter (or a USB scanner) opens it too.',
+      'Money back by UPI from the shop’s own phone (PhonePe, GPay — no gateway), with an optional reference. It never comes out of the drawer; the day close shows it beside UPI.',
+      'Every way to give money back says in one line what it does — “Cash from the drawer” comes off the day close.',
+    ],
+    admin: [],
+    api: ['POST /sale-returns: refundMode UPI (+ optional refundRef); day close cash adds upiBack.'],
+  },
+  {
     version: '1.34.1',
     date: '2026-10-27',
     title: 'Offline bills stay safe',

@@ -109,7 +109,7 @@ async function main() {
   check('expiry: 1 batch within 30 days, ₹240 at MRP (30 tablets × ₹120 ÷ 15), 1 already expired', ex?.count === 1 && ex.mrpValue === 24_000 && ex.expired === 1, JSON.stringify(ex));
   const pay = await PurchaseModel.findOne({ shopId: shop }).lean();
   const su = b.todo[2];
-  check(`suppliers: ₹${String((pay?.dueAmount ?? 0) / 100)} overdue`, su?.overdue === pay?.dueAmount && (su.overdue ?? 0) > 0, JSON.stringify(su));
+  check(`suppliers: ₹${String((pay?.dueAmount ?? 0) / 100)} overdue`, su?.overdue === pay?.dueAmount && (su?.overdue ?? 0) > 0, JSON.stringify(su));
   check('udhaar: ₹450 from Rahim', b.todo[3]?.total === 45_000 && b.todo[3].customers === 1 && b.todo[3].items?.[0]?.name === 'Rahim Sheikh', JSON.stringify(b.todo[3]));
   check('money stuck: Shelcal, never sold', b.todo[4]?.items?.some((i) => i.name === 'Shelcal 500') === true, JSON.stringify(b.todo[4]));
   const q = data<Brief>(await quiet.get('/brief'));

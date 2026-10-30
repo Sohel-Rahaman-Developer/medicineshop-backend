@@ -93,7 +93,8 @@ export const saleReturnSchema = z
       .min(1, 'Choose what came back')
       .max(100)
       .refine((v) => new Set(v.map((x) => x.line)).size === v.length, 'A line is in the return twice'),
-    refundMode: z.enum(REFUND_MODES, 'Choose cash, credit note or against udhaar'),
+    refundMode: z.enum(REFUND_MODES, 'Choose cash, UPI, credit note or against udhaar'),
+    refundRef: text('UPI reference', 40).optional(),
     expectedTotal: paise('Total').optional(),
   })
   .strict();

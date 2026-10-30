@@ -1,8 +1,9 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
-// ADJUST_CREDIT: off this bill's own udhaar first, anything above it back in cash (PLAN §35.11).
-export const REFUND_MODES = ['CASH', 'CREDIT_NOTE', 'ADJUST_CREDIT'] as const;
+// ADJUST_CREDIT: off this bill's own udhaar first, anything above it back in cash (PLAN §35.11). UPI: the shop sends it
+// from its own phone (PhonePe, GPay — no gateway), never out of the drawer.
+export const REFUND_MODES = ['CASH', 'UPI', 'CREDIT_NOTE', 'ADJUST_CREDIT'] as const;
 export type RefundMode = (typeof REFUND_MODES)[number];
 
 const lineSchema = new Schema(
@@ -65,6 +66,8 @@ const saleReturnSchema = new Schema(
     total: { type: Number, required: true },
     refundMode: { type: String, enum: REFUND_MODES, required: true },
     cashBack: { type: Number, required: true, default: 0 },
+    upiBack: { type: Number, required: true, default: 0 },
+    refundRef: { type: String },
     adjusted: { type: Number, required: true, default: 0 },
     // A credit note is money held for the customer, spent on later bills (an exchange) or the rest given back.
     // Absent on notes from before exchanges: their whole money value is still left.

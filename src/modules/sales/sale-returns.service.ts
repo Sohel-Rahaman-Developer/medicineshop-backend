@@ -87,6 +87,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     const money = total - pts.restoreValue;
     // Only this bill's own udhaar is written off; the rest goes back in cash.
     const adjusted = input.refundMode === 'ADJUST_CREDIT' ? Math.min(money, s.dueAmount) : 0;
+    const cashBack = input.refundMode === 'CASH' || input.refundMode === 'ADJUST_CREDIT' ? money - adjusted : 0;
+    const upiBack = input.refundMode === 'UPI' ? money : 0;
+    const ref = input.refundMode === 'UPI' && input.refundRef ? input.refundRef : undefined;
     if (input.expectedTotal !== undefined && input.expectedTotal !== total) {
       throw AppError.conflict(`The refund is now ${inr(total)} — the bill changed. Check and save again.`, { reason: 'TOTAL_CHANGED', total });
     }
@@ -148,7 +151,9 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
           roundOff,
           total,
           refundMode: input.refundMode,
-          cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
+          cashBack,
+          upiBack,
+          ...(ref ? { refundRef: ref } : {}),
           adjusted,
           ...(input.refundMode === 'CREDIT_NOTE' ? { creditLeft: money } : {}),
           loyaltyPointsRestored: moved.restored,
@@ -163,7 +168,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
     );
     const flags = [outsideWindow ? `${String(age)} days after the bill (window ${String(windowDays)})` : '', lines.some((l) => l.expired) ? 'expired item taken back' : ''].filter(Boolean);
     await audit(
-      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)}${pts.restoreValue ? ` (${String(moved.restored)} points back = ${inr(pts.restoreValue)})` : ''} ${input.refundMode === 'CASH' ? 'cash' : input.refundMode === 'ADJUST_CREDIT' ? `${inr(adjusted)} off udhaar${money > adjusted ? `, ${inr(money - adjusted)} cash` : ''}` : `credit note ${creditNoteNumber ?? ''}`}${moved.reversed ? ` · ${String(moved.reversed)} earned points taken back` : ''}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
+      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'sales', entityId: String(id), entityName: returnNumber, text: `${actor.name} took back ${String(lines.length)} ${lines.length === 1 ? 'line' : 'lines'} of ${s.billNumber} · ${inr(total)}${pts.restoreValue ? ` (${String(moved.restored)} points back = ${inr(pts.restoreValue)})` : ''} ${input.refundMode === 'CASH' ? 'cash' : input.refundMode === 'UPI' ? `UPI${ref ? ` ${ref}` : ''}` : input.refundMode === 'ADJUST_CREDIT' ? `${inr(adjusted)} off udhaar${money > adjusted ? `, ${inr(money - adjusted)} cash` : ''}` : `credit note ${creditNoteNumber ?? ''}`}${moved.reversed ? ` · ${String(moved.reversed)} earned points taken back` : ''}${flags.length ? ` · ${flags.join(' · ')}` : ''}`, ip },
       session,
     );
     return {
@@ -176,7 +181,8 @@ export async function create(t: TenantContext, actor: Actor, input: SaleReturnIn
       refundMode: input.refundMode,
       outsideWindow,
       adjusted,
-      cashBack: input.refundMode === 'CREDIT_NOTE' ? 0 : money - adjusted,
+      cashBack,
+      upiBack,
       creditLeft: input.refundMode === 'CREDIT_NOTE' ? money : 0,
       pointsRestored: moved.restored,
       pointsRestoredValue: pts.restoreValue,
@@ -274,6 +280,8 @@ function shape(r: ReturnLean, cost: boolean) {
     total: r.total,
     refundMode: r.refundMode,
     cashBack: r.cashBack,
+    upiBack: r.upiBack,
+    refundRef: r.refundRef ?? null,
     adjusted: r.adjusted,
     creditLeft: noteLeft(r),
     uses: (r.uses ?? []).map((u) => ({ saleId: String(u.saleId), billNumber: u.billNumber, amount: u.amount, back: u.back, backMode: u.backMode ?? null, at: u.at })),

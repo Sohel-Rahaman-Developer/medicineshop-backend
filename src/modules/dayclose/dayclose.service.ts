@@ -61,7 +61,7 @@ export async function cashDay(t: TenantContext, day: string, opening?: number) {
   const [billed, cancelledBills, returns, advances, orderRefunds, completed, suppliers, shop, collections, spent, doctors] = await Promise.all([
     SaleModel.find({ shopId: t.shopId, billDate: inDay }).select('payments createdByName noteBack').lean(),
     SaleModel.find({ shopId: t.shopId, status: 'cancelled', cancelledAt: inDay }).select('payments').lean(),
-    SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack').lean(),
+    SaleReturnModel.find({ shopId: t.shopId, returnDate: inDay }).select('cashBack upiBack').lean(),
     OrderModel.find({ shopId: t.shopId, createdAt: inDay, advanceMode: 'CASH', advance: { $gt: 0 } }).select('advance').lean(),
     OrderModel.find({ shopId: t.shopId, 'refund.at': inDay, 'refund.mode': 'CASH' }).select('refund').lean(),
     OrderModel.find({ shopId: t.shopId, completedAt: inDay, advanceBack: { $gt: 0 } }).select('advanceBack').lean(),
@@ -97,6 +97,8 @@ export async function cashDay(t: TenantContext, day: string, opening?: number) {
     doctorFees: doctors.doctorFees,
     doctorOut: doctors.doctorOut,
     upi: pay('UPI'),
+    // UPI the shop sent back from its own phone (returns, an exchange's leftover): matched with the UPI app, not the drawer.
+    upiBack: sumOf(returns, (x) => x.upiBack) + sumOf(billed, (s) => (s.noteBack?.mode === 'UPI' ? s.noteBack.amount : 0)),
     card: pay('CARD'),
     advanceUsed: pay('ADVANCE'),
     points: pay('POINTS'),
