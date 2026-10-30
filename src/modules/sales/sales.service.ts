@@ -558,7 +558,10 @@ export async function get(t: TenantContext, userId: string, id: string) {
 
 const dayEnd = (d: Date) => new Date(d.getTime() + DAY - 1);
 
-function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'from' | 'to' | 'status' | 'paymentMode' | 'userId' | 'flag' | 'q' | 'customerId'>) {
+const ITEM_DAYS = 30;
+const itemMatch = (q: Pick<SaleListQuery, 'q' | 'items'>) => (q.items && q.q && q.q.length >= 3 ? new RegExp(escape(q.q), 'i') : null);
+
+function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'from' | 'to' | 'status' | 'paymentMode' | 'userId' | 'flag' | 'q' | 'items' | 'customerId'>) {
   const filter: Record<string, unknown> = { shopId: t.shopId };
   if (ownOnly(t)) filter.createdBy = oid(userId);
   else if (q.userId) filter.createdBy = oid(q.userId);
@@ -571,7 +574,12 @@ function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'fr
   // Digits only can also be the customer's phone (return lookup, PLAN §15).
   if (q.q) {
     const bill = { billNumber: { $regex: `${escape(q.q.toUpperCase())}$` } };
-    filter.$or = /^\d{4,}$/.test(q.q) ? [bill, { customerPhone: { $regex: escape(q.q) } }] : [bill];
+    const or: Record<string, unknown>[] = [bill];
+    if (/^\d{4,}$/.test(q.q)) or.push({ customerPhone: { $regex: escape(q.q) } });
+    // A customer back without the bill: the medicine's name finds the last 30 days' bills that had it.
+    const item = itemMatch(q);
+    if (item) or.push({ 'lines.productName': item, billDate: { $gte: new Date(Date.now() - ITEM_DAYS * DAY) } });
+    filter.$or = or;
   }
   if (q.from || q.to) filter.billDate = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lte: dayEnd(q.to) } : {}) };
   return filter;
@@ -587,6 +595,7 @@ export async function list(t: TenantContext, userId: string, q: SaleListQuery) {
     .select('billNumber billDate customerName lines.productName lines.quantityInBase grandTotal totalDiscount discountAboveLimit aboveMrpAmount belowMinPrice paymentMode status createdByName')
     .lean();
   const { items, meta } = page(rows, q.limit, (r) => r.billDate);
+  const item = itemMatch(q);
   return {
     items: items.map((s) => ({
       id: String(s._id),
@@ -595,6 +604,7 @@ export async function list(t: TenantContext, userId: string, q: SaleListQuery) {
       customerName: s.customerName,
       items: s.lines.length,
       firstItem: s.lines[0]?.productName ?? '',
+      hit: item ? (s.lines.find((l) => item.test(l.productName))?.productName ?? null) : null,
       grandTotal: s.grandTotal,
       totalDiscount: s.totalDiscount,
       discountAboveLimit: s.discountAboveLimit,

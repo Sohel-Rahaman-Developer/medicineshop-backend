@@ -60,6 +60,7 @@ export const saleListSchema = z
     flag: z.enum(['discount', 'aboveMrp', 'belowMin']).optional(),
     customerId: objectId.optional(),
     q: z.string().trim().max(40).optional(),
+    items: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
     cursor: z.string().max(400).optional(),
     limit: LIMIT,
   })

@@ -12,6 +12,7 @@ import { analytics } from './analytics.service';
 import { gstinFamily } from '../branches/branches.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
+import { ledgersXml, tallyMonth, vouchersXml } from './tally.service';
 
 const rangeSchema = z
   .object({ from: istDay, to: istDay })
@@ -148,6 +149,31 @@ reportsRouter.get(
     const all = await together(req, q.scope);
     const shared = all.fam.shops.length ? { gstin: all.fam.gstin, shops: all.fam.shops.map((s) => ({ id: String(s.id), name: s.name })) } : null;
     fetched(res, { ...(await gstMonth(tenantOf(req), q.month, new Date(), all.shops)), scope: all.shops ? 'gstin' : 'shop', shared });
+  }),
+);
+
+// Tally: a month's vouchers — what goes in (on screen), then the ledgers file and the entries file to import.
+const tallyFile = z.object({ month, part: z.enum(['ledgers', 'entries']) }).strict();
+reportsRouter.get(
+  '/tally',
+  needFeature('tally'),
+  validate({ query: monthSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const r = await tallyMonth(tenantOf(req), (req.query as { month: string }).month);
+    fetched(res, { month: r.month, from: r.from, to: r.to, vouchers: r.vouchers.length, counts: r.counts, ledgers: r.ledgers.map((l) => ({ name: l.name, group: l.group })) });
+  }),
+);
+
+reportsRouter.get(
+  '/tally/file',
+  requirePermission('reports', 'export'),
+  needFeature('tally'),
+  validate({ query: tallyFile }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as { month: string; part: 'ledgers' | 'entries' };
+    const r = await tallyMonth(tenantOf(req), q.month);
+    const xml = q.part === 'ledgers' ? ledgersXml(r.ledgers) : vouchersXml(r.vouchers);
+    sendFile(res, Buffer.from(xml, 'utf8'), `Tally ${q.part === 'ledgers' ? '1 ledgers' : '2 entries'} ${q.month}`, 'xml');
   }),
 );
 

@@ -109,9 +109,11 @@ export async function pdfTable<T>(o: PdfTable<T>): Promise<Buffer> {
 
 const safeName = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
 
-export function sendFile(res: Response, data: Buffer, name: string, kind: 'pdf' | 'xlsx') {
+const TYPES = { pdf: 'application/pdf', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xml: 'application/xml; charset=utf-8' } as const;
+
+export function sendFile(res: Response, data: Buffer, name: string, kind: keyof typeof TYPES) {
   res.set({
-    'Content-Type': kind === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Type': TYPES[kind],
     'Content-Disposition': `attachment; filename="${safeName(name)}.${kind}"`,
     'Content-Length': String(data.length),
   });

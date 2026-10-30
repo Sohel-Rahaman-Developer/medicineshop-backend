@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.37.0',
+    date: '2026-10-30',
+    title: 'Tally export, and find a bill by medicine',
+    shop: [
+      'Insights → Tally export: pick a month, see what goes in (bills, returns, purchases, supplier payments, udhaar received, expenses, order advances), then download two files for your CA — ledgers first, then entries — and import them in TallyPrime. Every voucher balances to the paisa.',
+      'A bill cancelled in a later month stays in its own month and is reversed in the month it was cancelled, so last month’s Tally never changes.',
+      'Return with no bill: type the medicine’s name — the bills of the last 30 days that had it show, each with the medicine it matched.',
+    ],
+    admin: ['Plans list one more module, Tally export — on every Pro plan, off on Basic until you tick it.'],
+    api: ['GET /reports/tally?month= and /reports/tally/file?month=&part=ledgers|entries (XML for Tally). GET /sales?q=…&items=true also matches a medicine’s name in the last 30 days and returns the line it matched as `hit`.'],
+  },
+  {
     version: '1.36.2',
     date: '2026-10-30',
     title: 'Downloads say where they went',

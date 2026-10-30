@@ -298,6 +298,16 @@ async function main() {
   check('10-day-old bill (window 7) with an expired line → saved, flagged outside window + expired', ro.status === 201 && rod.outsideWindow && rod.ageDays === 10 && rod.lines[0]?.expired === true, code(ro));
   check('audit says how late', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: rod.returnNumber, text: /10 days after the bill/ })) === 1);
   check('find the bill by the customer’s phone', data<{ id: string }[]>(await owner.get('/sales?q=12345')).some((x) => x.id === ob.id));
+  type Found = { id: string; hit: string | null };
+  const byName = data<Found[]>(await owner.get('/sales?q=augmen&items=true')).find((x) => x.id === ob.id);
+  check('no bill: the medicine’s name finds it, with the line it matched', byName?.hit === 'Augmentin 625', JSON.stringify(byName));
+  check('the name finds nothing without items=true (Sales list search stays bill / phone)', !data<Found[]>(await owner.get('/sales?q=augmen')).some((x) => x.id === ob.id));
+  check('2 letters are too few for a name search', !data<Found[]>(await owner.get('/sales?q=au&items=true')).some((x) => x.id === ob.id));
+  await SaleModel.updateOne({ shopId: shop1, _id: ob.id }, { $set: { billDate: new Date(Date.now() - 31 * 86_400_000) } });
+  check('a bill older than 30 days is not found by name', !data<Found[]>(await owner.get('/sales?q=augmen&items=true')).some((x) => x.id === ob.id));
+  check('…but still by the phone', data<Found[]>(await owner.get('/sales?q=12345&items=true')).some((x) => x.id === ob.id));
+  await SaleModel.updateOne({ shopId: shop1, _id: ob.id }, { $set: { billDate: new Date(Date.now() - 10 * 86_400_000) } });
+  check('cashier: the name finds only own bills', !data<Found[]>(await cashier.get('/sales?q=augmen&items=true')).some((x) => x.id === ob.id));
 
   // A batch that went back to the supplier comes alive again when a customer returns from it.
   await BatchModel.updateOne({ shopId: shop1, productId: thermo }, { $set: { status: 'returned' } });

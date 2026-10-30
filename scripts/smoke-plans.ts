@@ -15,7 +15,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 const DAY = 86_400_000;
-const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels'];
+const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels', 'tally'];
 
 interface Plan { code: string; name: string; tier: string; features: string[]; isActive: boolean; maxUsers: number }
 
@@ -61,6 +61,7 @@ async function main() {
     clinic: await owner.get('/clinic/day'),
     brief: await owner.get('/brief'),
     refills: await owner.get('/refills'),
+    tally: await owner.get(`/reports/tally?month=${month}`),
   };
   for (const [k, r] of Object.entries(refused)) check(`Basic: ${k} → 403 PLAN_UPGRADE`, upgrade(r), code(r));
   check('…the message names the module and Pro', /Analytics is in the Pro plan/.test(refused.analytics.json.error?.message ?? ''), code(refused.analytics));
