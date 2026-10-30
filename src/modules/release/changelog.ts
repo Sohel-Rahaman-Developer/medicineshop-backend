@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.36.2',
+    date: '2026-10-30',
+    title: 'Downloads say where they went',
+    shop: [
+      'Every download — reports, bills, credit notes, invoices, labels, Excel — now shows “Saved · file name” and where to find it: the Files app → Downloads on a phone, the Downloads folder on a computer. Phones often show no download notice of their own.',
+      'On a phone, “Share” sends the file straight to WhatsApp, Drive or Files where the phone allows it; on a computer, “Open” shows a PDF at once.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.36.1',
     date: '2026-10-30',
     title: 'Counter fixes',
