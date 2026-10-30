@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.36.0',
+    date: '2026-10-30',
+    title: 'Returns at the counter',
+    shop: [
+      'Returns are done right on the New bill screen: tap “Return” — or just scan the QR on the customer’s bill — and tap + on what came back.',
+      'Money back: choose Cash or UPI and tap “Give back ₹…”. That’s it — no new bill. The screen then says in big letters what to hand over.',
+      'Another medicine instead: tap “Take another medicine”, add it and charge — the customer pays, or gets back, only the difference.',
+      'A bill with udhaar left takes the return off the udhaar first; a credit note for later is one small link away. Returns → “New return” and a bill’s “Return items” open the same counter Return.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.35.0',
     date: '2026-10-30',
     title: 'Returns made easy',
