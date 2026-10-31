@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.44.1',
+    date: '2026-10-31',
+    title: 'Price box starts at your sell price',
+    shop: [
+      'Price for this line now starts at your sell price and shows it beside the MRP and the lowest price, so the seller knows what to charge without calling the owner. Use our price puts it back.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.44.0',
     date: '2026-10-31',
     title: 'Sell price',
