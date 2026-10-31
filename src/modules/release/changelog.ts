@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.45.0',
+    date: '2026-10-31',
+    title: 'Easier counter: every price on the line, Prescription button, camera fixes',
+    shop: [
+      'New bill: a Prescription button beside Scan, on phone and computer, always there. When AI can’t read now it says why — no AI tokens (with Buy AI tokens), switched off, or the demo shop — instead of the option vanishing.',
+      'Every bill line shows MRP per strip, your price, the lowest price, GST and how much is left; Discount and Price are buttons on the line, not hidden in ⋯. The search list shows MRP, your price and the lowest too.',
+      'Camera blocked earlier? Allow camera now says so and shows the steps for your device — installed app, iPhone, computer or Chrome on a phone — and the camera starts by itself once you allow it. The prescription camera has the same button.',
+      'Phone: the bill no longer stays short with a white gap after typing a discount and closing the keyboard.',
+    ],
+    admin: [],
+    api: ['/pos/settings aiRx gains why (ok | off | demo | tokens) and balance; enabled is false in the demo shop and when the shop has fewer tokens than one read.'],
+  },
+  {
     version: '1.44.1',
     date: '2026-10-31',
     title: 'Price box starts at your sell price',

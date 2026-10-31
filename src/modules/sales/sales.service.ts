@@ -21,6 +21,7 @@ import { seesCost } from '../products/products.service';
 import { can } from '../rbac/permissions';
 import { ShopModel } from '../shops/shop.model';
 import { aiOffer } from '../ai/ai-settings';
+import { balanceOf } from '../ai/coins';
 import { BatchModel } from '../stock/batch.model';
 import { allocate, daysLeftOut, fefo, hasExpiry, type BatchLike } from '../stock/stock.domain';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
@@ -123,7 +124,9 @@ export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, s
 
 /** What the counter needs to price a cart the way the server will (no settings: view needed). */
 export async function posSettings(t: TenantContext) {
-  const [shop, offer] = await Promise.all([ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean(), aiOffer()]);
+  const [shop, offer, balance] = await Promise.all([ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean(), aiOffer(), balanceOf(t.shopId)]);
+  // Why the prescription reader can't run now, so the counter can say so instead of hiding it.
+  const why = t.demo ? 'demo' : !offer.enabled ? 'off' : balance < offer.coinsPerPage ? 'tokens' : 'ok';
   const billing = shop?.settings.billing;
   const inv = shop?.settings.inventory;
   const r = loyalty.rulesFor(t, shop?.settings.loyalty);
@@ -133,7 +136,7 @@ export async function posSettings(t: TenantContext) {
     enforceH1: billing?.enforceH1Prescription ?? true,
     rxPhoto: billing?.rxPhoto ?? false,
     rxEditHours: billing?.rxEditHours ?? 24,
-    aiRx: { enabled: offer.enabled, coins: offer.coinsPerPage },
+    aiRx: { enabled: why === 'ok', why, coins: offer.coinsPerPage, balance },
     canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
     seesCost: seesCost(t),
     loyalty: { ...r, canRedeem: can(t.permissions, 'loyalty', 'create'), canSetUp: can(t.permissions, 'loyalty', 'edit') },
