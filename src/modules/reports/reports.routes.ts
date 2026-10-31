@@ -200,13 +200,16 @@ reportsRouter.get(
     const r = await register(tenantOf(req), kind, f, true);
     const span = kind === 'stock' ? `As of ${day(new Date())}` : `${day(f.from ?? new Date())} – ${day(f.to ?? new Date())}`;
     const sub = describe(kind, f, span);
+    const t = r.totals;
     if (q.format === 'pdf') {
       const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.label, num: c.kind === 'money' || c.kind === 'num', get: (row) => cellText(c, row[c.key]) }));
-      sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title: NAMES[kind], sub, columns, rows: r.rows, landscape: true }), `${NAMES[kind]} ${sub}`, 'pdf');
+      const summary: [string, string][] | undefined = t ? [[`${String(t.bills)} ${t.bills === 1 ? 'bill' : 'bills'}, their full amounts`, rupees(t.billTotal)], ['These lines', rupees(t.lineTotal)]] : undefined;
+      sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title: NAMES[kind], sub, columns, rows: r.rows, landscape: true, summary }), `${NAMES[kind]} ${sub}`, 'pdf');
       return;
     }
     const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.kind === 'money' ? `${c.label} (₹)` : c.label, get: (row) => cellValue(c, row[c.key]) }));
-    sendFile(res, await xlsx(columns, r.rows), `${NAMES[kind]} ${sub}`, 'xlsx');
+    const totalRows: Row[] = t ? [{ bill: 'Total of these lines', amount: t.lineTotal }, { bill: `${String(t.bills)} ${t.bills === 1 ? 'bill' : 'bills'}, their full amounts`, amount: t.billTotal }] : [];
+    sendFile(res, await xlsx(columns, [...r.rows, ...totalRows]), `${NAMES[kind]} ${sub}`, 'xlsx');
   }),
 );
 

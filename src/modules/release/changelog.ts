@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.38.2',
+    date: '2026-10-31',
+    title: 'Registers: totals of the bills you filtered',
+    shop: [
+      'Sales register shows totals on top: the full amount of every bill that matches (with how many bills), the amount of the lines shown, and the average bill. Tap ⓘ to see how each is added up.',
+      'Set a bill’s amount From–To (say ₹500 – ₹5,000): every bill in that band comes, none left out, and the total is theirs.',
+      'The PDF and Excel end with the same totals.',
+    ],
+    admin: [],
+    api: ['GET /reports/registers/sales returns totals { bills, billTotal, lineTotal } (paise); stock and purchases return totals: null.'],
+  },
+  {
     version: '1.38.1',
     date: '2026-10-31',
     title: 'Registers: a cleaner, compact screen',

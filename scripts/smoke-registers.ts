@@ -17,7 +17,7 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 const IST = 5.5 * 3600_000;
 const isoDay = (offsetDays = 0) => new Date(Date.now() + IST + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
-interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[] }
+interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: { bills: number; billTotal: number; lineTotal: number } | null }
 
 async function main() {
   const h = await startHarness();
@@ -78,6 +78,12 @@ async function main() {
   check('doctor “roy” → bill B', (await reg('sales', 'doctor=roy')).rows.every((r) => r.bill === b.billNumber) && (await reg('sales', 'doctor=roy')).count === 2);
   check('paid by UPI → bill B', (await reg('sales', 'pay=UPI')).rows.every((r) => r.bill === b.billNumber));
   check('each bill’s own amount ₹50–₹100 → bill B (₹79) only', (await reg('sales', 'min=5000&max=10000')).rows.every((r) => r.bill === b.billNumber), JSON.stringify((await reg('sales', 'min=5000&max=10000')).rows.map((r) => r.bill)));
+  const tt = (r: Reg) => JSON.stringify(r.totals);
+  check('totals: 3 bills ₹152 + ₹79 + ₹30 = ₹261 · lines ₹260.50 (bill B ₹78.50 rounded off to ₹79)', all.totals?.bills === 3 && all.totals.billTotal === 26_100 && all.totals.lineTotal === 26_050, tt(all));
+  check('totals with Schedule H1: 2 bills’ full amounts ₹231, these lines ₹92 + ₹45 = ₹137', h1.totals?.bills === 2 && h1.totals.billTotal === 23_100 && h1.totals.lineTotal === 13_700, tt(h1));
+  const mid = await reg('sales', 'min=5000&max=10000');
+  check('totals of bills ₹50–₹100: every such bill, none left out → 1 bill ₹79', mid.totals?.bills === 1 && mid.totals.billTotal === 7900, tt(mid));
+  check('stock and purchases carry no money total', (await reg('stock')).totals === null && (await reg('purchases')).totals === null);
   check('a bad schedule → 422 · min above max → 422 · no dates → 422', (await owner.get(`/reports/registers/sales?${range}&schedule=Z`)).status === 422 && (await owner.get(`/reports/registers/sales?${range}&min=500&max=100`)).status === 422 && (await owner.get('/reports/registers/sales')).status === 422);
 
   section('3. Stock and purchase registers');

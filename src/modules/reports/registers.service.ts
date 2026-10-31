@@ -49,11 +49,14 @@ export const NAMES: Record<Kind, string> = { sales: 'Sales register', stock: 'St
 const mmyy = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCFullYear())}`;
 const expiryText = (d: Date) => (d.getUTCFullYear() >= 9999 ? 'No expiry' : mmyy(new Date(d.getTime() + 5.5 * 3600_000)));
 
-type Out = { rows: Row[]; count: number; summary: { schedule: string; lines: number; docs: number }[] };
-const facet = (limit: number, docKey: string): PipelineStage[] => [
+/** Sales only: every matching bill's own amount added up, and the shown lines' amounts — never a chosen subset. */
+export interface Totals { bills: number; billTotal: number; lineTotal: number }
+type Out = { rows: Row[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: Totals | null };
+const facet = (limit: number, docKey: string, totals: PipelineStage.FacetPipelineStage[] = []): PipelineStage[] => [
   {
     $facet: {
       rows: [{ $limit: limit }],
+      ...(totals.length ? { totals } : {}),
       count: [{ $count: 'n' }],
       summary: [{ $group: { _id: '$schedule', lines: { $sum: 1 }, docs: { $addToSet: docKey } } }, { $project: { _id: 0, schedule: '$_id', lines: 1, docs: { $size: '$docs' } } }, { $sort: { schedule: 1 } }],
     },
@@ -71,17 +74,22 @@ async function sales(t: TenantContext, f: Filters, limit: number): Promise<Out> 
   if (f.schedule.length) line['lines.schedule'] = { $in: f.schedule };
   if (f.category.length) line['lines.category'] = { $in: f.category };
   if (f.q) line['lines.productName'] = like(f.q);
-  const [r] = await SaleModel.aggregate<{ rows: { billDate: Date; billNumber: string; customerName: string; customerPhone: string; patientName: string; doctorName: string; rxNumber: string; schedule: string; l: { productName: string; category: string; batchNumber: string; expiryDate: Date; quantityInBase: number; returnedQuantity: number; unit: string; baseUnit: string; salePack: number; mrp: number; totalAmount: number } }[]; count: { n: number }[]; summary: Out['summary'] }>([
+  const [r] = await SaleModel.aggregate<{ rows: { billDate: Date; billNumber: string; customerName: string; customerPhone: string; patientName: string; doctorName: string; rxNumber: string; schedule: string; l: { productName: string; category: string; batchNumber: string; expiryDate: Date; quantityInBase: number; returnedQuantity: number; unit: string; baseUnit: string; salePack: number; mrp: number; totalAmount: number } }[]; count: { n: number }[]; summary: Out['summary']; totals: Totals[] }>([
     { $match: { ...bill, ...line } },
     { $sort: { billDate: -1, _id: -1 } },
     { $unwind: '$lines' },
     { $match: line },
-    { $project: { billDate: 1, billNumber: 1, customerName: 1, customerPhone: 1, patientName: 1, doctorName: 1, rxNumber: 1, schedule: '$lines.schedule', l: '$lines' } },
-    ...facet(limit, '$_id'),
+    { $project: { billDate: 1, billNumber: 1, grandTotal: 1, customerName: 1, customerPhone: 1, patientName: 1, doctorName: 1, rxNumber: 1, schedule: '$lines.schedule', l: '$lines' } },
+    ...facet(limit, '$_id', [
+      { $group: { _id: '$_id', bill: { $first: '$grandTotal' }, lines: { $sum: '$l.totalAmount' } } },
+      { $group: { _id: null, bills: { $sum: 1 }, billTotal: { $sum: '$bill' }, lineTotal: { $sum: '$lines' } } },
+      { $project: { _id: 0, bills: 1, billTotal: 1, lineTotal: 1 } },
+    ]),
   ]);
   return {
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
+    totals: r?.totals[0] ?? { bills: 0, billTotal: 0, lineTotal: 0 },
     rows: (r?.rows ?? []).map((x) => ({
       date: x.billDate.toISOString(),
       bill: x.billNumber,
@@ -131,6 +139,7 @@ async function stock(t: TenantContext, f: Filters, limit: number, now = new Date
   return {
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
+    totals: null,
     rows: (r?.rows ?? []).map((x) => ({ drug: x.p.name, schedule: x.schedule, category: x.category, batch: x.batchNumber, expiry: expiryText(x.expiryDate), qty: fromBase(x.quantity, x.p.units), rack: x.rack, supplier: x.sup[0]?.name ?? 'Opening stock', invoice: x.purchaseInvoiceNumber ?? '', received: x.receivedAt.toISOString(), mrp: x.mrp })),
   };
 }
@@ -152,6 +161,7 @@ async function purchases(t: TenantContext, f: Filters, limit: number): Promise<O
   return {
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
+    totals: null,
     rows: (r?.rows ?? []).map((x) => ({ date: x.invoiceDate.toISOString(), purchase: x.purchaseNumber, invoice: x.invoiceNumber, supplier: x.supplierName, gstin: x.sup[0]?.gstin ?? '', drug: x.p.name, schedule: x.schedule, category: x.category, batch: x.l.batchNumber, expiry: expiryText(x.l.expiryDate), qty: `${String(x.l.quantity)} ${x.l.unit}`, free: x.l.freeQuantity ? `${String(x.l.freeQuantity)} ${x.l.unit}` : '', mrp: x.l.mrp })),
   };
 }
