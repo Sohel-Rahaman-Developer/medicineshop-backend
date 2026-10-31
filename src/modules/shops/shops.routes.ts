@@ -149,6 +149,21 @@ shopRouter.put(
   }),
 );
 
+// D107: up to 7 days for the counter to add the doctor after a bill.
+shopRouter.put(
+  '/rx-edit-hours',
+  requirePermission('settings', 'edit'),
+  validate({ body: z.object({ hours: z.number('Choose how long').int('Choose how long').min(1, 'At least 1 hour').max(168, 'At most 7 days') }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const t = tenantOf(req);
+    const actor = await actorOf(req);
+    const hours = (req.body as { hours: number }).hours;
+    await ShopModel.updateOne({ _id: t.shopId }, { $set: { 'settings.billing.rxEditHours': hours } });
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'settings', entityName: 'Doctor after the bill', text: `${actor.name} gave the counter ${String(hours)} hours to add the doctor after a bill`, ip: req.ip });
+    sent(res, { hours }, 'Time to add the doctor saved');
+  }),
+);
+
 shopRouter.patch(
   '/',
   requirePermission('settings', 'edit'),

@@ -28,7 +28,7 @@ import { floorOf, priceSale, splitLine, type Part } from './sale.domain';
 import { SaleReturnModel } from './sale-return.model';
 import * as returns from './sale-returns.service';
 import { SaleModel } from './sale.model';
-import type { SaleInput, SaleListQuery } from './sales.validation';
+import type { RxEditInput, SaleInput, SaleListQuery } from './sales.validation';
 
 const DAY = 24 * 60 * 60 * 1000;
 const oid = (id: string) => new Types.ObjectId(id);
@@ -130,6 +130,7 @@ export async function posSettings(t: TenantContext) {
     maxDiscountPercent: billing?.maxDiscountPercent ?? 20,
     enforceH1: billing?.enforceH1Prescription ?? true,
     rxPhoto: billing?.rxPhoto ?? false,
+    rxEditHours: billing?.rxEditHours ?? 24,
     canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
     seesCost: seesCost(t),
     loyalty: { ...r, canRedeem: can(t.permissions, 'loyalty', 'create'), canSetUp: can(t.permissions, 'loyalty', 'edit') },
@@ -224,7 +225,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     // A doctor from the shop's list wins over a typed name (PLAN §14).
     const doctor = input.rx?.doctorId ? await customers.doctorFor(t, input.rx.doctorId, session) : null;
     const doctorName = doctor?.name ?? input.rx?.doctorName ?? '';
-    if (rxNeeded && billing.enforceH1Prescription && (!doctorName || !input.rx?.patientName)) {
+    if (rxNeeded && billing.enforceH1Prescription && ((!doctorName && !input.rx?.doctorLater) || !input.rx?.patientName)) {
       throw AppError.validation('Schedule H1 / X: doctor and patient name are required', [{ field: 'body.rx', message: 'Doctor and patient name are required' }]);
     }
 
@@ -469,6 +470,7 @@ function shape(s: SaleLean, cost: boolean) {
     patientName: s.patientName,
     rxNumber: s.rxNumber,
     hasRxPhoto: s.hasRxPhoto,
+    doctorMissing: !s.doctorName && s.lines.some((l) => l.schedule === 'H1' || l.schedule === 'X'),
     doses: (s.doses ?? []).map((d) => ({ item: d.item, freq: d.freq ?? null, pattern: d.pattern ?? null, meal: d.meal ?? null, days: d.days ?? null })),
     doseLang: s.doseLang ?? 'en',
     rxDate: s.rxDate ?? null,
@@ -552,12 +554,13 @@ function shape(s: SaleLean, cost: boolean) {
 export async function get(t: TenantContext, userId: string, id: string) {
   const s = await findSale(t, userId, id);
   if (!s) throw AppError.notFound('Bill not found');
-  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing.saleReturnWindowDays').lean();
+  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing.saleReturnWindowDays settings.billing.rxEditHours').lean();
   const rets = await SaleReturnModel.find({ shopId: t.shopId, saleId: s._id }).sort({ returnDate: 1 }).select('returnNumber creditNoteNumber returnDate total refundMode createdByName creditLeft loyaltyRestoredValue').lean();
   return {
     ...shape(s, seesCost(t)),
     ageDays: returns.ageDays(s.billDate, new Date()),
     returnWindowDays: shop?.settings.billing?.saleReturnWindowDays ?? 7,
+    rxEditUntil: new Date(s.billDate.getTime() + (shop?.settings.billing?.rxEditHours ?? 24) * 3600_000),
     returns: rets.map((r) => ({ id: String(r._id), returnNumber: r.returnNumber, creditNoteNumber: r.creditNoteNumber ?? null, returnDate: r.returnDate, total: r.total, refundMode: r.refundMode, creditLeft: returns.noteLeft(r), createdByName: r.createdByName })),
   };
 }
@@ -673,6 +676,25 @@ export async function cancel(t: TenantContext, actor: Actor, id: string, reason:
     const moved = await loyalty.takeBack(t, await loyalty.rules(t, session), s, { reverse: earned - (s.loyaltyPointsReversed ?? 0), restore: redeemed - (s.loyaltyPointsRestored ?? 0), refType: 'SALE', refId: s._id, refNumber: s.billNumber, reason: 'Bill cancelled', actor, at: now }, session);
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'cancel', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} cancelled ${s.billNumber} · ${inr(s.grandTotal)} · reason: ${reason}${moved.reversed || moved.restored ? ` · points −${String(moved.reversed)} / +${String(moved.restored)}` : ''}`, ip }, session);
     return { id: String(s._id), billNumber: s.billNumber, pointsReversed: moved.reversed, pointsRestored: moved.restored };
+  });
+}
+
+/** D107: whoever bills may set the doctor for the shop's hours (default 24, at most 7 days); the owner or a manager (sales: approve) any time. */
+export async function setRx(t: TenantContext, actor: Actor, id: string, input: RxEditInput, ip?: string) {
+  const s = await findSale(t, actor.id, id);
+  if (!s) throw AppError.notFound('Bill not found');
+  if (s.status === 'cancelled') throw AppError.conflict('A cancelled bill can’t be changed');
+  const shop = await ShopModel.findOne({ _id: t.shopId }).select('settings.billing.rxEditHours').lean();
+  const late = Date.now() - s.billDate.getTime() > (shop?.settings.billing?.rxEditHours ?? 24) * 3600_000;
+  if (late && !can(t.permissions, 'sales', 'approve')) throw AppError.forbidden('The time to change the doctor is over — only the owner or a manager can now');
+  return inTransaction(async (session) => {
+    const doctor = input.doctorId ? await customers.doctorFor(t, input.doctorId, session) : null;
+    const doctorName = doctor?.name ?? input.doctorName;
+    await SaleModel.updateOne({ _id: s._id, shopId: t.shopId }, { $set: { doctorId: doctor?._id ?? null, doctorName, patientName: input.patientName, rxNumber: input.rxNumber } }, { session });
+    const was = `${s.doctorName || '—'} · ${s.patientName || '—'}${s.rxNumber ? ` · Rx ${s.rxNumber}` : ''}`;
+    const now = `${doctorName} · ${input.patientName}${input.rxNumber ? ` · Rx ${input.rxNumber}` : ''}`;
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'sales', entityId: String(s._id), entityName: s.billNumber, text: `${actor.name} set the prescription on ${s.billNumber}${late ? ' after the counter’s time' : ''}: ${was} → ${now}`, ip }, session);
+    return { id: String(s._id) };
   });
 }
 

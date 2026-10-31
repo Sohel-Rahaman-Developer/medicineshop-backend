@@ -999,5 +999,21 @@
   "Choose before or after food": "খাবার আগে না পরে, বেছে নিন",
   "Days are 1 to 365": "দিন 1 থেকে 365 পর্যন্ত হতে পারে",
   "Days must be a whole number": "দিন পূর্ণ সংখ্যায় লিখুন",
-  "Choose English, Hindi or Bengali": "English, हिंदी বা বাংলা বেছে নিন"
+  "Choose English, Hindi or Bengali": "English, हिंदी বা বাংলা বেছে নিন",
+  "That photo is too large — at most about 4 MB": "ছবিটা খুব বড় — প্রায় 4 MB পর্যন্ত",
+  "The AI would not read this photo": "AI এই ছবিটা পড়েনি",
+  "AI reading is off": "AI দিয়ে পড়া বন্ধ আছে",
+  "That is not a photo we can read — take it again": "এই ছবিটা পড়া যাচ্ছে না — আবার তুলুন",
+  "AI reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "আপনার দোকানের জন্য AI দিয়ে পড়া থেমে আছে — MedBox24-কে জানানো হয়েছে, ঠিক করে দেবে। কোনো টোকেন কাটা হয়নি।",
+  "Could not read the prescription: {part}": "প্রেসক্রিপশন পড়া গেল না: {part}",
+  "No medicines found on this photo": "এই ছবিতে কোনো ওষুধ পাওয়া যায়নি",
+  "Prescription saved on the bill": "প্রেসক্রিপশনের তথ্য বিলে সেভ হয়েছে",
+  "A cancelled bill can’t be changed": "বাতিল বিল বদলানো যায় না",
+  "The time to change the doctor is over — only the owner or a manager can now": "ডাক্তার বদলানোর সময় শেষ — এখন শুধু মালিক বা ম্যানেজার পারেন",
+  "Write the doctor’s name": "ডাক্তারের নাম লিখুন",
+  "Write the patient’s name": "রোগীর নাম লিখুন",
+  "At most 7 days": "সর্বোচ্চ 7 দিন",
+  "At least 1 hour": "কমপক্ষে 1 ঘণ্টা",
+  "Choose how long": "কতক্ষণ, বেছে নিন",
+  "Time to add the doctor saved": "ডাক্তার যোগ করার সময় সেভ হয়েছে"
 }

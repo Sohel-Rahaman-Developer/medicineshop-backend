@@ -47,7 +47,8 @@ export const saleSchema = z
     items: z.array(itemSchema).min(1, 'Add at least one item').max(100, 'At most 100 lines in one bill'),
     billDiscount: discount.nullable().optional(),
     customer: z.object({ name: text('Name', 80).default(''), phone: z.union([phone('Phone'), z.literal('')]).default('') }).strict().optional(),
-    rx: z.object({ doctorId: objectId.optional(), doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional() }).strict().optional(),
+    /** doctorLater (D107): an H1 bill without the doctor's name, added on the bill within 24 hours. */
+    rx: z.object({ doctorId: objectId.optional(), doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional(), doctorLater: z.boolean().optional() }).strict().optional(),
     /** The language the lines' "How to take" print in; the rest of the bill stays English. */
     doseLang: doseLang.optional(),
     /** A customer from the shop's list; udhaar (CREDIT) needs one. */
@@ -91,6 +92,16 @@ export const posSearchSchema = z
     limit: z.coerce.number().int().min(1).max(50).default(12),
   })
   .strict();
+/** D107: doctor and patient set after the bill. */
+export const rxEditSchema = z
+  .object({
+    doctorId: objectId.optional(),
+    doctorName: text('Doctor', 80).min(2, 'Write the doctor’s name'),
+    patientName: text('Patient', 80).min(2, 'Write the patient’s name'),
+    rxNumber: text('Rx number', 40).default(''),
+  })
+  .strict();
+export type RxEditInput = z.infer<typeof rxEditSchema>;
 export const cancelSaleSchema = z.object({ reason: z.string().trim().min(3, 'A reason is required').max(200) }).strict();
 
 export const saleReturnSchema = z

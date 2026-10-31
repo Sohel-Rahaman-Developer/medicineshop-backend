@@ -23,6 +23,8 @@ const settingsSchema = new Schema(
       enforceH1Prescription: { type: Boolean, default: true },
       // D105: a button at the counter to photograph the prescription with the bill. Off until the owner turns it on.
       rxPhoto: { type: Boolean, default: false },
+      // D107: how long whoever bills may add or fix the doctor afterwards; the owner and managers always may.
+      rxEditHours: { type: Number, default: 24, min: 1, max: 168 },
       saleReturnWindowDays: { type: Number, default: 7 },
       // Cash in the drawer before the first day close (PLAN §35.3); later the last close's leftover.
       openingFloat: { type: Number, default: 0 },

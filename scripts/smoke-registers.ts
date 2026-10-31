@@ -197,6 +197,38 @@ async function main() {
   const bad = async (dose: Record<string, unknown>, over: Record<string, unknown> = {}) => (await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 1, unit: 'STRIP', dose }], payments: [{ mode: 'CASH', amount: 3000 }], ...over })).status;
   check('BD and 1-0-1 together → 422 · “1-1” → 422 · 400 days → 422 · language “fr” → 422', (await bad({ freq: 'BD', pattern: '1-0-1' })) === 422 && (await bad({ pattern: '1-1' })) === 422 && (await bad({ days: 400 })) === 422 && (await bad({ freq: 'OD' }, { doseLang: 'fr' })) === 422);
 
+  section('7. The doctor added after the bill (D107)');
+  const { SaleModel } = await import('../src/modules/sales/sale.model.js');
+  const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
+  type Later = Saved & { doctorName: string; patientName: string; doctorMissing: boolean; rxEditUntil: string; billDate: string };
+  const oneH1 = [{ productId: alprax, quantity: 1, unit: 'STRIP' }];
+  const cash = [{ mode: 'CASH', amount: 4500 }];
+  const noDoctor = await cashier.post('/sales', { clientRequestId: randomUUID(), items: oneH1, payments: cash, rx: { doctorName: '', patientName: 'Amit Das', rxNumber: '' } });
+  check('H1 with no doctor → 422 (the shop asks for one)', noDoctor.status === 422, code(noDoctor));
+  const laterRes = await cashier.post('/sales', { clientRequestId: randomUUID(), items: oneH1, payments: cash, rx: { doctorName: '', patientName: 'Amit Das', rxNumber: '', doctorLater: true } });
+  const later = data<Saved>(laterRes);
+  const got = data<Later>(await cashier.get(`/sales/${later.id}`));
+  const hours = (iso: string, from: string) => (new Date(iso).getTime() - new Date(from).getTime()) / 3600_000;
+  check('“Doctor later” → billed with the patient only; the bill says the doctor is missing, editable 24 hours', laterRes.status === 201 && got.doctorName === '' && got.patientName === 'Amit Das' && got.doctorMissing && hours(got.rxEditUntil, got.billDate) === 24, `${code(laterRes)} ${JSON.stringify(got).slice(0, 200)}`);
+  check('… still no patient → 422', (await cashier.post('/sales', { clientRequestId: randomUUID(), items: oneH1, payments: cash, rx: { doctorName: '', patientName: '', rxNumber: '', doctorLater: true } })).status === 422);
+  const setRx = (who: typeof owner, id: string, doctorName: string) => who.put(`/sales/${id}/rx`, { doctorName, patientName: 'Amit Das', rxNumber: 'RX-120' });
+  const inTime = await setRx(cashier, later.id, 'Dr. A. Ghosh');
+  const fixed = data<Later>(await cashier.get(`/sales/${later.id}`));
+  check('the cashier adds the doctor within the time → saved, no longer missing', inTime.status === 200 && fixed.doctorName === 'Dr. A. Ghosh' && !fixed.doctorMissing, code(inTime));
+  check('… and the H1 register shows it', (await reg('sales', 'doctor=ghosh')).rows.some((r) => r.bill === later.billNumber));
+  check('a cashier can’t change the time (403); more than 7 days → 422', (await cashier.put('/shop/rx-edit-hours', { hours: 48 })).status === 403 && (await owner.put('/shop/rx-edit-hours', { hours: 169 })).status === 422);
+  await ok('hours', owner.put('/shop/rx-edit-hours', { hours: 2 }));
+  check('the owner sets 2 hours → the counter sees it, the bill’s time follows', data<{ rxEditHours: number }>(await cashier.get('/pos/settings')).rxEditHours === 2 && hours(data<Later>(await cashier.get(`/sales/${later.id}`)).rxEditUntil, got.billDate) === 2);
+  await SaleModel.updateOne({ _id: later.id, shopId: shop1 }, { $set: { billDate: new Date(Date.now() - 3 * 3600_000) } });
+  const late = await setRx(cashier, later.id, 'Dr. B. Sen');
+  check('3 hours later the cashier can’t (403, says why)', late.status === 403 && /time to change the doctor is over/.test(late.json.error?.message ?? ''), code(late));
+  const boss = await setRx(owner, later.id, 'Dr. B. Sen');
+  const log = await AuditLogModel.findOne({ shopId: shop1, entityId: later.id, text: { $regex: 'after the counter’s time' } }).lean();
+  check('the owner can any time; the audit log keeps old → new', boss.status === 200 && (log?.text ?? '').includes('Dr. A. Ghosh · Amit Das · Rx RX-120 → Dr. B. Sen'), log?.text ?? code(boss));
+  await ok('cancel', owner.post(`/sales/${later.id}/cancel`, { reason: 'Test cancel' }));
+  check('a cancelled bill → 409', (await setRx(owner, later.id, 'Dr. C. Roy')).status === 409);
+  check('another shop → 404 · a one-letter doctor → 422', (await setRx(other, b.id, 'Dr. X')).status === 404 && (await setRx(owner, b.id, 'D')).status === 422);
+
   finish();
 }
 

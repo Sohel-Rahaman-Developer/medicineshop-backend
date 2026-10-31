@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.42.1',
+    date: '2026-10-31',
+    title: 'The doctor added after the bill; How to take roomier on a computer',
+    shop: [
+      'A Schedule H1 bill can go out with “Doctor later” — the patient’s name is still needed. The bill then says the doctor is missing and by when to add it.',
+      'On the bill’s page: Add doctor / Edit doctor. The counter can do it for as long as the owner chooses in Settings (6 hours to 7 days, 1 day at first); the owner and managers can any time. Every change is in the audit log, old → new.',
+      'On a computer the “How to take” box is wider, and ⓘ Short forms opens the doctors’ short forms beside it on the right, with its own scroll. On a phone they still open below.',
+      'Boxes that were too narrow on a computer now have their proper width: Return · find the bill (wider), Payment, Held bills, Offline bills, Scan, the customer and points boxes.',
+    ],
+    admin: [],
+    api: ['PUT /sales/:id/rx { doctorId?, doctorName, patientName, rxNumber }; PUT /shop/rx-edit-hours { hours 1–168 }; sale rx.doctorLater; bills return rxEditUntil and doctorMissing; /pos/settings has rxEditHours.'],
+  },
+  {
     version: '1.42.0',
     date: '2026-10-31',
     title: 'How to take, on the bill in the customer’s language',

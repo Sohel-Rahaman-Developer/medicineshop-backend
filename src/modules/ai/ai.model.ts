@@ -136,7 +136,9 @@ const readSchema = new Schema(
     shopName: { type: String, required: true },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     userName: { type: String, required: true },
-    supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier', required: true },
+    /** D105: a supplier bill (purchase) or a prescription (POS); a prescription has no supplier. */
+    kind: { type: String, enum: ['bill', 'rx'], required: true, default: 'bill' },
+    supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier' },
     supplierName: { type: String, required: true },
     fileName: { type: String, required: true },
     fileType: { type: String, enum: ['pdf', 'image', 'docx'], required: true },

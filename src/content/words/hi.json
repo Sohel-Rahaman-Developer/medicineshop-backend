@@ -999,5 +999,21 @@
   "Choose before or after food": "खाने से पहले या बाद, चुनिए",
   "Days are 1 to 365": "दिन 1 से 365 तक हो सकते हैं",
   "Days must be a whole number": "दिन पूरी संख्या में लिखिए",
-  "Choose English, Hindi or Bengali": "English, हिंदी या বাংলা चुनिए"
+  "Choose English, Hindi or Bengali": "English, हिंदी या বাংলা चुनिए",
+  "That photo is too large — at most about 4 MB": "फ़ोटो बहुत बड़ी है — लगभग 4 MB तक",
+  "The AI would not read this photo": "AI ने यह फ़ोटो नहीं पढ़ी",
+  "AI reading is off": "AI से पढ़ना बंद है",
+  "That is not a photo we can read — take it again": "यह फ़ोटो पढ़ी नहीं जा सकती — फिर से खींचिए",
+  "AI reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "आपकी दुकान के लिए AI से पढ़ना रुका है — MedBox24 को बता दिया गया है, वे ठीक करेंगे। कोई टोकन नहीं कटा।",
+  "Could not read the prescription: {part}": "पर्चा नहीं पढ़ा जा सका: {part}",
+  "No medicines found on this photo": "इस फ़ोटो में कोई दवा नहीं मिली",
+  "Prescription saved on the bill": "पर्चे की जानकारी बिल पर सेव हो गई",
+  "A cancelled bill can’t be changed": "रद्द बिल बदला नहीं जा सकता",
+  "The time to change the doctor is over — only the owner or a manager can now": "डॉक्टर बदलने का समय ख़त्म — अब सिर्फ़ मालिक या मैनेजर बदल सकते हैं",
+  "Write the doctor’s name": "डॉक्टर का नाम लिखिए",
+  "Write the patient’s name": "मरीज़ का नाम लिखिए",
+  "At most 7 days": "ज़्यादा से ज़्यादा 7 दिन",
+  "At least 1 hour": "कम से कम 1 घंटा",
+  "Choose how long": "कितना समय, चुनिए",
+  "Time to add the doctor saved": "डॉक्टर जोड़ने का समय सेव हो गया"
 }

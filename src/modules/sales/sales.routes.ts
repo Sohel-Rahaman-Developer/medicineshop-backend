@@ -16,6 +16,8 @@ import * as offline from './offline.service';
 import * as svc from './sales.service';
 import {
   cancelSaleSchema,
+  rxEditSchema,
+  type RxEditInput,
   deviceSchema,
   offlineSaleSchema,
   type OfflineSaleInput,
@@ -160,6 +162,16 @@ salesRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     await svc.get(tenantOf(req), userOf(req), idOf(req));
     sent(res, await attach(tenantOf(req), await actorOf(req), 'Sale', idOf(req), (req.body as { photo: string }).photo, req.ip), 'Prescription photo saved with the bill');
+  }),
+);
+
+// D107: the doctor added after the bill by whoever bills; how late, and the owner's any time, is the service's rule.
+salesRouter.put(
+  '/:id/rx',
+  requirePermission('pos', 'create'),
+  validate({ params: idParams, body: rxEditSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await svc.setRx(tenantOf(req), await actorOf(req), idOf(req), req.body as RxEditInput, req.ip), 'Prescription saved on the bill');
   }),
 );
 
