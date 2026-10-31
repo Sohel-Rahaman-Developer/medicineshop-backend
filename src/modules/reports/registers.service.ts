@@ -1,6 +1,6 @@
 import { Types, type PipelineStage } from 'mongoose';
 import type { TenantContext } from '../../core/middleware/tenant';
-import { fromBase, type Units } from '../../utils/units';
+import { fromBase, unitWords, type Units } from '../../utils/units';
 import { CategoryModel } from '../categories/category.model';
 import { ProductModel } from '../products/product.model';
 import { PurchaseModel } from '../purchases/purchase.model';
@@ -24,6 +24,9 @@ export interface Filters {
   category: string[];
   q?: string;
   party?: string;
+  /** Stock and purchases: one supplier's id, or 'opening' for stock that came with no supplier. */
+  supplier?: string;
+  supplierName?: string;
   doctor?: string;
   pay: string[];
   staff?: string;
@@ -51,12 +54,14 @@ const expiryText = (d: Date) => (d.getUTCFullYear() >= 9999 ? 'No expiry' : mmyy
 
 /** Sales only: every matching bill's own amount added up, and the shown lines' amounts — never a chosen subset. */
 export interface Totals { bills: number; billTotal: number; lineTotal: number }
-type Out = { rows: Row[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: Totals | null };
-const facet = (limit: number, docKey: string, totals: PipelineStage.FacetPipelineStage[] = []): PipelineStage[] => [
+/** Sales only, one row per category: how many medicines, bills and lines, the quantity as billed per base unit, and the amount. */
+export interface CategoryRow { category: string; medicines: number; bills: number; lines: number; qty: string; amount: number }
+type Out = { rows: Row[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: Totals | null; byCategory: CategoryRow[] | null };
+const facet = (limit: number, docKey: string, extra: Record<string, PipelineStage.FacetPipelineStage[]> = {}): PipelineStage[] => [
   {
     $facet: {
       rows: [{ $limit: limit }],
-      ...(totals.length ? { totals } : {}),
+      ...extra,
       count: [{ $count: 'n' }],
       summary: [{ $group: { _id: '$schedule', lines: { $sum: 1 }, docs: { $addToSet: docKey } } }, { $project: { _id: 0, schedule: '$_id', lines: 1, docs: { $size: '$docs' } } }, { $sort: { schedule: 1 } }],
     },
@@ -74,22 +79,31 @@ async function sales(t: TenantContext, f: Filters, limit: number): Promise<Out> 
   if (f.schedule.length) line['lines.schedule'] = { $in: f.schedule };
   if (f.category.length) line['lines.category'] = { $in: f.category };
   if (f.q) line['lines.productName'] = like(f.q);
-  const [r] = await SaleModel.aggregate<{ rows: { billDate: Date; billNumber: string; customerName: string; customerPhone: string; patientName: string; doctorName: string; rxNumber: string; schedule: string; l: { productName: string; category: string; batchNumber: string; expiryDate: Date; quantityInBase: number; returnedQuantity: number; unit: string; baseUnit: string; salePack: number; mrp: number; totalAmount: number } }[]; count: { n: number }[]; summary: Out['summary']; totals: Totals[] }>([
+  const [r] = await SaleModel.aggregate<{ rows: { billDate: Date; billNumber: string; customerName: string; customerPhone: string; patientName: string; doctorName: string; rxNumber: string; schedule: string; l: { productName: string; category: string; batchNumber: string; expiryDate: Date; quantityInBase: number; returnedQuantity: number; unit: string; baseUnit: string; salePack: number; mrp: number; totalAmount: number } }[]; count: { n: number }[]; summary: Out['summary']; totals: Totals[]; byCategory: (Omit<CategoryRow, 'qty'> & { qty: { unit: string; n: number }[] })[] }>([
     { $match: { ...bill, ...line } },
     { $sort: { billDate: -1, _id: -1 } },
     { $unwind: '$lines' },
     { $match: line },
     { $project: { billDate: 1, billNumber: 1, grandTotal: 1, customerName: 1, customerPhone: 1, patientName: 1, doctorName: 1, rxNumber: 1, schedule: '$lines.schedule', l: '$lines' } },
-    ...facet(limit, '$_id', [
-      { $group: { _id: '$_id', bill: { $first: '$grandTotal' }, lines: { $sum: '$l.totalAmount' } } },
-      { $group: { _id: null, bills: { $sum: 1 }, billTotal: { $sum: '$bill' }, lineTotal: { $sum: '$lines' } } },
-      { $project: { _id: 0, bills: 1, billTotal: 1, lineTotal: 1 } },
-    ]),
+    ...facet(limit, '$_id', {
+      totals: [
+        { $group: { _id: '$_id', bill: { $first: '$grandTotal' }, lines: { $sum: '$l.totalAmount' } } },
+        { $group: { _id: null, bills: { $sum: 1 }, billTotal: { $sum: '$bill' }, lineTotal: { $sum: '$lines' } } },
+        { $project: { _id: 0, bills: 1, billTotal: 1, lineTotal: 1 } },
+      ],
+      byCategory: [
+        { $group: { _id: { c: '$l.category', u: '$l.baseUnit' }, q: { $sum: '$l.quantityInBase' }, meds: { $addToSet: '$l.productId' }, bills: { $addToSet: '$_id' }, lines: { $sum: 1 }, amount: { $sum: '$l.totalAmount' } } },
+        { $group: { _id: '$_id.c', qty: { $push: { unit: '$_id.u', n: '$q' } }, meds: { $push: '$meds' }, bills: { $push: '$bills' }, lines: { $sum: '$lines' }, amount: { $sum: '$amount' } } },
+        { $project: { _id: 0, category: '$_id', qty: 1, lines: 1, amount: 1, medicines: { $size: { $reduce: { input: '$meds', initialValue: [], in: { $setUnion: ['$$value', '$$this'] } } } }, bills: { $size: { $reduce: { input: '$bills', initialValue: [], in: { $setUnion: ['$$value', '$$this'] } } } } } },
+        { $sort: { amount: -1, category: 1 } },
+      ],
+    }),
   ]);
   return {
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
     totals: r?.totals[0] ?? { bills: 0, billTotal: 0, lineTotal: 0 },
+    byCategory: (r?.byCategory ?? []).map((x) => ({ ...x, category: x.category || 'No category', qty: x.qty.sort((a, b) => b.n - a.n).map((q) => unitWords(q.n, q.unit)).join(' · ') })),
     rows: (r?.rows ?? []).map((x) => ({
       date: x.billDate.toISOString(),
       bill: x.billNumber,
@@ -125,6 +139,7 @@ const productMatch = (f: Filters) => ({
 
 async function stock(t: TenantContext, f: Filters, limit: number, now = new Date()): Promise<Out> {
   const batch: Record<string, unknown> = { shopId: t.shopId, quantity: { $gt: 0 }, status: { $ne: 'returned' } };
+  if (f.supplier) batch.supplierId = f.supplier === 'opening' ? null : new Types.ObjectId(f.supplier);
   if (f.expiry === 'expired') batch.expiryDate = { $lt: now };
   if (f.expiry === 'soon') batch.expiryDate = { $gte: now, $lt: new Date(now.getTime() + 90 * DAY) };
   const [r] = await BatchModel.aggregate<{ rows: { batchNumber: string; expiryDate: Date; quantity: number; rack: string; purchaseInvoiceNumber?: string; receivedAt: Date; mrp: number; schedule: string; category: string; p: { name: string; units: Units }; sup: { name: string }[] }[]; count: { n: number }[]; summary: Out['summary'] }>([
@@ -140,6 +155,7 @@ async function stock(t: TenantContext, f: Filters, limit: number, now = new Date
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
     totals: null,
+    byCategory: null,
     rows: (r?.rows ?? []).map((x) => ({ drug: x.p.name, schedule: x.schedule, category: x.category, batch: x.batchNumber, expiry: expiryText(x.expiryDate), qty: fromBase(x.quantity, x.p.units), rack: x.rack, supplier: x.sup[0]?.name ?? 'Opening stock', invoice: x.purchaseInvoiceNumber ?? '', received: x.receivedAt.toISOString(), mrp: x.mrp })),
   };
 }
@@ -147,6 +163,7 @@ async function stock(t: TenantContext, f: Filters, limit: number, now = new Date
 async function purchases(t: TenantContext, f: Filters, limit: number): Promise<Out> {
   const doc: Record<string, unknown> = { shopId: t.shopId, status: 'active', invoiceDate: range(f) };
   if (f.party) doc.supplierName = like(f.party);
+  if (f.supplier) doc.supplierId = f.supplier === 'opening' ? null : new Types.ObjectId(f.supplier);
   const [r] = await PurchaseModel.aggregate<{ rows: { invoiceDate: Date; purchaseNumber: string; invoiceNumber: string; supplierName: string; schedule: string; category: string; p: { name: string }; sup: { gstin: string }[]; l: { batchNumber: string; expiryDate: Date; quantity: number; freeQuantity: number; unit: string; mrp: number } }[]; count: { n: number }[]; summary: Out['summary'] }>([
     { $match: doc },
     { $sort: { invoiceDate: -1, _id: -1 } },
@@ -162,6 +179,7 @@ async function purchases(t: TenantContext, f: Filters, limit: number): Promise<O
     count: r?.count[0]?.n ?? 0,
     summary: r?.summary ?? [],
     totals: null,
+    byCategory: null,
     rows: (r?.rows ?? []).map((x) => ({ date: x.invoiceDate.toISOString(), purchase: x.purchaseNumber, invoice: x.invoiceNumber, supplier: x.supplierName, gstin: x.sup[0]?.gstin ?? '', drug: x.p.name, schedule: x.schedule, category: x.category, batch: x.l.batchNumber, expiry: expiryText(x.l.expiryDate), qty: `${String(x.l.quantity)} ${x.l.unit}`, free: x.l.freeQuantity ? `${String(x.l.freeQuantity)} ${x.l.unit}` : '', mrp: x.l.mrp })),
   };
 }
@@ -182,6 +200,7 @@ export function describe(kind: Kind, f: Filters, span: string) {
     f.category.join(', '),
     f.q ? `medicine “${f.q}”` : '',
     f.party ? `${kind === 'sales' ? 'customer' : 'supplier'} “${f.party}”` : '',
+    f.supplier ? (f.supplier === 'opening' ? 'opening stock' : `supplier ${f.supplierName ?? ''}`.trim()) : '',
     f.doctor ? `doctor “${f.doctor}”` : '',
     f.pay.length ? f.pay.join(' / ') : '',
     f.min !== undefined || f.max !== undefined ? `bills ${f.min !== undefined ? rs(f.min) : '₹0'}–${f.max !== undefined ? rs(f.max) : 'any'}` : '',

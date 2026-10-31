@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.39.0',
+    date: '2026-10-31',
+    title: 'Registers: sales by category, supplier picker, totals in the table',
+    shop: [
+      'Sales register → By category: each category with how many medicines, bills and lines, the quantity billed (like “75 tablets · 3 bottles”) and the amount, biggest first, with a total line. Tap a category to see its lines.',
+      'Stock and purchase registers: pick the supplier from a list (or “Opening stock”) instead of typing the name.',
+      'The sales lines table and cards end with a Total line. PDF and Excel of “By category” come with the same totals.',
+    ],
+    admin: [],
+    api: ['GET /reports/registers/sales returns byCategory [{ category, medicines, bills, lines, qty, amount }]; stock and purchases take supplier=<id>|opening; export takes view=category for sales.'],
+  },
+  {
     version: '1.38.2',
     date: '2026-10-31',
     title: 'Registers: totals of the bills you filtered',

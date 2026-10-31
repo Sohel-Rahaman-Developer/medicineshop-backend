@@ -17,7 +17,7 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 const IST = 5.5 * 3600_000;
 const isoDay = (offsetDays = 0) => new Date(Date.now() + IST + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
-interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: { bills: number; billTotal: number; lineTotal: number } | null }
+interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: { bills: number; billTotal: number; lineTotal: number } | null; byCategory: { category: string; medicines: number; bills: number; lines: number; qty: string; amount: number }[] | null }
 
 async function main() {
   const h = await startHarness();
@@ -83,7 +83,11 @@ async function main() {
   check('totals with Schedule H1: 2 bills’ full amounts ₹231, these lines ₹92 + ₹45 = ₹137', h1.totals?.bills === 2 && h1.totals.billTotal === 23_100 && h1.totals.lineTotal === 13_700, tt(h1));
   const mid = await reg('sales', 'min=5000&max=10000');
   check('totals of bills ₹50–₹100: every such bill, none left out → 1 bill ₹79', mid.totals?.bills === 1 && mid.totals.billTotal === 7900, tt(mid));
-  check('stock and purchases carry no money total', (await reg('stock')).totals === null && (await reg('purchases')).totals === null);
+  const inCat = (n: string) => { const c = all.byCategory?.find((x) => x.category === n); return c ? JSON.stringify({ category: c.category, medicines: c.medicines, bills: c.bills, lines: c.lines, qty: c.qty, amount: c.amount }) : ''; };
+  check('by category — Tablet: 3 medicines, 3 bills, 4 lines, 75 tablets, ₹60 + ₹45 + ₹33.50 + ₹30 = ₹168.50', inCat('Tablet') === JSON.stringify({ category: 'Tablet', medicines: 3, bills: 3, lines: 4, qty: '75 tablets', amount: 16_850 }), JSON.stringify(all.byCategory));
+  check('by category — Capsule: 1 medicine, 1 bill, 10 capsules, ₹92 · biggest amount first', inCat('Capsule') === JSON.stringify({ category: 'Capsule', medicines: 1, bills: 1, lines: 1, qty: '10 capsules', amount: 9200 }) && all.byCategory?.[0]?.category === 'Tablet');
+  check('by category follows the filters: Schedule H1 → Capsule 1 + Tablet 1', (await reg('sales', 'schedule=H1')).byCategory?.map((c) => `${c.category} ${String(c.lines)}`).sort().join() === 'Capsule 1,Tablet 1');
+  check('stock and purchases carry no money total', (await reg('stock')).totals === null && (await reg('purchases')).totals === null && (await reg('stock')).byCategory === null);
   check('a bad schedule → 422 · min above max → 422 · no dates → 422', (await owner.get(`/reports/registers/sales?${range}&schedule=Z`)).status === 422 && (await owner.get(`/reports/registers/sales?${range}&min=500&max=100`)).status === 422 && (await owner.get('/reports/registers/sales')).status === 422);
 
   section('3. Stock and purchase registers');
@@ -92,12 +96,18 @@ async function main() {
   check('stock quantity in packs: Alprax AX9 = 11 STRIP (10 + 1 free)', st.rows.some((r) => r.batch === 'AX9' && r.qty === '11 STRIP'), JSON.stringify(st.rows.map((r) => r.qty)));
   check('expired only → Pan 40 PN1', (await reg('stock', 'expiry=expired')).rows.map((r) => r.batch).join() === 'PN1');
   check('stock by supplier “sharma” → AX9 + DL9', (await reg('stock', 'party=sharma')).count === 2);
+  check('stock by the picked supplier → AX9 + DL9 · opening stock → the 4 opening batches', (await reg('stock', `supplier=${sup}`)).rows.map((r) => r.batch).sort().join() === 'AX9,DL9' && (await reg('stock', 'supplier=opening')).rows.every((r) => r.supplier === 'Opening stock') && (await reg('stock', 'supplier=opening')).count === 4);
+  check('purchases by the picked supplier → 2 lines · a bad supplier id → 422', (await reg('purchases', `supplier=${sup}`)).count === 2 && (await owner.get(`/reports/registers/purchases?${range}&supplier=abc`)).status === 422);
   const pr = await reg('purchases', 'schedule=H1');
   check('H1 purchases: Alprax 10 STRIP + 1 free from Sharma, GSTIN shown, no rate', pr.count === 1 && pr.rows[0]?.qty === '10 STRIP' && pr.rows[0].free === '1 STRIP' && pr.rows[0].gstin === '19ABCDE1234F1Z5' && !pr.cols.some((col) => col.key === 'rate'), JSON.stringify(pr.rows));
 
   section('4. Files, and who may');
   const xl = await owner.get(`/reports/registers/sales/export?${range}&schedule=H1&format=xlsx`);
   check('Excel named for what was chosen (Schedule H1)', xl.status === 200 && /Sales-register.*Schedule-H1/.test(xl.headers.get('content-disposition') ?? ''), `${code(xl)} ${xl.headers.get('content-disposition') ?? ''}`);
+  const byCat = await owner.get(`/reports/registers/sales/export?${range}&view=category&format=pdf`);
+  check('sales by category PDF', byCat.status === 200 && byCat.text.startsWith('%PDF') && /Sales-by-category/.test(byCat.headers.get('content-disposition') ?? ''), `${code(byCat)} ${byCat.headers.get('content-disposition') ?? ''}`);
+  const supXl = await owner.get(`/reports/registers/stock/export?supplier=${sup}&format=xlsx`);
+  check('stock Excel names the picked supplier', supXl.status === 200 && /Sharma-Distributors/.test(supXl.headers.get('content-disposition') ?? ''), supXl.headers.get('content-disposition') ?? '');
   const pdf = await owner.get(`/reports/registers/stock/export?schedule=H1&format=pdf`);
   check('stock PDF', pdf.status === 200 && pdf.text.startsWith('%PDF'), code(pdf));
   const roles = data<{ id: string; key: string }[]>(await owner.get('/roles'));

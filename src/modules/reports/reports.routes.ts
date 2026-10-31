@@ -13,7 +13,8 @@ import { gstinFamily } from '../branches/branches.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
 import { ledgersXml, tallyMonth, vouchersXml } from './tally.service';
-import { KINDS, NAMES, describe, register, type Filters, type Kind } from './registers.service';
+import { KINDS, NAMES, describe, register, type CategoryRow, type Filters, type Kind } from './registers.service';
+import { SupplierModel } from '../suppliers/supplier.model';
 import { SCHEDULE_TYPES } from '../products/product.model';
 import { SALE_PAY_MODES } from '../sales/sale.model';
 import { objectId } from '../../core/zod';
@@ -167,15 +168,15 @@ const csv = (allowed?: readonly string[]) =>
 const words = z.string().trim().max(60).optional();
 const rupeesPaise = z.coerce.number().int().min(0).max(1_000_000_000).optional();
 const registerQuery = z
-  .object({ from: istDay.optional(), to: istDay.optional(), schedule: csv(SCHEDULE_TYPES), category: csv(), pay: csv(SALE_PAY_MODES), q: words, party: words, doctor: words, staff: objectId.optional(), min: rupeesPaise, max: rupeesPaise, expiry: z.enum(['all', 'expired', 'soon']).optional(), format: z.enum(['xlsx', 'pdf']).optional() })
+  .object({ from: istDay.optional(), to: istDay.optional(), schedule: csv(SCHEDULE_TYPES), category: csv(), pay: csv(SALE_PAY_MODES), q: words, party: words, supplier: z.union([objectId, z.literal('opening')]).optional(), doctor: words, staff: objectId.optional(), view: z.enum(['lines', 'category']).optional(), min: rupeesPaise, max: rupeesPaise, expiry: z.enum(['all', 'expired', 'soon']).optional(), format: z.enum(['xlsx', 'pdf']).optional() })
   .strict()
   .refine((v) => v.min === undefined || v.max === undefined || v.min <= v.max, { message: 'From is more than To', path: ['min'] });
 const kindParams = z.object({ kind: z.enum(KINDS) }).strict();
-type RegisterQuery = Filters & { format?: 'xlsx' | 'pdf' };
+type RegisterQuery = Filters & { format?: 'xlsx' | 'pdf'; view?: 'lines' | 'category' };
 
 function filtersOf(kind: Kind, q: RegisterQuery): Filters {
   if (kind !== 'stock') paramsOf('range', q);
-  return { from: q.from, to: q.to, schedule: q.schedule, category: q.category, q: q.q, party: q.party, doctor: q.doctor, pay: q.pay, staff: q.staff, min: q.min, max: q.max, expiry: q.expiry };
+  return { from: q.from, to: q.to, schedule: q.schedule, category: q.category, q: q.q, party: q.party, supplier: kind === 'sales' ? undefined : q.supplier, doctor: q.doctor, pay: q.pay, staff: q.staff, min: q.min, max: q.max, expiry: q.expiry };
 }
 
 reportsRouter.get(
@@ -197,10 +198,30 @@ reportsRouter.get(
     const kind = (req.params as { kind: Kind }).kind;
     const q = req.query as unknown as RegisterQuery;
     const f = filtersOf(kind, q);
+    if (f.supplier && f.supplier !== 'opening') f.supplierName = (await SupplierModel.findOne({ _id: f.supplier, shopId: tenantOf(req).shopId }).select('name').lean())?.name;
     const r = await register(tenantOf(req), kind, f, true);
     const span = kind === 'stock' ? `As of ${day(new Date())}` : `${day(f.from ?? new Date())} – ${day(f.to ?? new Date())}`;
     const sub = describe(kind, f, span);
     const t = r.totals;
+    if (q.view === 'category' && r.byCategory) {
+      const title = 'Sales by category';
+      const cats: Column<CategoryRow>[] = [
+        { label: 'Category', w: 2, get: (c) => c.category },
+        { label: 'Medicines', num: true, get: (c) => c.medicines },
+        { label: 'Bills', num: true, get: (c) => c.bills },
+        { label: 'Lines', num: true, get: (c) => c.lines },
+        { label: 'Quantity billed', w: 2.5, get: (c) => c.qty },
+        { label: q.format === 'pdf' ? 'Amount' : 'Amount (₹)', num: true, get: (c) => (q.format === 'pdf' ? rupees(c.amount) : c.amount / 100) },
+      ];
+      const sum = r.byCategory.reduce((a, c) => a + c.amount, 0);
+      const meds = r.byCategory.reduce((a, c) => a + c.medicines, 0);
+      if (q.format === 'pdf') {
+        sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title, sub, columns: cats, rows: r.byCategory, foot: ['Total', meds, t?.bills ?? '', r.count, '', rupees(sum)], landscape: true }), `${title} ${sub}`, 'pdf');
+        return;
+      }
+      sendFile(res, await xlsx(cats, [...r.byCategory, { category: 'Total', medicines: meds, bills: t?.bills ?? 0, lines: r.count, qty: '', amount: sum }]), `${title} ${sub}`, 'xlsx');
+      return;
+    }
     if (q.format === 'pdf') {
       const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.label, num: c.kind === 'money' || c.kind === 'num', get: (row) => cellText(c, row[c.key]) }));
       const summary: [string, string][] | undefined = t ? [[`${String(t.bills)} ${t.bills === 1 ? 'bill' : 'bills'}, their full amounts`, rupees(t.billTotal)], ['These lines', rupees(t.lineTotal)]] : undefined;
