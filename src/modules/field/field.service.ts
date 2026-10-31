@@ -137,7 +137,7 @@ export async function draftFor(email: string) {
 }
 
 export async function finishDraft(email: string, shopId: Types.ObjectId, session: ClientSession) {
-  const d = await ShopDraftModel.findOneAndUpdate({ email: email.toLowerCase(), status: 'waiting', expiresAt: { $gt: new Date() } }, { $set: { status: 'done', shopId } }, { sort: { createdAt: -1 }, session, new: true }).lean();
+  const d = await ShopDraftModel.findOneAndUpdate({ email: email.toLowerCase(), status: 'waiting', expiresAt: { $gt: new Date() } }, { $set: { status: 'done', shopId } }, { sort: { createdAt: -1 }, session, returnDocument: 'after' }).lean();
   return d ? d.staffId : null;
 }
 

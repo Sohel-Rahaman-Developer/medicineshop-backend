@@ -131,7 +131,7 @@ async function main() {
   /** Partner suites (D100): a partner with a code (its own trial if given); optionally a shop they filled for an owner's email. */
   const seedField = async (b: { email?: string; code?: string; name?: string; draftFor?: string; shopName?: string; trialDays?: number }) => {
     if (!b.email || !b.code) throw new Error('email and code');
-    const s = await FieldStaffModel.findOneAndUpdate({ email: b.email }, { $setOnInsert: { email: b.email, code: b.code, name: b.name ?? '', createdBy: 'e2e', ...(b.trialDays != null ? { trialDays: b.trialDays } : {}) } }, { upsert: true, new: true });
+    const s = await FieldStaffModel.findOneAndUpdate({ email: b.email }, { $setOnInsert: { email: b.email, code: b.code, name: b.name ?? '', createdBy: 'e2e', ...(b.trialDays != null ? { trialDays: b.trialDays } : {}) } }, { upsert: true, returnDocument: 'after' });
     if (b.draftFor) {
       const actor = { id: String(s._id), name: s.name || 'Partner', email: s.email, code: s.code, sessionId: '', method: 'otp' as const };
       await field.createDraft(actor, { email: b.draftFor, owner: { name: 'Mita Das', phone: '+919830066666' }, shop: { name: b.shopName ?? 'Das Medical', address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' } });

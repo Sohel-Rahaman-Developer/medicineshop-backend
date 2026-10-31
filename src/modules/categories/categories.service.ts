@@ -120,7 +120,7 @@ export async function decide(id: Types.ObjectId, by: { id: string; name: string 
   const why = reason.trim() || (decision === 'approve' ? 'New category for every shop' : 'Not a separate category');
   // Every emailed link stops working, yet still opens the page that says who decided.
   const used = ((await CategoryRequestModel.findById(id).select('links').lean())?.links ?? []).map((l) => l.hash);
-  const r = await CategoryRequestModel.findOneAndUpdate({ _id: id, status: 'pending' }, { $set: { status, decidedBy: by.name, decidedVia: via, decidedAt: new Date(), reason: reason.trim(), links: [] }, $addToSet: { usedHashes: { $each: used } } }, { new: true }).lean();
+  const r = await CategoryRequestModel.findOneAndUpdate({ _id: id, status: 'pending' }, { $set: { status, decidedBy: by.name, decidedVia: via, decidedAt: new Date(), reason: reason.trim(), links: [] }, $addToSet: { usedHashes: { $each: used } } }, { returnDocument: 'after' }).lean();
   if (!r) {
     const now = await CategoryRequestModel.findById(id).lean();
     if (!now) throw AppError.notFound('Request not found');

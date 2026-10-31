@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.38.0',
+    date: '2026-10-31',
+    title: 'Registers: sales, stock and purchases with every filter',
+    shop: [
+      'Insights → Registers: a sales register (every medicine sold with bill, customer, doctor, schedule, batch and expiry), a stock register (what is on the shelf now) and a purchase register (supplier, GSTIN, batch, expiry).',
+      'Filter by dates, one or more schedules (H, H1, X…), one or more categories, medicine, customer or supplier, doctor, payment, staff, a bill’s amount from–to, and stock expired or expiring in 90 days — all at once.',
+      'Download as PDF or Excel; the title says which filters were used. Cost and profit never show.',
+    ],
+    admin: [],
+    api: ['GET /reports/registers/:kind (sales | stock | purchases) with from, to, schedule, category, q, party, doctor, pay, staff, min, max, expiry; /reports/registers/:kind/export?format=xlsx|pdf.'],
+  },
+  {
     version: '1.37.0',
     date: '2026-10-30',
     title: 'Tally export, and find a bill by medicine',

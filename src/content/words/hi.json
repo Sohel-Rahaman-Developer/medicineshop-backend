@@ -986,5 +986,7 @@
   "When was it sold?": "यह कब बिका?",
   "Offline bills are paid by cash, UPI or card": "ऑफ़लाइन बिल का भुगतान कैश, UPI या कार्ड से होता है",
   "Missing device id": "डिवाइस की पहचान नहीं मिली",
-  "Choose cash, UPI, credit note or against udhaar": "Cash, UPI, credit note या उधार में से चुनिए"
+  "Choose cash, UPI, credit note or against udhaar": "Cash, UPI, credit note या उधार में से चुनिए",
+  "Unknown value": "अनजान मान",
+  "From is more than To": "From, To से ज़्यादा है"
 }

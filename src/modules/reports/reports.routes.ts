@@ -13,6 +13,10 @@ import { gstinFamily } from '../branches/branches.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
 import { ledgersXml, tallyMonth, vouchersXml } from './tally.service';
+import { KINDS, NAMES, describe, register, type Filters, type Kind } from './registers.service';
+import { SCHEDULE_TYPES } from '../products/product.model';
+import { SALE_PAY_MODES } from '../sales/sale.model';
+import { objectId } from '../../core/zod';
 
 const rangeSchema = z
   .object({ from: istDay, to: istDay })
@@ -149,6 +153,60 @@ reportsRouter.get(
     const all = await together(req, q.scope);
     const shared = all.fam.shops.length ? { gstin: all.fam.gstin, shops: all.fam.shops.map((s) => ({ id: String(s.id), name: s.name })) } : null;
     fetched(res, { ...(await gstMonth(tenantOf(req), q.month, new Date(), all.shops)), scope: all.shops ? 'gstin' : 'shop', shared });
+  }),
+);
+
+// Registers: any medicine's sales, stock and purchases with every filter the records allow; a list is "a,b,c".
+const csv = (allowed?: readonly string[]) =>
+  z
+    .string()
+    .max(600)
+    .optional()
+    .transform((v) => (v ? [...new Set(v.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 30) : []))
+    .refine((xs) => !allowed || xs.every((x) => allowed.includes(x)), { message: 'Unknown value' });
+const words = z.string().trim().max(60).optional();
+const rupeesPaise = z.coerce.number().int().min(0).max(1_000_000_000).optional();
+const registerQuery = z
+  .object({ from: istDay.optional(), to: istDay.optional(), schedule: csv(SCHEDULE_TYPES), category: csv(), pay: csv(SALE_PAY_MODES), q: words, party: words, doctor: words, staff: objectId.optional(), min: rupeesPaise, max: rupeesPaise, expiry: z.enum(['all', 'expired', 'soon']).optional(), format: z.enum(['xlsx', 'pdf']).optional() })
+  .strict()
+  .refine((v) => v.min === undefined || v.max === undefined || v.min <= v.max, { message: 'From is more than To', path: ['min'] });
+const kindParams = z.object({ kind: z.enum(KINDS) }).strict();
+type RegisterQuery = Filters & { format?: 'xlsx' | 'pdf' };
+
+function filtersOf(kind: Kind, q: RegisterQuery): Filters {
+  if (kind !== 'stock') paramsOf('range', q);
+  return { from: q.from, to: q.to, schedule: q.schedule, category: q.category, q: q.q, party: q.party, doctor: q.doctor, pay: q.pay, staff: q.staff, min: q.min, max: q.max, expiry: q.expiry };
+}
+
+reportsRouter.get(
+  '/registers/:kind',
+  needFeature('reports'),
+  validate({ params: kindParams, query: registerQuery }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const kind = (req.params as { kind: Kind }).kind;
+    fetched(res, await register(tenantOf(req), kind, filtersOf(kind, req.query as unknown as RegisterQuery)));
+  }),
+);
+
+reportsRouter.get(
+  '/registers/:kind/export',
+  requirePermission('reports', 'export'),
+  needFeature('reports'),
+  validate({ params: kindParams, query: registerQuery }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const kind = (req.params as { kind: Kind }).kind;
+    const q = req.query as unknown as RegisterQuery;
+    const f = filtersOf(kind, q);
+    const r = await register(tenantOf(req), kind, f, true);
+    const span = kind === 'stock' ? `As of ${day(new Date())}` : `${day(f.from ?? new Date())} – ${day(f.to ?? new Date())}`;
+    const sub = describe(kind, f, span);
+    if (q.format === 'pdf') {
+      const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.label, num: c.kind === 'money' || c.kind === 'num', get: (row) => cellText(c, row[c.key]) }));
+      sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title: NAMES[kind], sub, columns, rows: r.rows, landscape: true }), `${NAMES[kind]} ${sub}`, 'pdf');
+      return;
+    }
+    const columns: Column<Row>[] = r.cols.map((c) => ({ label: c.kind === 'money' ? `${c.label} (₹)` : c.label, get: (row) => cellValue(c, row[c.key]) }));
+    sendFile(res, await xlsx(columns, r.rows), `${NAMES[kind]} ${sub}`, 'xlsx');
   }),
 );
 
