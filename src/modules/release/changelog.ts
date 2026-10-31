@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.38.1',
+    date: '2026-10-31',
+    title: 'Registers: a cleaner, compact screen',
+    shop: [
+      'Registers on a computer: every filter in one bar (Sales / Stock / Purchases, medicine, customer, doctor, schedule, payment, category, bill amount) and a compact table that fits the screen — no sideways scroll.',
+      'Registers on a phone or tablet: each line is a small card (medicine, amount, schedule, batch, expiry, bill, customer, doctor); filters open in a sheet with "Show N lines".',
+      'Category is now a tick list on a computer, and Clear removes every filter at once.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.38.0',
     date: '2026-10-31',
     title: 'Registers: sales, stock and purchases with every filter',
