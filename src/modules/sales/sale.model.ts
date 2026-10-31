@@ -72,6 +72,8 @@ const saleSchema = new Schema(
     patientName: { type: String, default: '' },
     rxNumber: { type: String, default: '' },
     rxDate: { type: Date },
+    // D105: a photo of the prescription sits in Attachment (ownerType Sale).
+    hasRxPhoto: { type: Boolean, default: false },
     orderId: { type: Schema.Types.ObjectId, ref: 'CustomerOrder' },
     orderNumber: { type: String },
     lines: { type: [lineSchema], required: true },

@@ -8,6 +8,8 @@ import { idParams } from '../../core/zod';
 import { AppError } from '../../core/errors';
 import { rangeSchema } from '../purchases/purchases.validation';
 import { actorOf } from '../user/actor';
+import { attach, photoOf } from '../attachments/attachments.service';
+import { photoSchema } from '../purchases/purchases.routes';
 import * as returns from './sale-returns.service';
 import { billPdf, returnPdf } from './sale.pdf';
 import * as offline from './offline.service';
@@ -137,6 +139,27 @@ salesRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const { pdf, name } = await billPdf(tenantOf(req), userOf(req), idOf(req));
     sendFile(res, pdf, name, 'pdf');
+  }),
+);
+
+// D105: the prescription photographed with the bill. Seen by whoever may see the bill; added by whoever may bill.
+salesRouter.get(
+  '/:id/prescription',
+  view,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    await svc.get(tenantOf(req), userOf(req), idOf(req));
+    fetched(res, await photoOf(tenantOf(req), 'Sale', idOf(req)));
+  }),
+);
+
+salesRouter.post(
+  '/:id/prescription',
+  requirePermission('sales', 'create'),
+  validate({ params: idParams, body: photoSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    await svc.get(tenantOf(req), userOf(req), idOf(req));
+    sent(res, await attach(tenantOf(req), await actorOf(req), 'Sale', idOf(req), (req.body as { photo: string }).photo, req.ip), 'Prescription photo saved with the bill');
   }),
 );
 

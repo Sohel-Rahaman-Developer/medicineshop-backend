@@ -140,6 +140,28 @@ async function main() {
   const other = await h.signIn('amit@reg2.test');
   other.shopId = data<{ id: string }>(await other.post('/shops', shopBody('Other Pharmacy'))).id;
   check('another shop sees none of these', data<Reg>(await other.get(`/reports/registers/sales?${range}`)).count === 0 && data<Reg>(await other.get('/reports/registers/stock')).count === 0);
+  section('5. Prescription photo with the bill (D105)');
+  check('off until the owner turns it on', !data<{ rxPhoto: boolean }>(await owner.get('/pos/settings')).rxPhoto);
+  check('a cashier cannot turn it on (403)', (await cashier.put('/shop/rx-photo', { on: true })).status === 403);
+  await ok('rx photo on', owner.put('/shop/rx-photo', { on: true }));
+  check('owner turns it on → the counter sees it', data<{ rxPhoto: boolean }>(await owner.get('/pos/settings')).rxPhoto);
+  const { default: sharp } = await import('sharp');
+  const lines = Array.from({ length: 30 }, (_, i) => `<text x="80" y="${String(120 + i * 52)}" font-size="38" fill="#1a3a8a">Tab Augmentin 625 · 1-0-1 · 5 days · line ${String(i + 1)}</text>`).join('');
+  const page = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1800"><rect width="100%" height="100%" fill="#fbf7ee"/>${lines}</svg>`)).jpeg({ quality: 80 }).toBuffer();
+  const sent = await owner.post(`/sales/${b.id}/prescription`, { photo: `data:image/jpeg;base64,${page.toString('base64')}` });
+  const saved = data<{ bytes: number; width: number; height: number }>(sent);
+  check(`a ${String(Math.round(page.length / 1024))} KB colour photo is stored grey WebP ≤ 150 KB, longest side 1400 px`, sent.status === 200 && saved.bytes <= 150 * 1024 && saved.width === 1400 && saved.height === 1050, `${code(sent)} ${JSON.stringify(saved)}`);
+  const back = data<{ dataUrl: string; by: string }>(await owner.get(`/sales/${b.id}/prescription`));
+  const stored = Buffer.from(back.dataUrl.split(',')[1] ?? '', 'base64');
+  const img = await sharp(stored).metadata();
+  // Blue ink on cream paper: R, G and B averages differ in the colour photo and must match in the stored one.
+  const mean = async (buf: Buffer) => (await sharp(buf).removeAlpha().stats()).channels.map((c) => c.mean);
+  const [r0 = 0, , b0 = 0] = await mean(page);
+  const [r1 = 0, g1 = 0, b1 = 0] = await mean(stored);
+  check('it comes back as WebP and grey (R = G = B), with who added it', back.dataUrl.startsWith('data:image/webp;base64,') && img.format === 'webp' && Math.abs(r0 - b0) > 5 && Math.abs(r1 - g1) < 1 && Math.abs(g1 - b1) < 1 && back.by.length > 0, `${img.format} colour ${r0.toFixed(1)}/${b0.toFixed(1)} stored ${r1.toFixed(1)}/${g1.toFixed(1)}/${b1.toFixed(1)}`);
+  check('the bill says it has one', data<{ hasRxPhoto: boolean }>(await owner.get(`/sales/${b.id}`)).hasRxPhoto);
+  check('not an image → 422 · a bill with none → 404', (await owner.post(`/sales/${b.id}/prescription`, { photo: 'data:image/jpeg;base64,aGVsbG8=' })).status === 422 && (await owner.get(`/sales/${a.id}/prescription`)).status === 404);
+  check('another shop cannot see or add it (404)', (await other.get(`/sales/${b.id}/prescription`)).status === 404 && (await other.post(`/sales/${b.id}/prescription`, { photo: `data:image/jpeg;base64,${page.toString('base64')}` })).status === 404);
 
   finish();
 }

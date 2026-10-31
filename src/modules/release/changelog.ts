@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.41.0',
+    date: '2026-10-31',
+    title: 'Prescription photo with the bill',
+    shop: [
+      'Settings → Prescription photo at the counter (off until you turn it on). Then the bill shows “Add a prescription photo” — never required, and it stands out when the bill has a prescription medicine.',
+      'The phone’s back camera or the laptop’s webcam opens, with Switch camera and Choose a file. The photo is made small on the phone and stored grey, about 100 KB, with the bill — a year of photos stays light.',
+      'The bill’s page shows the photo (who added it, when, its size) and lets you add or replace one later — for a bill made offline or a photo forgotten.',
+    ],
+    admin: [],
+    api: ['PUT /shop/rx-photo { on }; GET / POST /sales/:id/prescription (JPEG/PNG/WebP in, grey WebP ≤ 1400 px ≤ 150 KB stored); bills carry hasRxPhoto; /pos/settings has rxPhoto.'],
+  },
+  {
     version: '1.40.1',
     date: '2026-10-31',
     title: 'The chosen dates show without a tap',

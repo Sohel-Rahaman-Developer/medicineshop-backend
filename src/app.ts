@@ -57,7 +57,7 @@ import { referralRouter } from './modules/referral/referral.routes';
 import { timing } from './modules/perf/perf';
 import { perfRouter } from './modules/perf/perf.routes';
 
-const PHOTO_PATH = /^\/(purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo$/;
+const PHOTO_PATH = /^\/((purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo|sales\/[a-f0-9]{24}\/prescription)$/;
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
 const BILL_PATH = /^\/purchases\/import\/read$/;
 // D78: a scan or a phone photo for AI reading — up to about 4 MB (Nginx has its own block for this path).
@@ -118,7 +118,7 @@ export function createApp() {
   // Before the JSON parser and CSRF: Razorpay sends no cookies and signs the raw body.
   app.post(`${env.API_PREFIX}/webhooks/razorpay`, ...razorpayWebhook);
 
-  // Document photos (supplier invoice, damaged stock) are the only bodies allowed past 100 KB.
+  // Document photos (supplier invoice, damaged stock, a bill's prescription) are the only bodies allowed past 100 KB.
   const photoJson = express.json({ limit: '850kb' });
   const aiJson = express.json({ limit: '6mb' });
   app.use(env.API_PREFIX, (req, res, next) => {

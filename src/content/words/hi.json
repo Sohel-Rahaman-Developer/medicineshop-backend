@@ -989,5 +989,8 @@
   "Choose cash, UPI, credit note or against udhaar": "Cash, UPI, credit note या उधार में से चुनिए",
   "Unknown value": "अनजान मान",
   "From is more than To": "From, To से ज़्यादा है",
-  "This register can’t be grouped that way": "यह रजिस्टर इस तरह समूह में नहीं बँट सकता"
+  "This register can’t be grouped that way": "यह रजिस्टर इस तरह समूह में नहीं बँट सकता",
+  "Prescription photo saved with the bill": "पर्चे की फ़ोटो बिल के साथ सेव हो गई",
+  "Prescription photo is on at the counter": "काउंटर पर पर्चे की फ़ोटो चालू है",
+  "Prescription photo is off": "पर्चे की फ़ोटो बंद है"
 }

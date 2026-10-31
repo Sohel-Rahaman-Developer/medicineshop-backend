@@ -1,10 +1,10 @@
 import { Schema, model } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
 
-export const ATTACHMENT_OWNERS = ['Purchase', 'StockAdjustment'] as const;
+export const ATTACHMENT_OWNERS = ['Purchase', 'StockAdjustment', 'Sale'] as const;
 export type AttachmentOwner = (typeof ATTACHMENT_OWNERS)[number];
 
-// A photo of a paper (supplier invoice, damaged stock), re-encoded on the server (D51). One per owner.
+// A photo of a paper (supplier invoice, damaged stock, a bill's prescription), re-encoded on the server (D51, D105). One per owner.
 const attachmentSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },

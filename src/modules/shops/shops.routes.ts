@@ -10,6 +10,7 @@ import { actorOf } from '../user/actor';
 import * as field from '../field/field.service';
 import { UserModel } from '../user/user.model';
 import * as svc from './shops.service';
+import { ShopModel } from './shop.model';
 import { logoPathOf, removeShopLogo, setShopLogo } from './shop-logo';
 import { Types } from 'mongoose';
 import { z } from 'zod';
@@ -132,6 +133,21 @@ shopRouter.put(
   }),
 );
 shopRouter.delete('/logo', requirePermission('settings', 'edit'), asyncHandler(async (req: Request, res: Response) => { sent(res, await removeShopLogo(tenantOf(req), await actorOf(req), req.ip), 'Logo removed'); }));
+
+// D105: the counter's prescription photo button, on or off.
+shopRouter.put(
+  '/rx-photo',
+  requirePermission('settings', 'edit'),
+  validate({ body: z.object({ on: z.boolean() }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const t = tenantOf(req);
+    const actor = await actorOf(req);
+    const on = (req.body as { on: boolean }).on;
+    await ShopModel.updateOne({ _id: t.shopId }, { $set: { 'settings.billing.rxPhoto': on } });
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'settings', entityName: 'Prescription photo', text: on ? `${actor.name} turned on the prescription photo at the counter` : `${actor.name} turned off the prescription photo at the counter`, ip: req.ip });
+    sent(res, { on }, on ? 'Prescription photo is on at the counter' : 'Prescription photo is off');
+  }),
+);
 
 shopRouter.patch(
   '/',

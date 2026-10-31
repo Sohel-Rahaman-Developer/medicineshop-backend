@@ -21,6 +21,8 @@ const settingsSchema = new Schema(
       allowNegativeStock: { type: Boolean, default: false },
       maxDiscountPercent: { type: Number, default: 20 },
       enforceH1Prescription: { type: Boolean, default: true },
+      // D105: a button at the counter to photograph the prescription with the bill. Off until the owner turns it on.
+      rxPhoto: { type: Boolean, default: false },
       saleReturnWindowDays: { type: Number, default: 7 },
       // Cash in the drawer before the first day close (PLAN §35.3); later the last close's leftover.
       openingFloat: { type: Number, default: 0 },
