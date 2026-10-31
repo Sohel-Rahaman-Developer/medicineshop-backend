@@ -63,7 +63,7 @@ export async function createOffline(t: TenantContext, actor: Actor, input: Offli
   const now = Date.now();
   if (input.soldAt.getTime() > now + AHEAD_MS) throw AppError.validation('This bill is dated in the future — check the date and time on this device');
   if (input.soldAt.getTime() < now - OFFLINE_DAYS * 86_400_000) throw AppError.validation(`This offline bill is more than ${String(OFFLINE_DAYS)} days old — ask the owner to enter it by hand`);
-  const sale: SaleInput = { clientRequestId: input.clientRequestId, items: input.items, customer: input.customer, rx: input.rx, customerId: input.customerId, payments: input.payments, cashReceived: input.cashReceived, redeemPoints: 0 };
+  const sale: SaleInput = { clientRequestId: input.clientRequestId, items: input.items, customer: input.customer, rx: input.rx, doseLang: input.doseLang, customerId: input.customerId, payments: input.payments, cashReceived: input.cashReceived, redeemPoints: 0 };
   let out: Awaited<ReturnType<typeof create>>;
   try {
     out = await create(t, actor, sale, ip, { deviceId: device._id, code: device.code, seq: input.seq, soldAt: input.soldAt });

@@ -271,6 +271,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const cash = input.payments.filter((x) => x.mode === 'CASH').reduce((s, x) => s + x.amount, 0);
     if (input.cashReceived !== undefined && input.cashReceived < cash) throw AppError.validation('Cash received is less than the cash part', [{ field: 'body.cashReceived', message: 'Less than the cash part' }]);
 
+    const doses = input.items.flatMap((it, item) => (it.dose && (it.dose.freq || it.dose.pattern || it.dose.meal || it.dose.days) ? [{ item, freq: it.dose.freq ?? undefined, pattern: it.dose.pattern ?? undefined, meal: it.dose.meal ?? undefined, days: it.dose.days ?? undefined }] : []));
     const lines = built.parts.map((x, i) => {
       const r = priced.lines[i];
       if (!r) throw AppError.internal();
@@ -346,6 +347,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           patientName: input.rx?.patientName ?? '',
           rxNumber: input.rx?.rxNumber ?? '',
           rxDate: input.rx?.rxDate,
+          ...(doses.length ? { doses, doseLang: input.doseLang ?? 'en' } : {}),
           orderId: order?._id,
           orderNumber: order?.orderNumber,
           lines,
@@ -467,6 +469,8 @@ function shape(s: SaleLean, cost: boolean) {
     patientName: s.patientName,
     rxNumber: s.rxNumber,
     hasRxPhoto: s.hasRxPhoto,
+    doses: (s.doses ?? []).map((d) => ({ item: d.item, freq: d.freq ?? null, pattern: d.pattern ?? null, meal: d.meal ?? null, days: d.days ?? null })),
+    doseLang: s.doseLang ?? 'en',
     rxDate: s.rxDate ?? null,
     orderId: s.orderId ? String(s.orderId) : null,
     orderNumber: s.orderNumber ?? null,

@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.41.0",
+  "version": "1.42.0",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -78,6 +78,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
+    "@expo-google-fonts/noto-sans-bengali": "^0.4.4",
+    "@expo-google-fonts/noto-sans-devanagari": "^0.4.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

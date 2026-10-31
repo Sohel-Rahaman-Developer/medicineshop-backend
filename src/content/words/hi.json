@@ -992,5 +992,12 @@
   "This register can’t be grouped that way": "यह रजिस्टर इस तरह समूह में नहीं बँट सकता",
   "Prescription photo saved with the bill": "पर्चे की फ़ोटो बिल के साथ सेव हो गई",
   "Prescription photo is on at the counter": "काउंटर पर पर्चे की फ़ोटो चालू है",
-  "Prescription photo is off": "पर्चे की फ़ोटो बंद है"
+  "Prescription photo is off": "पर्चे की फ़ोटो बंद है",
+  "Choose how often or a 1-0-1 pattern, not both": "कितनी बार चुनिए या 1-0-1 लिखिए, दोनों नहीं",
+  "Choose how often": "कितनी बार लेनी है, चुनिए",
+  "Write it like 1-0-1 (morning-afternoon-night)": "ऐसे लिखिए: 1-0-1 (सुबह-दोपहर-रात)",
+  "Choose before or after food": "खाने से पहले या बाद, चुनिए",
+  "Days are 1 to 365": "दिन 1 से 365 तक हो सकते हैं",
+  "Days must be a whole number": "दिन पूरी संख्या में लिखिए",
+  "Choose English, Hindi or Bengali": "English, हिंदी या বাংলা चुनिए"
 }

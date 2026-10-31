@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.42.0',
+    date: '2026-10-31',
+    title: 'How to take, on the bill in the customer’s language',
+    shop: [
+      'Each medicine at the counter has “How to take” — optional. Tap OD, BD, TDS, QDS, HS, SOS or Stat, or write it the doctor’s way (1-0-1, with halves), then before or after food and how many days.',
+      'Pick the bill’s language: English, हिंदी or বাংলা. Only these lines print in it, under each medicine; the rest of the bill stays English. The box shows the exact words before you save.',
+      'The prescription short forms (BD, TDS, AC, PC, SOS, Tab, Syp, E/D…) in all three languages: beside “How to take”, and in Help → Short forms on every screen.',
+    ],
+    admin: [],
+    api: ['POST /sales and offline bills take items[].dose { freq | pattern, meal, days } and doseLang (en | hi | bn); bills return doses[] and doseLang; the bill PDF prints them with Noto Devanagari / Bengali.'],
+  },
+  {
     version: '1.41.0',
     date: '2026-10-31',
     title: 'Prescription photo with the bill',

@@ -1,7 +1,9 @@
+import { createRequire } from 'node:module';
 import PDFDocument from 'pdfkit';
 import qrcode from 'qrcode-generator';
 import { BOLD, FONT } from './export';
 import { brandFile } from '../modules/branding/branding.service';
+import type { DoseLang } from '../content/dose-words';
 
 /** One designed layout for every invoice-like paper: the shop's bill and credit note, MedBox24's own invoice. */
 export interface InvoiceSpec {
@@ -18,7 +20,8 @@ export interface InvoiceSpec {
   logoImage?: Buffer | null;
   parties: { label: string; lines: string[] }[];
   columns: { label: string; w: number; num?: boolean }[];
-  rows: { cells: string[]; sub?: string }[];
+  /** say: D106's "How to take" under the line, in the bill's language. */
+  rows: { cells: string[]; sub?: string; say?: { text: string; lang: DoseLang } }[];
   side?: { title: string; lines: string[] };
   totals: { label: string; value: string; strong?: boolean }[];
   words?: string;
@@ -27,6 +30,10 @@ export interface InvoiceSpec {
   qr?: { text: string; caption: string };
   footer: string;
 }
+
+const noto = (pkg: string, file: string) => createRequire(__filename).resolve(`@expo-google-fonts/${pkg}/600SemiBold/${file}`);
+// DejaVu has no Indic letters; Noto's are shaped by pdfkit (fontkit), conjuncts and all.
+const SCRIPT: Record<DoseLang, string> = { en: 'b', hi: 'deva', bn: 'beng' };
 
 const C = { ink: '#0f172a', muted: '#64748b', brand: '#0fb5a8', dark: '#0b3b43', soft: '#e8f7f5', line: '#dbe4e8', zebra: '#f6f9fa', danger: '#b42318', dangerSoft: '#fdecea', ok: '#067647', okSoft: '#e7f6ec' };
 
@@ -52,6 +59,8 @@ export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
   const doc = new PDFDocument({ size: s.size, margin: M, bufferPages: true, info: { Title: `${s.title} ${s.meta[0]?.[1] ?? ''}`, Producer: 'MedBox24' } });
   doc.registerFont('r', FONT);
   doc.registerFont('b', BOLD);
+  if (s.rows.some((r) => r.say?.lang === 'hi')) doc.registerFont('deva', noto('noto-sans-devanagari', 'NotoSansDevanagari_600SemiBold.ttf'));
+  if (s.rows.some((r) => r.say?.lang === 'bn')) doc.registerFont('beng', noto('noto-sans-bengali', 'NotoSansBengali_600SemiBold.ttf'));
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on('end', () => { resolve(Buffer.concat(chunks)); }));
@@ -142,8 +151,9 @@ export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
   s.rows.forEach((r, n) => {
     doc.font('r').fontSize(fs);
     const subH = r.sub ? doc.fontSize(6.3 * k).heightOfString(r.sub, { width: (widths[0] ?? 100) + (widths[1] ?? 0) - 8 }) + 1 : 0;
+    const sayH = r.say ? doc.font(SCRIPT[r.say.lang]).fontSize(7.2 * k).heightOfString(r.say.text, { width: W - 8 }) + 2 : 0;
     doc.fontSize(fs);
-    const h = Math.max(...r.cells.map((c, i) => doc.font(i === 0 ? 'b' : 'r').heightOfString(c, { width: (widths[i] ?? 30) - 8 }))) + subH + 8 * k;
+    const h = Math.max(...r.cells.map((c, i) => doc.font(i === 0 ? 'b' : 'r').heightOfString(c, { width: (widths[i] ?? 30) - 8 }))) + subH + sayH + 8 * k;
     if (y + h > bottom()) {
       doc.addPage();
       bar();
@@ -156,7 +166,8 @@ export async function invoicePdf(s: InvoiceSpec): Promise<Buffer> {
       doc.font(i === 0 ? 'b' : 'r').fontSize(fs).fillColor(C.ink).text(c, x + 4, y + 4 * k, { width: (widths[i] ?? 30) - 8, align: s.columns[i]?.num ? 'right' : 'left' });
       x += widths[i] ?? 30;
     });
-    if (r.sub) doc.font('r').fontSize(6.3 * k).fillColor(C.muted).text(r.sub, M + 4, y + h - subH - 3 * k, { width: (widths[0] ?? 100) + (widths[1] ?? 0) - 8 });
+    if (r.sub) doc.font('r').fontSize(6.3 * k).fillColor(C.muted).text(r.sub, M + 4, y + h - subH - sayH - 3 * k, { width: (widths[0] ?? 100) + (widths[1] ?? 0) - 8 });
+    if (r.say) doc.font(SCRIPT[r.say.lang]).fontSize(7.2 * k).fillColor(C.dark).text(r.say.text, M + 4, y + h - sayH - 3 * k, { width: W - 8 });
     y += h;
     doc.moveTo(M, y).lineTo(M + W, y).lineWidth(0.4).stroke(C.line);
   });

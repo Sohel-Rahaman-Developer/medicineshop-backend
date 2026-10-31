@@ -7,6 +7,8 @@ import { ShopModel } from '../shops/shop.model';
 import * as returns from './sale-returns.service';
 import { hsnSummary, packLabel, qrText } from './sale.domain';
 import { forPdf } from './sales.service';
+import { doseText } from './sale.dose';
+import type { DoseLang } from '../../content/dose-words';
 import { logoBytes } from '../shops/shop-logo';
 
 type Total = [label: string, value: string, bold: boolean];
@@ -18,6 +20,7 @@ interface Row {
   gstRate: number;
   amount: number;
   sub: string;
+  say?: { text: string; lang: DoseLang };
 }
 interface Paper {
   title: string;
@@ -52,7 +55,7 @@ async function paper(t: TenantContext, p: Paper) {
     },
     parties: p.parties,
     columns: [{ label: 'Item', w: 3.2 }, { label: 'Qty', w: 1.2, num: true }, { label: 'MRP', w: 1, num: true }, { label: 'Disc', w: 0.9, num: true }, { label: 'GST', w: 0.6, num: true }, { label: 'Amount', w: 1.1, num: true }],
-    rows: p.rows.map((r) => ({ cells: [r.name, r.qty, rupees(r.mrp), r.disc, `${String(r.gstRate)}%`, rupees(r.amount)], sub: r.sub })),
+    rows: p.rows.map((r) => ({ cells: [r.name, r.qty, rupees(r.mrp), r.disc, `${String(r.gstRate)}%`, rupees(r.amount)], sub: r.sub, say: r.say })),
     side: p.hsn.length ? { title: 'HSN · rate · taxable · CGST · SGST', lines: p.hsn.map((h) => `${h.hsn || '—'} · ${String(h.rate)}% · ${rupees(h.taxable)} · ${rupees(h.cgst)} · ${rupees(h.sgst)}`) } : undefined,
     totals: p.totals.map(([label, value, strong]) => ({ label, value, strong })),
     words: rupeesInWords(p.words),
@@ -87,7 +90,10 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
       { label: 'Bill to', lines: [s.buyerGstin ? (s.buyerName ?? s.customerName) : s.customerName, ...(s.customerPhone ? [s.customerPhone] : []), ...(s.buyerGstin ? [`GSTIN ${s.buyerGstin}`] : [])] },
       ...(s.doctorName || s.patientName ? [{ label: 'Doctor · patient', lines: [s.doctorName || '—', `Patient: ${s.patientName || '—'}${s.rxNumber ? ` · Rx ${s.rxNumber}` : ''}`] }] : []),
     ],
-    rows: s.lines.map((l) => {
+    rows: s.lines.map((l, n) => {
+      // Once per cart line: a line split over two batches prints it under the first.
+      const dose = s.lines.findIndex((y) => y.item === l.item) === n ? s.doses.find((d) => d.item === l.item) : undefined;
+      const say = dose ? doseText(dose, s.doseLang) : '';
       const rx = l.schedule === 'H1' || l.schedule === 'X' ? ` · Sch ${l.schedule}` : '';
       const hsn = hsnOn && l.hsn ? ` · HSN ${l.hsn}` : '';
       return {
@@ -98,6 +104,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
         gstRate: l.gstRate,
         amount: l.totalAmount,
         sub: `${l.batchNumber} · Exp ${l.expiryDate ? mmyy(l.expiryDate) : 'none'}${rx}${hsn}`,
+        ...(say ? { say: { text: say, lang: s.doseLang } } : {}),
       };
     }),
     hsn: hsnSummary(s.lines),

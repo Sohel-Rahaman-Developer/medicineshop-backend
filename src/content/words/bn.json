@@ -992,5 +992,12 @@
   "This register can’t be grouped that way": "এই রেজিস্টার এভাবে ভাগ করা যায় না",
   "Prescription photo saved with the bill": "প্রেসক্রিপশনের ছবি বিলের সঙ্গে সেভ হয়েছে",
   "Prescription photo is on at the counter": "কাউন্টারে প্রেসক্রিপশনের ছবি চালু আছে",
-  "Prescription photo is off": "প্রেসক্রিপশনের ছবি বন্ধ আছে"
+  "Prescription photo is off": "প্রেসক্রিপশনের ছবি বন্ধ আছে",
+  "Choose how often or a 1-0-1 pattern, not both": "কতবার বেছে নিন বা 1-0-1 লিখুন, দুটো একসঙ্গে নয়",
+  "Choose how often": "কতবার নিতে হবে, বেছে নিন",
+  "Write it like 1-0-1 (morning-afternoon-night)": "এভাবে লিখুন: 1-0-1 (সকাল-দুপুর-রাত)",
+  "Choose before or after food": "খাবার আগে না পরে, বেছে নিন",
+  "Days are 1 to 365": "দিন 1 থেকে 365 পর্যন্ত হতে পারে",
+  "Days must be a whole number": "দিন পূর্ণ সংখ্যায় লিখুন",
+  "Choose English, Hindi or Bengali": "English, हिंदी বা বাংলা বেছে নিন"
 }

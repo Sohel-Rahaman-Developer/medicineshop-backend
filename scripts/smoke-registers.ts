@@ -163,6 +163,40 @@ async function main() {
   check('not an image → 422 · a bill with none → 404', (await owner.post(`/sales/${b.id}/prescription`, { photo: 'data:image/jpeg;base64,aGVsbG8=' })).status === 422 && (await owner.get(`/sales/${a.id}/prescription`)).status === 404);
   check('another shop cannot see or add it (404)', (await other.get(`/sales/${b.id}/prescription`)).status === 404 && (await other.post(`/sales/${b.id}/prescription`, { photo: `data:image/jpeg;base64,${page.toString('base64')}` })).status === 404);
 
+  section('6. How to take, in the customer’s language (D106)');
+  const { pdfWords } = await import('../src/core/pdf-text.js');
+  type Dosed = Saved & { lines: { item: number }[]; doses: { item: number; freq: string | null; pattern: string | null; meal: string | null; days: number | null }[]; doseLang: string };
+  // 6 strips of Dolo take DL9's 75 tablets and 15 more from DL1 (FEFO): one cart line, two bill lines.
+  const items = (strips: number) => [
+    { productId: dolo, quantity: strips, unit: 'STRIP', dose: { freq: 'BD', meal: 'PC', days: 5 } },
+    { productId: amox, quantity: 1, unit: 'STRIP', dose: { pattern: '1-0-½', meal: 'AC' } },
+    { productId: alprax, quantity: 1, unit: 'STRIP' },
+  ];
+  const dosed = async (doseLang: string, strips = 1) => {
+    const made = data<Saved>(await bill(items(strips), [{ mode: 'CASH', amount: strips * 3000 + 9200 + 4500 }], { rx, doseLang }));
+    const pdfRes = await ok('bill pdf', owner.get(`/sales/${made.id}/pdf`));
+    return { sale: data<Dosed>(await owner.get(`/sales/${made.id}`)), pdf: pdfRes.body };
+  };
+  const en = await dosed('en', 6);
+  check(
+    'the bill keeps each medicine’s dose by its cart line: Dolo BD · after food · 5 days, Augmentin 1-0-½ before food, Alprax none',
+    JSON.stringify(en.sale.doses) === JSON.stringify([{ item: 0, freq: 'BD', pattern: null, meal: 'PC', days: 5 }, { item: 1, freq: null, pattern: '1-0-½', meal: 'AC', days: null }]) && en.sale.doseLang === 'en',
+    JSON.stringify(en.sale.doses),
+  );
+  const enText = (await pdfWords(en.pdf)).flat().map((w) => w.text).join(' ').replace(/\s+/g, ' ');
+  const doloLines = en.sale.lines.filter((l) => l.item === 0).length;
+  check(`Dolo spans ${String(doloLines)} batches yet its dose prints once; Alprax prints none → 2 lines`, doloLines === 2 && (enText.match(/How to take:/g) ?? []).length === 2, `${String(doloLines)} · ${enText.slice(0, 400)}`);
+  check('English words on the bill: “Twice a day · After food · for 5 days” and “Morning 1, Night ½ · Before food”', enText.includes('How to take: Twice a day · After food · for 5 days') && enText.includes('How to take: Morning 1, Night ½ · Before food'), enText);
+  const hi = await dosed('hi');
+  const bn = await dosed('bn');
+  const fonts = (pdf: Buffer) => [...new Set(pdf.toString('latin1').match(/NotoSans(Devanagari|Bengali)/g) ?? [])].join();
+  check('Hindi bill embeds the Devanagari font only · Bengali bill the Bengali font only · English needs neither', fonts(hi.pdf) === 'NotoSansDevanagari' && fonts(bn.pdf) === 'NotoSansBengali' && fonts(en.pdf) === '', `${fonts(hi.pdf)} | ${fonts(bn.pdf)} | ${fonts(en.pdf)}`);
+  check('the rest of the Hindi bill stays English (TAX INVOICE)', (await pdfWords(hi.pdf)).flat().some((w) => w.text.includes('TAX INVOICE')) && hi.sale.doseLang === 'hi', hi.sale.doseLang);
+  const plain = data<Dosed>(await owner.get(`/sales/${a.id}`));
+  check('a bill with no dose: none stored, English by default', plain.doses.length === 0 && plain.doseLang === 'en', JSON.stringify(plain.doses));
+  const bad = async (dose: Record<string, unknown>, over: Record<string, unknown> = {}) => (await owner.post('/sales', { clientRequestId: randomUUID(), items: [{ productId: dolo, quantity: 1, unit: 'STRIP', dose }], payments: [{ mode: 'CASH', amount: 3000 }], ...over })).status;
+  check('BD and 1-0-1 together → 422 · “1-1” → 422 · 400 days → 422 · language “fr” → 422', (await bad({ freq: 'BD', pattern: '1-0-1' })) === 422 && (await bad({ pattern: '1-1' })) === 422 && (await bad({ days: 400 })) === 422 && (await bad({ freq: 'OD' }, { doseLang: 'fr' })) === 422);
+
   finish();
 }
 

@@ -1,5 +1,6 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
+import { DOSE_FREQS, DOSE_LANGS, DOSE_MEALS } from '../../content/dose-words';
 
 // CREDIT = udhaar: needs a customer with a limit (PLAN §14, §16).
 export const SALE_PAY_MODES = ['CASH', 'UPI', 'CARD', 'CREDIT'] as const;
@@ -52,6 +53,12 @@ const lineSchema = new Schema(
   { _id: false },
 );
 
+// D106: per cart line (`item`), not per batch line.
+const doseSchema = new Schema(
+  { item: { type: Number, required: true }, freq: { type: String, enum: DOSE_FREQS }, pattern: { type: String }, meal: { type: String, enum: DOSE_MEALS }, days: { type: Number } },
+  { _id: false },
+);
+
 const paymentSchema = new Schema({ mode: { type: String, enum: STORED_MODES, required: true }, amount: { type: Number, required: true }, reference: { type: String, default: '' } }, { _id: false });
 
 const saleSchema = new Schema(
@@ -74,6 +81,8 @@ const saleSchema = new Schema(
     rxDate: { type: Date },
     // D105: a photo of the prescription sits in Attachment (ownerType Sale).
     hasRxPhoto: { type: Boolean, default: false },
+    doses: { type: [doseSchema], default: undefined },
+    doseLang: { type: String, enum: DOSE_LANGS },
     orderId: { type: Schema.Types.ObjectId, ref: 'CustomerOrder' },
     orderNumber: { type: String },
     lines: { type: [lineSchema], required: true },

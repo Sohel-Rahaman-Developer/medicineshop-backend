@@ -2,13 +2,27 @@ import { z } from 'zod';
 import { clientRequestId, istDay, LIMIT, objectId, paise } from '../../core/zod';
 import { ALL_UNITS } from '../../utils/units';
 import { phone } from '../shops/shops.validation';
+import { DOSE_FREQS, DOSE_LANGS, DOSE_MEALS } from '../../content/dose-words';
 import { REFUND_MODES } from './sale-return.model';
+import { DOSE_PATTERN } from './sale.dose';
 import { SALE_PAY_MODES } from './sale.model';
 
 const discount = z.discriminatedUnion('type', [
   z.object({ type: z.literal('pct'), value: z.number('Discount must be a number').min(0, 'Discount can’t be negative').max(100, 'A discount can’t be more than 100%').multipleOf(0.01, 'Discount has at most 2 decimals') }).strict(),
   z.object({ type: z.literal('flat'), value: paise('Discount') }).strict(),
 ]);
+
+/** D106: how to take this medicine — optional; printed on the bill in the bill's language. */
+const dose = z
+  .object({
+    freq: z.enum(DOSE_FREQS, 'Choose how often').nullable().optional(),
+    pattern: z.string().regex(DOSE_PATTERN, 'Write it like 1-0-1 (morning-afternoon-night)').nullable().optional(),
+    meal: z.enum(DOSE_MEALS, 'Choose before or after food').nullable().optional(),
+    days: z.number('Days must be a number').int('Days must be a whole number').min(1, 'Days are 1 to 365').max(365, 'Days are 1 to 365').nullable().optional(),
+  })
+  .strict()
+  .refine((d) => !(d.freq && d.pattern), { message: 'Choose how often or a 1-0-1 pattern, not both', path: ['pattern'] });
+const doseLang = z.enum(DOSE_LANGS, 'Choose English, Hindi or Bengali');
 
 const itemFields = z
   .object({
@@ -20,6 +34,7 @@ const itemFields = z
     /** D56: the whole line's typed amount in paise — any price, never negative. */
     price: paise('Price').nullable().optional(),
     discount: discount.nullable().optional(),
+    dose: dose.optional(),
   })
   .strict();
 const itemSchema = itemFields.refine((v) => v.price === undefined || v.price === null || !v.discount, { message: 'A typed price already includes the discount', path: ['discount'] });
@@ -33,6 +48,8 @@ export const saleSchema = z
     billDiscount: discount.nullable().optional(),
     customer: z.object({ name: text('Name', 80).default(''), phone: z.union([phone('Phone'), z.literal('')]).default('') }).strict().optional(),
     rx: z.object({ doctorId: objectId.optional(), doctorName: text('Doctor', 80).default(''), patientName: text('Patient', 80).default(''), rxNumber: text('Rx number', 40).default(''), rxDate: istDay.optional() }).strict().optional(),
+    /** The language the lines' "How to take" print in; the rest of the bill stays English. */
+    doseLang: doseLang.optional(),
     /** A customer from the shop's list; udhaar (CREDIT) needs one. */
     customerId: objectId.optional(),
     payments: z.array(z.object({ mode: z.enum(SALE_PAY_MODES, 'Choose cash, UPI, card or udhaar'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
@@ -121,6 +138,7 @@ export const offlineSaleSchema = z
     items: z.array(itemFields.omit({ batchId: true, discount: true }).extend({ price: paise('Price') }).strict()).min(1, 'Add at least one item').max(100, 'At most 100 lines in one bill'),
     customer: saleSchema.shape.customer,
     rx: saleSchema.shape.rx,
+    doseLang: saleSchema.shape.doseLang,
     customerId: objectId.optional(),
     payments: z.array(z.object({ mode: z.enum(['CASH', 'UPI', 'CARD'], 'Offline bills are paid by cash, UPI or card'), amount: paise('Amount').min(1, 'Amount must be more than 0'), reference: text('Reference', 60).default('') }).strict()).max(3),
     cashReceived: paise('Cash received').optional(),
