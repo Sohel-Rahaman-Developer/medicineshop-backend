@@ -26,6 +26,8 @@ export const purchaseLineObject = z
     /** Paise per sale unit. */
     mrp: paise('MRP').min(1, 'MRP is required'),
     minPrice: paise('Lowest price').nullable().optional(),
+    /** Paise per sale unit: the product's sell price from now on; null = MRP, missing = keep. */
+    sellPrice: paise('Sell price').min(1, 'Sell price must be more than ₹0').nullable().optional(),
     /** As on the supplier's bill — any rate (D62). */
     gstRate: taxRate,
     rack: rackCode.default(''),

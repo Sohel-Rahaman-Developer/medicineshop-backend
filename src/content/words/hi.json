@@ -412,7 +412,6 @@
   "Barcode has 4 to 32 letters or digits": "Barcode में 4 से 32 अक्षर या अंक होते हैं",
   "Another product already has this barcode": "यह barcode पहले से किसी दूसरे product का है",
   "Units differ from an earlier row of this product — the first row’s units are used": "इस product की units पिछली row से अलग हैं — पहली row की units ली जाएँगी",
-  "Already in your products — fill batch, quantity, MRP and rate to add its stock": "पहले से आपके products में है — इसका stock जोड़ने के लिए batch, मात्रा, MRP और rate भरिए",
   "Batch number: letters, numbers, / and - only": "Batch number: सिर्फ़ अक्षर, अंक, / और -",
   "Expiry should look like 12/26 or 12/2026": "Expiry ऐसे लिखिए, जैसे 12/26 या 12/2026",
   "Expiry is missing (MM/YY) — or write No under Has expiry for a device": "Expiry नहीं है (MM/YY) — या device के लिए Has expiry में No लिखिए",
@@ -1015,5 +1014,9 @@
   "At most 7 days": "ज़्यादा से ज़्यादा 7 दिन",
   "At least 1 hour": "कम से कम 1 घंटा",
   "Choose how long": "कितना समय, चुनिए",
-  "Time to add the doctor saved": "डॉक्टर जोड़ने का समय सेव हो गया"
+  "Time to add the doctor saved": "डॉक्टर जोड़ने का समय सेव हो गया",
+  "Sell price should be a price like 30.00": "बेचने की कीमत दाम जैसी लिखिए, जैसे 30.00",
+  "Already in your products and nothing new on this row — skipped. Fill batch, quantity, MRP and rate to add stock, or a sell price to change it": "पहले से आपके products में है और इस row में कुछ नया नहीं — छोड़ दिया। stock जोड़ने के लिए batch, मात्रा, MRP और rate भरिए, या बदलने के लिए बेचने की कीमत",
+  "Sell price is above this batch’s MRP — bills stop at the MRP": "बेचने की कीमत इस batch के MRP से ज़्यादा है — बिल MRP पर ही रुकेगा",
+  "Sell price must be more than ₹0": "बेचने की कीमत ₹0 से ज़्यादा होनी चाहिए"
 }

@@ -33,6 +33,7 @@ const lineSchema = new Schema(
     totalAmount: { type: Number, required: true },
     mrp: { type: Number, required: true },
     minPrice: { type: Number },
+    sellPrice: { type: Number },
     landingPerUnit: { type: Number, required: true },
     costPerBaseUnit: { type: Number, required: true },
     rack: { type: String, default: '' },

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { floorOf, hsnSummary, packLabel, priceSale, returnShare, splitLine, type Part } from '../../src/modules/sales/sale.domain';
 import { distribute, gstInclusive } from '../../src/utils/money';
 
-const part = (o: Partial<Part>): Part => ({ mrp: 3000, qtyBase: 15, salePack: 15, gstRate: 12, sell: null, discount: null, ...o });
+const part = (o: Partial<Part>): Part => ({ mrp: 3000, qtyBase: 15, salePack: 15, gstRate: 12, rate: null, sell: null, discount: null, ...o });
 const opts = { roundOff: true, igst: false };
 
 void test('PLAN §14 bill: Dolo 2 × 30 + Augmentin 92 → taxable 135.71, CGST 8.15, SGST 8.14, total 152', () => {
@@ -43,8 +43,35 @@ void test('D56 typed price: under MRP is a discount, over MRP is the above-MRP a
   assert.equal(over.lines[0]?.taxable, 3170);
 });
 
+void test('sell price: ₹25 on a ₹30 strip bills ₹25, off MRP but not a discount', () => {
+  const p = priceSale([part({ rate: 2500 })], null, opts);
+  assert.deepEqual([p.subtotal, p.shopDiscount, p.totalDiscount, p.discountPercent, p.grandTotal], [3000, 500, 0, 0, 2500]);
+  assert.equal(p.lines[0]?.shopOff, 500);
+});
+
+void test('sell price above a batch MRP stops at that MRP (an old ₹20 batch sells at ₹20, a new ₹30 one at ₹25)', () => {
+  const p = priceSale([part({ rate: 2500, mrp: 2000 }), part({ rate: 2500 })], null, opts);
+  assert.deepEqual(p.lines.map((l) => [l.gross, l.shopOff, l.amount]), [[2000, 0, 2000], [3000, 500, 2500]]);
+  assert.equal(priceSale([part({ rate: 3500 })], null, opts).grandTotal, 3000);
+});
+
+void test('sell price: the cashier’s 10 % comes off ₹25 and counts 10 % against the limit', () => {
+  const p = priceSale([part({ rate: 2500, discount: { type: 'pct', value: 10 } })], null, opts);
+  assert.deepEqual([p.shopDiscount, p.lineDiscount, p.discountPercent, p.preRound], [500, 250, 10, 2250]);
+});
+
+void test('sell price: a typed price still counts from MRP', () => {
+  const p = priceSale([part({ rate: 2500, sell: 2800 })], null, opts);
+  assert.deepEqual([p.shopDiscount, p.lineDiscount, p.grandTotal], [0, 200, 2800]);
+});
+
+void test('splitLine with a sell price: a flat discount never goes past the sell price', () => {
+  const flat = splitLine([{ mrp: 3000, qtyBase: 15, rate: 2500 }], 15, null, { type: 'flat', value: 99_999 });
+  assert.equal(flat[0]?.discount?.value, 2500);
+});
+
 void test('splitLine: a typed price splits by MRP value; a flat discount by gross; a % on each part', () => {
-  const parts = [{ mrp: 3000, qtyBase: 330 }, { mrp: 3350, qtyBase: 120 }];
+  const parts = [{ mrp: 3000, qtyBase: 330, rate: null }, { mrp: 3350, qtyBase: 120, rate: null }];
   const typed = splitLine(parts, 15, 90_000, null);
   assert.equal(typed.reduce((s, x) => s + (x.sell ?? 0), 0), 90_000);
   assert.ok(typed.every((x) => x.discount === null));

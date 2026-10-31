@@ -49,6 +49,8 @@ const fields = {
   defaultRack: rackCode.default(''),
   reorderLevel: z.number().int().min(0).max(MAX_QTY),
   reorderQuantity: z.number().int().min(0).max(MAX_QTY),
+  /** Paise per sale unit; null = sell at MRP, missing = keep. */
+  sellPrice: paise('Sell price').min(1, 'Sell price must be more than ₹0').nullable().optional(),
   /** Data URL to set, null to remove, missing to keep. */
   photo: z.string().max(90_000).nullable().optional(),
 };

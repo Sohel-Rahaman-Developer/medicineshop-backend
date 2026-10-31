@@ -28,6 +28,9 @@ const lineSchema = new Schema(
     salePack: { type: Number, required: true },
     mrp: { type: Number, required: true },
     gross: { type: Number, required: true },
+    /** The shop's sell price per sale unit when it was under MRP, and what that took off the line. */
+    rate: { type: Number },
+    shopOff: { type: Number },
     lineDiscount: { type: Number, required: true },
     billDiscountShare: { type: Number, required: true },
     discountAmount: { type: Number, required: true },
@@ -87,6 +90,8 @@ const saleSchema = new Schema(
     orderNumber: { type: String },
     lines: { type: [lineSchema], required: true },
     subtotal: { type: Number, required: true },
+    /** Off MRP by the shop's own sell prices — not a discount, so outside the limit and the register. */
+    shopDiscountAmount: { type: Number },
     lineDiscountAmount: { type: Number, required: true },
     billDiscountAmount: { type: Number, required: true },
     totalDiscount: { type: Number, required: true },

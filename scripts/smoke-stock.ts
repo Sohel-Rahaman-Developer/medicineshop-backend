@@ -388,8 +388,9 @@ async function main() {
   check('Your products: only the header is filled, 1,000 rows ready with the header frozen', (blankSheet.match(/<row /g) ?? []).length === 1001 && blankSheet.split('<row ').slice(2).every((r) => !/<v>|<is>/.test(r)) && blankSheet.includes('<pane '));
   check('…batch, expiry, barcode, HSN, rack stay text (Excel can’t turn 08/27 into a date)', /formatCode="@"/.test(styles) && /<c r="R500" s="\d+"\/>/.test(blankSheet) && /<c r="I500" s="\d+"\/>/.test(blankSheet));
   const { templateRows } = await import('../src/modules/products/products.import.js');
-  const KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'minPrice', 'rack'];
+  const KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'sellPrice', 'minPrice', 'rack'];
   const sampleRows = templateRows().map((r) => Object.fromEntries(KEYS.map((k, i) => [k, r[i] ?? ''])));
+  check(`every sample row has the template's ${String(KEYS.length)} columns`, templateRows().every((r) => r.length === KEYS.length), templateRows().map((r) => r.length).join());
   const fresh = await h.signIn('sample@stock1.test');
   fresh.shopId = data<{ id: string }>(await fresh.post('/shops', shopBody('Sample Check Pharmacy'))).id;
   const sd = await fresh.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: sampleRows });
@@ -418,7 +419,7 @@ async function main() {
   check('BP monitor: no expiry, lot number, lowest ₹2,200', bp?.noExpiry === true && bpb?.expiryDate.getUTCFullYear() === 9999 && /^LOT-/.test(bpb.batchNumber) && bpb.minPrice === 220_000, JSON.stringify({ n: bp?.noExpiry, b: bpb?.batchNumber, m: bpb?.minPrice }));
   check('insulin goes in cold storage', (await ProductModel.findOne({ shopId: shop1, nameLower: 'huminsulin r' }).lean())?.storageType === 'COLD');
   const again = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Pantocid 40 Tablet' }] });
-  check('an existing product with no stock columns → row error', data<{ summary: { errors: number } }>(again).summary.errors === 1);
+  check('an existing product with nothing new on the row → skipped with a note, not an error (an exported list sent back)', data<{ summary: { errors: number }; rows: { warnings: string[] }[] }>(again).summary.errors === 0 && data<{ rows: { warnings: string[] }[] }>(again).rows[0]?.warnings[0]?.startsWith('Already in your products and nothing new') === true);
   const medNoBatch = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Pantocid 40 Tablet', expiry: '03/28', quantity: '2', mrp: '150', rate: '100' }] });
   check('a medicine without a batch number → row error', data<{ rows: { errors: string[] }[] }>(medNoBatch).rows[0]?.errors.some((e) => e.includes('Batch number is missing')) === true);
   const badExp = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ name: 'Thing X', hasExpiry: 'maybe' }] });

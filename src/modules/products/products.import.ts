@@ -15,8 +15,9 @@ import { receiveOpening } from '../stock/stock.service';
 import { refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { ProductModel, SCHEDULE_TYPES } from './product.model';
+import { inr } from '../../utils/money';
 import { ratesOf } from '../tax/tax.service';
-import { saltKeyOf, searchKeyOf } from './products.service';
+import { saltKeyOf, searchKeyOf, sellChange } from './products.service';
 
 const cell = z.union([z.string().max(200), z.number()]).optional().transform((v) => (v === undefined ? '' : String(v).trim().replace(/\s+/g, ' ')));
 
@@ -24,7 +25,7 @@ const rowSchema = z
   .object({
     name: cell, company: cell, salt: cell, strength: cell, category: cell, schedule: cell, gst: cell, hsn: cell, barcode: cell,
     baseUnit: cell, saleUnit: cell, pack: cell, purchaseUnit: cell, purchasePack: cell, storage: cell, hasExpiry: cell,
-    batch: cell, expiry: cell, quantity: cell, mrp: cell, rate: cell, minPrice: cell, rack: cell,
+    batch: cell, expiry: cell, quantity: cell, mrp: cell, rate: cell, sellPrice: cell, minPrice: cell, rack: cell,
   })
   .strict();
 
@@ -69,6 +70,8 @@ interface Plan {
   product: 'existing' | 'new';
   productId?: Types.ObjectId;
   draft?: Record<string, unknown>;
+  /** The product's sell price from now on, paise per sale unit; undefined = keep. */
+  sellPrice?: number;
   /** null: a product-only row — stock comes later (Add stock or a purchase). */
   stock: { batchNumber: string; expiry: Date; quantity: number; mrp: number; minPrice: number | null; purchaseRate: number; rack: string } | null;
   quantityLabel: string;
@@ -83,7 +86,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
   const cats = await CategoryModel.find({ shopId: t.shopId }).select('name key').lean();
   const catByKey = new Map(cats.map((c) => [c.key, c]));
   const names = [...new Set(rows.map((r) => r.name.toLowerCase()).filter(Boolean))];
-  const existing = await ProductModel.find({ shopId: t.shopId, nameLower: { $in: names } }).select('name nameLower units isActive scheduleType noExpiry').session(session ?? null).lean();
+  const existing = await ProductModel.find({ shopId: t.shopId, nameLower: { $in: names } }).select('name nameLower units isActive scheduleType noExpiry sellPrice').session(session ?? null).lean();
   const lotDay = istYmd(new Date());
   const byName = new Map(existing.map((p) => [p.nameLower, p]));
   const codes = rows.filter((r) => r.barcode && !byName.has(r.name.toLowerCase())).map((r) => r.barcode);
@@ -149,11 +152,17 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
 
     const salePack = known ? packOf(known.units as Units) : (units?.salePack ?? 1);
     const saleName = known ? (known.units as Units).sale : (units?.sale ?? 'PIECE');
-    // Stock columns are optional together: all blank = the product only.
+    const sell = r.sellPrice ? rupees(r.sellPrice) : undefined;
+    if (r.sellPrice && (sell === null || sell === undefined || sell < 1 || sell > MAX_PAISE)) errors.push('Sell price should be a price like 30.00');
+    const sellPrice = sell ?? undefined;
+    if (draft && sellPrice) Object.assign(draft, { sellPrice, sellPriceAt: new Date() });
+    // Stock columns are optional together: all blank = the product only (or, for one you have, its new sell price).
     const hasStock = [r.batch, r.expiry, r.quantity, r.mrp, r.rate, r.minPrice].some(Boolean);
     if (!hasStock) {
-      if (known) errors.push('Already in your products — fill batch, quantity, MRP and rate to add its stock');
-      return { row: i + 1, name: r.name, product: known ? 'existing' : 'new', productId: known?._id, draft, stock: null, quantityLabel: '—', errors, warnings } satisfies Plan;
+      // A product you have with nothing new (an exported list sent back) is skipped, not an error.
+      if (known && !sellPrice) warnings.push('Already in your products and nothing new on this row — skipped. Fill batch, quantity, MRP and rate to add stock, or a sell price to change it');
+      const label = known && sellPrice ? `Sell price ${inr(sellPrice)}` : '—';
+      return { row: i + 1, name: r.name, product: known ? 'existing' : 'new', productId: known?._id, draft, sellPrice, stock: null, quantityLabel: label, errors, warnings } satisfies Plan;
     }
     if (r.batch && !/^[A-Za-z0-9/-]{1,20}$/.test(r.batch)) errors.push('Batch number: letters, numbers, / and - only');
     const parsed = r.expiry ? parseExpiry(r.expiry) : undefined;
@@ -171,6 +180,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
     const minPrice = r.minPrice ? rupees(r.minPrice) : null;
     if (r.minPrice && (minPrice === null || minPrice > MAX_PAISE)) errors.push('Lowest price should be a price like 25.00');
     if (minPrice !== null && mrp !== null && minPrice > mrp) warnings.push('Lowest price is above the MRP — check it');
+    if (sellPrice && mrp !== null && sellPrice > mrp) warnings.push('Sell price is above this batch’s MRP — bills stop at the MRP');
     if (r.rack && !/^[A-Za-z0-9][A-Za-z0-9-]{0,11}$/.test(r.rack)) errors.push('Rack: letters, numbers and dashes, like A-2-1');
     const quantity = qty * salePack;
     if (quantity > MAX_QTY) errors.push('Quantity is too large');
@@ -181,6 +191,7 @@ async function plan(t: TenantContext, rows: Row[], session?: ClientSession): Pro
       product: known ? 'existing' : 'new',
       productId: known?._id,
       draft,
+      sellPrice,
       stock: { batchNumber: 'field' in lot ? r.batch : lot.batchNumber, expiry: expiry ?? new Date(0), quantity, mrp: mrp ?? 0, minPrice, purchaseRate: rate ?? 0, rack: r.rack.toUpperCase() },
       quantityLabel: `${String(qty)} ${saleName}`,
       errors,
@@ -238,6 +249,7 @@ export async function importRows(t: TenantContext, actor: Actor, input: ImportIn
     const created = new Map<string, Types.ObjectId>();
     const touched = new Set<string>();
     let merged = 0;
+    let priced = 0;
     for (const [i, r] of rows.entries()) {
       setProgress(tracking, i, total);
       const key = r.name.toLowerCase();
@@ -252,6 +264,15 @@ export async function importRows(t: TenantContext, actor: Actor, input: ImportIn
         created.set(key, productId);
       }
       if (!productId) throw AppError.internal();
+      if (r.productId && r.sellPrice) {
+        const was = await ProductModel.findOne({ shopId: t.shopId, _id: productId }).select('name sellPrice').session(session).lean();
+        const change = was ? sellChange(was.sellPrice, r.sellPrice) : null;
+        if (was && change) {
+          await ProductModel.updateOne({ shopId: t.shopId, _id: productId }, { $set: { sellPrice: r.sellPrice, sellPriceAt: now }, $inc: { version: 1 } }, { session });
+          await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: String(productId), entityName: was.name, text: `${actor.name} changed ${was.name}: ${change} (Excel import)`, ip }, session);
+          priced++;
+        }
+      }
       if (!r.stock) continue;
       const p = await ProductModel.findOne({ shopId: t.shopId, _id: productId }).select('name units storageType defaultRack').session(session).lean();
       if (!p) throw AppError.internal();
@@ -262,8 +283,8 @@ export async function importRows(t: TenantContext, actor: Actor, input: ImportIn
     setProgress(tracking, rows.length, total);
     await refreshRollups(t.shopId, [...touched].map((id) => new Types.ObjectId(id)), session, now);
     const stocked = rows.filter((r) => r.stock).length;
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityName: 'Excel import', text: `${actor.name} imported ${String(rows.length)} rows — ${String(created.size)} new products, ${String(stocked)} stock rows`, ip }, session);
-    return { rows: rows.length, newProducts: created.size, merged, stockRows: stocked };
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityName: 'Excel import', text: `${actor.name} imported ${String(rows.length)} rows — ${String(created.size)} new products, ${String(stocked)} stock rows${priced ? `, ${String(priced)} sell prices changed` : ''}`, ip }, session);
+    return { rows: rows.length, newProducts: created.size, merged, stockRows: stocked, sellPrices: priced };
   }).catch((err: unknown) => {
     dropProgress(tracking);
     throw err;
@@ -278,7 +299,7 @@ const TEMPLATE_COLUMNS: [label: string, width: number][] = [
   ['Product name', 30], ['Company', 16], ['Salt / composition', 22], ['Strength', 10], ['Category', 18], ['Schedule', 10], ['GST %', 7], ['HSN', 10],
   ['Barcode', 15], ['Sale unit', 10], ['Base unit', 10], ['Units per sale unit', 10], ['Purchase unit', 11], ['Sale units per purchase unit', 12], ['Storage', 10],
   ['Has expiry (Yes/No)', 11], ['Batch number', 13], ['Expiry (MM/YY)', 10], ['Quantity (sale units)', 11], ['MRP (per sale unit)', 11], ['Purchase rate (per sale unit)', 13],
-  ['Lowest price (per sale unit)', 13], ['Rack', 8],
+  ['Sell price (per sale unit)', 12], ['Lowest price (per sale unit)', 13], ['Rack', 8],
 ];
 
 const ahead = (months: number) => ({ months });
@@ -286,20 +307,20 @@ const ahead = (months: number) => ({ months });
 // One sample per kind of thing a pharmacy sells (D59). GST: copy the rate from the supplier's invoice. Expiry is months
 // from today, so the sample never goes stale.
 const SAMPLE: (string | number | { months: number })[][] = [
-  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2409', ahead(10), 30, 33.5, 23.4, 32, 'A-2-1'],
-  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2501', ahead(17), 20, 34, 24, '', 'A-2-1'],
-  ['Mox 500 Capsule', 'Sun Pharma', 'Amoxicillin', '500 mg', 'Capsule', 'H', 12, '30041010', '', 'STRIP', 'CAPSULE', 10, 'BOX', 10, 'Normal', 'Yes', 'MX1123', ahead(13), 15, 72.5, 51, '', 'A-3-1'],
-  ['Alprax 0.25 Tablet', 'Torrent', 'Alprazolam', '0.25 mg', 'Tablet', 'H1', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'AL0425', ahead(8), 10, 45, 28, '', 'B-1-1'],
-  ['Benadryl Syrup 100 ml', 'J&J', 'Diphenhydramine', '', 'Syrup', 'OTC', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 24, 'Normal', 'Yes', 'BD8812', ahead(4), 9, 143, 101, '', 'C-2-1'],
-  ['Huminsulin R 40IU Vial', 'Lilly', 'Human insulin', '40 IU/ml', 'Injection', 'H', 5, '30043110', '', 'VIAL', 'VIAL', 1, 'BOX', 10, 'Cold', 'Yes', 'HR2206', ahead(7), 4, 158, 120, '', 'FRIDGE-1'],
-  ['Betadine Ointment 20 g', 'Win-Medicare', 'Povidone iodine', '5%', 'Ointment', 'OTC', 12, '30049099', '', 'TUBE', 'TUBE', 1, 'BOX', 12, 'Normal', 'Yes', 'BT3301', ahead(11), 6, 125, 88, '', 'D-1-2'],
-  ['Moxiflox Eye Drops 5 ml', 'Cipla', 'Moxifloxacin', '0.5%', 'Drops', 'H', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 20, 'Normal', 'Yes', 'MF7710', ahead(2), 5, 96, 66, '', 'D-2-1'],
-  ['Cadbury Dairy Milk Silk 60 g', 'Mondelez', '', '', 'Chocolate & snacks', 'NON_DRUG', 5, '1806', '', 'BAR', 'BAR', 1, 'BOX', 24, 'Normal', 'Yes', '', ahead(6), 12, 80, 68, '', 'COUNTER'],
-  ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', '', 'CAN', 'CAN', 1, 'CASE', 24, 'Normal', 'Yes', '', ahead(3), 24, 40, 30, '', 'FRIDGE-2'],
-  ["Johnson's Baby Lotion 100 ml", 'J&J', '', '', 'Baby care', 'NON_DRUG', 18, '3304', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 12, 'Normal', 'Yes', 'JB5501', ahead(12), 6, 185, 140, '', 'E-1-1'],
-  ['Omron BP Monitor HEM-7120', 'Omron', '', '', 'Device', 'NON_DRUG', 18, '9018', '', 'PIECE', 'PIECE', 1, 'BOX', 10, 'Normal', 'No', '', '', 2, 2450, 1800, 2200, 'E-2-1'],
-  ['Surgical Gloves (pair)', 'Kanam', '', '', 'Surgical', 'NON_DRUG', 12, '4015', '', 'PAIR', 'PAIR', 1, 'BOX', 50, 'Normal', 'Yes', 'KG1201', ahead(21), 50, 15, 9, '', 'E-3-1'],
-  ['Pan 40 Tablet', 'Alkem', 'Pantoprazole', '40 mg', 'Tablet', 'H', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', '', '', '', '', '', '', 'A-1-3'],
+  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2409', ahead(10), 30, 33.5, 23.4, 33, 32, 'A-2-1'],
+  ['Dolo 650 Tablet', 'Micro Labs', 'Paracetamol', '650 mg', 'Tablet', 'OTC', 12, '30049099', '8901234567890', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'DL2501', ahead(17), 20, 34, 24, '', '', 'A-2-1'],
+  ['Mox 500 Capsule', 'Sun Pharma', 'Amoxicillin', '500 mg', 'Capsule', 'H', 12, '30041010', '', 'STRIP', 'CAPSULE', 10, 'BOX', 10, 'Normal', 'Yes', 'MX1123', ahead(13), 15, 72.5, 51, '', '', 'A-3-1'],
+  ['Alprax 0.25 Tablet', 'Torrent', 'Alprazolam', '0.25 mg', 'Tablet', 'H1', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', 'AL0425', ahead(8), 10, 45, 28, '', '', 'B-1-1'],
+  ['Benadryl Syrup 100 ml', 'J&J', 'Diphenhydramine', '', 'Syrup', 'OTC', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 24, 'Normal', 'Yes', 'BD8812', ahead(4), 9, 143, 101, '', '', 'C-2-1'],
+  ['Huminsulin R 40IU Vial', 'Lilly', 'Human insulin', '40 IU/ml', 'Injection', 'H', 5, '30043110', '', 'VIAL', 'VIAL', 1, 'BOX', 10, 'Cold', 'Yes', 'HR2206', ahead(7), 4, 158, 120, '', '', 'FRIDGE-1'],
+  ['Betadine Ointment 20 g', 'Win-Medicare', 'Povidone iodine', '5%', 'Ointment', 'OTC', 12, '30049099', '', 'TUBE', 'TUBE', 1, 'BOX', 12, 'Normal', 'Yes', 'BT3301', ahead(11), 6, 125, 88, '', '', 'D-1-2'],
+  ['Moxiflox Eye Drops 5 ml', 'Cipla', 'Moxifloxacin', '0.5%', 'Drops', 'H', 12, '30049099', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 20, 'Normal', 'Yes', 'MF7710', ahead(2), 5, 96, 66, '', '', 'D-2-1'],
+  ['Cadbury Dairy Milk Silk 60 g', 'Mondelez', '', '', 'Chocolate & snacks', 'NON_DRUG', 5, '1806', '', 'BAR', 'BAR', 1, 'BOX', 24, 'Normal', 'Yes', '', ahead(6), 12, 80, 68, '', '', 'COUNTER'],
+  ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', '', 'CAN', 'CAN', 1, 'CASE', 24, 'Normal', 'Yes', '', ahead(3), 24, 40, 30, '', '', 'FRIDGE-2'],
+  ["Johnson's Baby Lotion 100 ml", 'J&J', '', '', 'Baby care', 'NON_DRUG', 18, '3304', '', 'BOTTLE', 'BOTTLE', 1, 'BOX', 12, 'Normal', 'Yes', 'JB5501', ahead(12), 6, 185, 140, '', '', 'E-1-1'],
+  ['Omron BP Monitor HEM-7120', 'Omron', '', '', 'Device', 'NON_DRUG', 18, '9018', '', 'PIECE', 'PIECE', 1, 'BOX', 10, 'Normal', 'No', '', '', 2, 2450, 1800, 2350, 2200, 'E-2-1'],
+  ['Surgical Gloves (pair)', 'Kanam', '', '', 'Surgical', 'NON_DRUG', 12, '4015', '', 'PAIR', 'PAIR', 1, 'BOX', 50, 'Normal', 'Yes', 'KG1201', ahead(21), 50, 15, 9, '', '', 'E-3-1'],
+  ['Pan 40 Tablet', 'Alkem', 'Pantoprazole', '40 mg', 'Tablet', 'H', 12, '30049099', '', 'STRIP', 'TABLET', 15, 'BOX', 10, 'Normal', 'Yes', '', '', '', '', '', '', '', 'A-1-3'],
 ];
 
 /** The sample rows with expiry as MM/YY, counted from `now`. */
@@ -328,6 +349,7 @@ const HOW_TO: [column: string, needed: string, what: string][] = [
   ['Expiry (MM/YY)', 'If it expires', 'Month and year on the pack, like 08/27. It runs to the end of that month.'],
   ['Quantity (sale units)', 'With stock', 'How many sale units are on the shelf now: 30 = 30 strips.'],
   ['MRP · Purchase rate (per sale unit)', 'With stock', 'MRP printed on the pack (GST included) and what you paid per sale unit before GST, like 33.50 and 23.40.'],
+  ['Sell price (per sale unit)', 'No', 'Your selling price when it is under the MRP — it changes for the whole product (old stock too) and never goes above a batch’s MRP. Blank = keep it (a new product sells at MRP). Only a product you have + its sell price, stock columns blank = just the new price.'],
   ['Lowest price (per sale unit)', 'No', 'A price floor for the seller — billing only flags a sale under it, never blocks.'],
   ['Rack', 'No', 'Where it sits, like A-2-1.'],
   ['Stock columns all blank', '—', 'Adds the product only (see Pan 40). Add its stock later from the product screen or a purchase entry.'],

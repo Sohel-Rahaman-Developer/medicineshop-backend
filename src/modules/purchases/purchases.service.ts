@@ -11,6 +11,7 @@ import { conv, salePack, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import { nextNumber } from '../counters/counter.model';
 import { ProductModel } from '../products/product.model';
+import { sellChange } from '../products/products.service';
 import { BatchModel } from '../stock/batch.model';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import { lotOf } from '../stock/stock.domain';
@@ -29,7 +30,7 @@ const lineError = (i: number, message: string) => AppError.validation(message, [
 
 /** Everything the entry screen pre-fills for a product: last purchase, last MRP and batches the merge rule would hit. */
 export async function lineInfo(t: TenantContext, productId: string) {
-  const p = await ProductModel.findOne({ shopId: t.shopId, _id: oid(productId) }).select('name company units gstRate defaultRack storageType isActive scheduleType noExpiry').lean();
+  const p = await ProductModel.findOne({ shopId: t.shopId, _id: oid(productId) }).select('name company units gstRate defaultRack storageType isActive scheduleType noExpiry sellPrice').lean();
   if (!p) throw AppError.notFound('Product not found');
   const [last] = await PurchaseModel.aggregate<{ line: { rate: number; unit: string; discountPercent: number; gstRate: number; mrp: number; rack: string }; supplierName: string; invoiceDate: Date }>([
     { $match: { shopId: t.shopId, status: 'active', 'lines.productId': p._id } },
@@ -44,7 +45,7 @@ export async function lineInfo(t: TenantContext, productId: string) {
     .lean();
   const latest = await BatchModel.findOne({ shopId: t.shopId, productId: p._id }).sort({ receivedAt: -1, _id: -1 }).select('mrp minPrice').lean();
   return {
-    product: { id: String(p._id), name: p.name, company: p.company, units: unitsBrief(p.units as Units), gstRate: p.gstRate, defaultRack: p.defaultRack, storageType: p.storageType, isActive: p.isActive, scheduleType: p.scheduleType, noExpiry: p.noExpiry },
+    product: { id: String(p._id), name: p.name, company: p.company, units: unitsBrief(p.units as Units), gstRate: p.gstRate, defaultRack: p.defaultRack, storageType: p.storageType, isActive: p.isActive, scheduleType: p.scheduleType, noExpiry: p.noExpiry, sellPrice: p.sellPrice ?? null },
     last: last
       ? { rate: last.line.rate, unit: last.line.unit, discountPercent: last.line.discountPercent, gstRate: last.line.gstRate, mrp: last.line.mrp, rack: last.line.rack, supplierName: last.supplierName, invoiceDate: last.invoiceDate }
       : null,
@@ -151,6 +152,7 @@ export async function savePurchase(t: TenantContext, actor: Actor, input: Purcha
       totalAmount: calc.total,
       mrp: l.mrp,
       minPrice: l.minPrice ?? undefined,
+      sellPrice: l.sellPrice ?? undefined,
       landingPerUnit: calc.landingPerUnit,
       costPerBaseUnit: calc.costPerBaseUnit,
       rack: batch?.rack ?? '',
@@ -205,6 +207,15 @@ export async function savePurchase(t: TenantContext, actor: Actor, input: Purcha
   if (pay.amount > 0) {
     const mode: PayMode = pay.mode === 'CREDIT' ? 'CASH' : pay.mode;
     payment = await recordPayment(t, actor, sup, { amount: pay.amount, mode, fromDrawer: mode === 'CASH' ? pay.fromDrawer : false, reference: pay.reference, notes: `With ${number}`, clientRequestId: input.clientRequestId }, now, session, purchaseId);
+  }
+  // New stock may bring a new sell price: one per product, the last line wins.
+  const sells = new Map(input.lines.filter((l) => l.sellPrice !== undefined).map((l) => [l.productId, l.sellPrice ?? null]));
+  for (const [id, price] of sells) {
+    const p = byId.get(id);
+    const change = p ? sellChange(p.sellPrice, price) : null;
+    if (!p || !change) continue;
+    await ProductModel.updateOne({ shopId: t.shopId, _id: p._id }, { ...(price ? { $set: { sellPrice: price, sellPriceAt: now } } : { $set: { sellPriceAt: now }, $unset: { sellPrice: 1 } }), $inc: { version: 1 } }, { session });
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: p.name, text: `${actor.name} changed ${p.name}: ${change} (purchase ${number})`, ip }, session);
   }
   await refreshRollups(t.shopId, ids, session, now);
   await audit(

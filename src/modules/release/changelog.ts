@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.44.0',
+    date: '2026-10-31',
+    title: 'Sell price',
+    shop: [
+      'Sell price per product (optional): your own price under the MRP, set in Add / Edit product. Blank = sell at MRP, as before.',
+      'Billing uses it on every batch but never above that batch’s MRP: an old batch at MRP ₹20 still sells at ₹20 when your sell price is ₹25.',
+      'New stock can change it: purchase entry fills each line with today’s sell price — change it there and the product sells at the new price from the next bill. Every change is in the audit log, old → new.',
+      'The bill shows MRP, then “Our price (under MRP)”; that difference is not a discount, so it stays out of the discount limit and the discount register. A cashier’s discount comes off your sell price.',
+      'Excel: a new “Sell price” column in the import (a product you have + only its sell price = just the new price), and the products export now has MRP on shelf, Sell price and Lowest price.',
+    ],
+    admin: [],
+    api: ['Product sellPrice (paise per sale unit; null = MRP, missing = keep) on POST / PUT /products, purchase lines and the import; POS search hits carry sellPrice; sale lines rate + shopOff, sale shopDiscountAmount; discountPercent counts from the shop price.'],
+  },
+  {
     version: '1.43.1',
     date: '2026-10-31',
     title: 'Install app',

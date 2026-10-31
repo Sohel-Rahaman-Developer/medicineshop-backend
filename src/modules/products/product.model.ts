@@ -66,6 +66,9 @@ const productSchema = new Schema(
     },
     stock: { type: stockSchema, default: () => ({}) },
     lastMrp: { type: Number },
+    /** Paise per sale unit: the shop's price, capped at each batch's MRP when billed. Missing = sell at MRP. */
+    sellPrice: { type: Number },
+    sellPriceAt: { type: Date },
     lastSoldAt: { type: Date },
     isActive: { type: Boolean, required: true, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

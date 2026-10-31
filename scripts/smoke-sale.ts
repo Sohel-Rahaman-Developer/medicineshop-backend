@@ -1,6 +1,6 @@
 // B4 billing checks: PLAN §14 bill, FEFO split, GST, discounts, typed price (D56), lowest price flag (D57), H1, cancel, return, orders, isolation.
 import { randomUUID } from 'node:crypto';
-import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
+import { check, crash, finish, section, startHarness, unzip, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -394,6 +394,59 @@ async function main() {
   check('accountant (no POS) → orders 403', (await accountant.get('/orders')).status === 403);
   check('shop 2: shop 1 order → 404 · cancel → 404 · link → 404', (await other.get(`/orders/${o1.id}`)).status === 404 && (await other.post(`/orders/${o4.id}/cancel`, { reason: 'Hack attempt' })).status === 404 && (await other.post(`/orders/${o1.id}/link`, { index: 0, productId: dolo })).status === 404);
   check('shop 2: bill shop 1 order → 404', (await other.post('/sales', bill([{ productId: amox, quantity: 1, unit: 'STRIP' }], { orderId: o4.id }))).status === 404);
+
+  section('13. Sell price — the shop’s own price, never above a batch’s MRP');
+  type Priced = Omit<Sale, 'lines'> & { shopDiscountAmount: number; discountPercent: number; lines: (Line & { rate: number | null; shopOff: number; mrp: number })[] };
+  const saleOf = async (r: Res) => data<Priced>(await owner.get(`/sales/${data<Saved>(r).id}`));
+  const sellOf = async () => (await ProductModel.findOne({ shopId: shop1, _id: pan }).lean())?.sellPrice ?? null;
+  const panBody = { name: 'Pan 40 Tablet', company: 'Micro Labs', salt: 'Pan 40 Tablet', strength: '', categoryId: cat('Tablet'), scheduleType: 'OTC', storageType: 'NORMAL', hsnCode: '30049099', gstRate: 12, units: units15, packSize: '', defaultRack: 'A-2-1', reorderLevel: 0, reorderQuantity: 0 };
+  const pan = data<{ id: string }>(await owner.post('/products', { ...panBody, sellPrice: 2500 })).id;
+  check('product added with sell price ₹25 → audit says it', (await sellOf()) === 2500 && (await AuditLogModel.countDocuments({ shopId: shop1, entityName: 'Pan 40 Tablet', text: /sell price ₹25\.00/ })) === 1);
+  check('sell price ₹0 → 422', (await owner.post('/products', { ...panBody, name: 'Pan 20 Tablet', sellPrice: 0 })).status === 422);
+  await open({ productId: pan, batchNumber: 'PN1', expiry: '2027-03', quantity: 15, mrp: 2000, purchaseRate: 1200 });
+  await open({ productId: pan, batchNumber: 'PN2', expiry: '2028-03', quantity: 60, mrp: 3000, purchaseRate: 1800 });
+  const ph = data<{ items: (Hit & { sellPrice: number | null })[] }>(await owner.get('/pos/search?q=pan')).items.find((x) => x.id === pan);
+  check('POS search carries the sell price', ph?.sellPrice === 2500, JSON.stringify(ph?.sellPrice));
+  const atMrp = await owner.post('/sales', bill([{ productId: pan, quantity: 2, unit: 'STRIP' }], { payments: cash(5000), expectedTotal: 5000 }));
+  check('a counter that shows ₹50 at MRP is told the real total → 409', atMrp.status === 409 && atMrp.json.error?.message?.startsWith('The total is now ₹45.00') === true, code(atMrp));
+  const two = await owner.post('/sales', bill([{ productId: pan, quantity: 2, unit: 'STRIP' }], { payments: cash(4500), expectedTotal: 4500 }));
+  const st = await saleOf(two);
+  check('2 strips: old PN1 (MRP ₹20) at ₹20, PN2 (MRP ₹30) at ₹25 → ₹45', two.status === 201 && st.grandTotal === 4500 && st.lines.map((l) => `${l.batchNumber}:${String(l.totalAmount)}:${String(l.shopOff)}`).join() === 'PN1:2000:0,PN2:2500:500', code(two));
+  check('₹5 under MRP is the shop’s price, not a discount: 0 %, nothing for the register', st.shopDiscountAmount === 500 && st.totalDiscount === 0 && st.discountPercent === 0 && !st.discountAboveLimit);
+  check('the line keeps rate ₹25 beside MRP ₹30; subtotal stays at MRP', st.lines[1]?.rate === 2500 && st.lines[1].mrp === 3000 && st.subtotal === 5000);
+  const pdfS = await owner.get(`/sales/${st.id}/pdf`);
+  check('bill PDF with the shop price', pdfS.status === 200 && pdfS.text.startsWith('%PDF'), code(pdfS));
+  const twenty = await saleOf(await owner.post('/sales', bill([{ productId: pan, quantity: 1, unit: 'STRIP', discount: { type: 'pct', value: 20 } }], { payments: cash(2000) })));
+  check('cashier 20 % comes off ₹25 → ₹20, counted as 20 % (at the limit), not 33 % off MRP', twenty.grandTotal === 2000 && twenty.totalDiscount === 500 && twenty.discountPercent === 20 && !twenty.discountAboveLimit);
+  const typedS = await saleOf(await owner.post('/sales', bill([{ productId: pan, quantity: 1, unit: 'STRIP', price: 2800 }], { payments: cash(2800) })));
+  check('a typed ₹28 still counts from MRP: ₹2 discount, no shop price', typedS.grandTotal === 2800 && typedS.totalDiscount === 200 && typedS.shopDiscountAmount === 0);
+
+  const gupta = data<{ id: string }>(await owner.post('/suppliers', { name: 'Gupta Pharma', contactPerson: 'R Gupta', phone: '98311 55667', email: 'gupta@sale1.test', gstin: '19ABCDE1234F1Z5', drugLicense: 'WB/KOL/20B/2201', creditDays: 30, address: 'Kolkata' })).id;
+  const buy = (inv: string, over: Record<string, unknown>) => owner.post('/purchases', { clientRequestId: randomUUID(), supplierId: gupta, invoiceNumber: inv, invoiceDate: new Date().toISOString().slice(0, 10), lines: [{ productId: pan, batchNumber: 'PN3', expiry: '2028-09', quantity: 2, freeQuantity: 0, unit: 'STRIP', rate: 1800, discountPercent: 0, mrp: 3200, gstRate: 12, rack: '', ...over }] });
+  const buy1 = await buy('GP/1', { sellPrice: 2800 });
+  check('new stock with sell price ₹28 → the product sells at ₹28 from now', buy1.status === 201 && (await sellOf()) === 2800, code(buy1));
+  check('audit: sell price ₹25.00 → ₹28.00 (purchase …)', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: 'Pan 40 Tablet', text: /sell price ₹25\.00 → ₹28\.00 \(purchase / })) === 1);
+  const buy2 = await buy('GP/2', { batchNumber: 'PN4' });
+  check('a purchase line with no sell price keeps ₹28 (bill import, older screens)', buy2.status === 201 && (await sellOf()) === 2800, code(buy2));
+  const after = await saleOf(await owner.post('/sales', bill([{ productId: pan, quantity: 1, unit: 'STRIP' }], { payments: cash(2800) })));
+  check('old stock (PN2, MRP ₹30) now sells at the new ₹28', after.grandTotal === 2800 && after.lines[0]?.batchNumber === 'PN2' && after.shopDiscountAmount === 200);
+
+  const imp = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows: [{ name: 'Pan 40 Tablet', sellPrice: '27' }, { name: 'Augmentin 625' }] });
+  const impRows = data<{ rows: { errors: string[]; warnings: string[] }[] }>(imp).rows;
+  check('Excel: a product you have + only a sell price → the new price', imp.status < 300 && (await sellOf()) === 2700, code(imp));
+  check('Excel: a row with nothing new is skipped with a note, not an error', impRows[1]?.errors.length === 0 && impRows[1].warnings[0]?.startsWith('Already in your products and nothing new') === true);
+  check('audit: … (Excel import)', (await AuditLogModel.countDocuments({ shopId: shop1, entityName: 'Pan 40 Tablet', text: /₹28\.00 → ₹27\.00 \(Excel import\)/ })) === 1);
+  const xlS = await owner.get('/products/export');
+  const xlText = xlS.status === 200 ? [...unzip(xlS.body).values()].map((b) => b.toString('utf8')).join(' ') : '';
+  check('products Excel has MRP on shelf, Sell price and Lowest price columns', ['MRP on shelf (₹)', 'Sell price (₹)', 'Lowest price, next batch (₹)'].every((x) => xlText.includes(x)), code(xlS));
+
+  const panVersion = async () => data<{ version: number }>(await owner.get(`/products/${pan}`)).version;
+  const keep = await owner.put(`/products/${pan}`, { ...panBody, version: await panVersion() });
+  check('product edit without a sell price (an older screen) keeps ₹27', keep.status === 200 && (await sellOf()) === 2700, code(keep));
+  const clear = await owner.put(`/products/${pan}`, { ...panBody, sellPrice: null, version: await panVersion() });
+  check('product edit: sell price cleared → back to MRP, audited', clear.status === 200 && (await sellOf()) === null && (await AuditLogModel.countDocuments({ shopId: shop1, entityName: 'Pan 40 Tablet', text: /sell price ₹27\.00 → MRP/ })) === 1, code(clear));
+  const back = await saleOf(await owner.post('/sales', bill([{ productId: pan, quantity: 1, unit: 'STRIP' }], { payments: cash(3200) })));
+  check('…and the next bill is at MRP: PN2 is sold out, PN3 at its ₹32', back.grandTotal === 3200 && back.lines[0]?.batchNumber === 'PN3' && back.shopDiscountAmount === 0);
 
   await ledgerEqualsStock('end');
   await h.close();

@@ -72,6 +72,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
   const s = await forPdf(t, userId, id);
   const hsnOn = await showHsn(t);
   const totals: Total[] = [['Subtotal (MRP)', rupees(s.subtotal), false]];
+  if (s.shopDiscountAmount) totals.push(['Our price (under MRP)', rupees(-s.shopDiscountAmount), false]);
   if (s.totalDiscount) totals.push(['Discount', rupees(-s.totalDiscount), false]);
   if (s.aboveMrpAmount) totals.push(['Above MRP', rupees(s.aboveMrpAmount), false]);
   totals.push(['Taxable', rupees(s.taxableAmount), false], ['CGST', rupees(s.cgst), false], ['SGST', rupees(s.sgst), false]);
@@ -100,7 +101,7 @@ export async function billPdf(t: TenantContext, userId: string, id: string) {
         name: l.productName,
         qty: packLabel(l.quantityInBase, l.salePack, l.unit, l.baseUnit),
         mrp: l.mrp,
-        disc: l.discountAmount ? rupees(l.discountAmount) : l.aboveMrpAmount ? `+${rupees(l.aboveMrpAmount)}` : '—',
+        disc: l.discountAmount + l.shopOff ? rupees(l.discountAmount + l.shopOff) : l.aboveMrpAmount ? `+${rupees(l.aboveMrpAmount)}` : '—',
         gstRate: l.gstRate,
         amount: l.totalAmount,
         sub: `${l.batchNumber} · Exp ${l.expiryDate ? mmyy(l.expiryDate) : 'none'}${rx}${hsn}`,

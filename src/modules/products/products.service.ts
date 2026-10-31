@@ -4,7 +4,7 @@ import { AppError } from '../../core/errors';
 import { inTransaction } from '../../core/transaction';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { versionOf } from '../../core/version';
-import { amountFor } from '../../utils/money';
+import { amountFor, inr } from '../../utils/money';
 import { purchasePack, salePack, toUnits, type Units } from '../../utils/units';
 import { audit } from '../audit/audit.model';
 import { assertRate } from '../tax/tax.service';
@@ -81,6 +81,8 @@ function detailShape(p: Lean, category: string, cost: boolean) {
     isActive: p.isActive,
     stock: stockOut(p, cost),
     lastMrp: p.lastMrp ?? null,
+    sellPrice: p.sellPrice ?? null,
+    sellPriceAt: p.sellPriceAt ?? null,
     createdAt: p.createdAt,
     createdByName: p.createdByName,
     version: p.version ?? 0,
@@ -120,10 +122,10 @@ export async function list(t: TenantContext, q: ListQuery) {
   if (and.length) filter.$and = and;
 
   // The page and its sellable batches in one query, beside the category names and the stale check.
-  const sellableOf = { $lookup: { from: BatchModel.collection.name, let: { pid: '$_id' }, pipeline: [{ $match: { shopId: t.shopId, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now }, $expr: { $eq: ['$productId', '$$pid'] } } }, { $project: { mrp: 1, rack: 1, expiryDate: 1, receivedAt: 1, quantity: 1, status: 1, costPerBaseUnit: 1 } }], as: 'sellable' } };
+  const sellableOf = { $lookup: { from: BatchModel.collection.name, let: { pid: '$_id' }, pipeline: [{ $match: { shopId: t.shopId, status: 'active', quantity: { $gt: 0 }, expiryDate: { $gte: now }, $expr: { $eq: ['$productId', '$$pid'] } } }, { $project: { mrp: 1, minPrice: 1, rack: 1, expiryDate: 1, receivedAt: 1, quantity: 1, status: 1, costPerBaseUnit: 1 } }], as: 'sellable' } };
   const [names, rows] = await Promise.all([
     categoryNames(t.shopId),
-    freshRead(t.shopId, () => ProductModel.aggregate<Lean & { sellable: (BatchLike & { rack: string })[] }>([{ $match: filter }, { $sort: sortOf(sort) }, { $limit: q.limit + 1 }, sellableOf]), now),
+    freshRead(t.shopId, () => ProductModel.aggregate<Lean & { sellable: (BatchLike & { rack: string; minPrice?: number })[] }>([{ $match: filter }, { $sort: sortOf(sort) }, { $limit: q.limit + 1 }, sellableOf]), now),
   ]);
   const { items, meta } = page(rows, q.limit, (r) => (sort.field === 'nameLower' ? r.nameLower : sort.field === 'stock.value' ? r.stock.value : r.stock.expirySort));
 
@@ -145,6 +147,9 @@ export async function list(t: TenantContext, q: ListQuery) {
         photo: photoUrl(p.photo),
         rack: sellable[0]?.rack || p.defaultRack,
         mrp: mrps.length ? { min: Math.min(...mrps), max: Math.max(...mrps) } : null,
+        sellPrice: p.sellPrice ?? null,
+        // The lowest price of the batch that sells next (FEFO).
+        minPrice: sellable[0]?.minPrice ?? null,
         stock: stockOut(p, cost),
       };
     }),
@@ -365,6 +370,12 @@ export async function removeBarcode(t: TenantContext, actor: Actor, id: string, 
   return { barcode: doc.barcode ?? '', altBarcodes: doc.altBarcodes ?? [] };
 }
 
+/** "sell price ₹10.00 → ₹15.00" for the audit; null when the price stays (undefined = keep). */
+export function sellChange(before: number | null | undefined, after: number | null | undefined) {
+  if (after === undefined || (after ?? null) === (before ?? null)) return null;
+  return `sell price ${before ? inr(before) : 'MRP'} → ${after ? inr(after) : 'MRP'}`;
+}
+
 export async function prepareProduct(t: TenantContext, input: CreateProductInput) {
   await assertCategory(t, input.categoryId);
   await assertFreeCode(t, input.barcode);
@@ -375,11 +386,12 @@ export async function prepareProduct(t: TenantContext, input: CreateProductInput
 export async function insertProduct(t: TenantContext, actor: Actor, input: CreateProductInput, photo: Awaited<ReturnType<typeof prepareProduct>>, session: ClientSession, ip?: string) {
   await ensureRack(t.shopId, input.defaultRack, input.storageType === 'COLD' ? 'COLD' : 'NORMAL', session);
   const [p] = await ProductModel.create(
-    [{ shopId: t.shopId, ...masterFields(input), photo, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
+    [{ shopId: t.shopId, ...masterFields(input), ...(input.sellPrice ? { sellPrice: input.sellPrice, sellPriceAt: new Date() } : {}), photo, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
     { session },
   ).catch(onDuplicate);
   if (!p) throw AppError.internal();
-  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'products', entityId: String(p._id), entityName: p.name, text: `${actor.name} added product ${p.name}`, ip }, session);
+  const sell = input.sellPrice ? ` · sell price ${inr(input.sellPrice)}` : '';
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'products', entityId: String(p._id), entityName: p.name, text: `${actor.name} added product ${p.name}${sell}`, ip }, session);
   return p;
 }
 
@@ -415,10 +427,12 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
     doc.set(masterFields(input));
     if (!input.barcode) doc.set('barcode', undefined);
     if (photo !== undefined) doc.set('photo', photo);
+    const sell = sellChange(doc.sellPrice, input.sellPrice);
+    if (sell) doc.set({ sellPrice: input.sellPrice ?? undefined, sellPriceAt: new Date() });
     await doc.save({ session }).catch(onDuplicate);
     await refreshRollups(t.shopId, [doc._id], session);
     const gst = oldGst === input.gstRate ? null : { before: { gstRate: oldGst }, after: { gstRate: input.gstRate } };
-    const text = `${actor.name} updated product ${input.name}${gst ? ` · GST ${String(oldGst)}% → ${String(input.gstRate)}%` : ''}`;
+    const text = `${actor.name} updated product ${input.name}${gst ? ` · GST ${String(oldGst)}% → ${String(input.gstRate)}%` : ''}${sell ? ` · ${sell}` : ''}`;
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: input.name, text, ...(gst ? { changes: gst } : {}), ip }, session);
   });
 }

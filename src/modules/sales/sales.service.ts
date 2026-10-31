@@ -25,7 +25,7 @@ import { BatchModel } from '../stock/batch.model';
 import { allocate, daysLeftOut, fefo, hasExpiry, type BatchLike } from '../stock/stock.domain';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
-import { floorOf, priceSale, splitLine, type Part } from './sale.domain';
+import { atRate, floorOf, priceSale, splitLine, type Part } from './sale.domain';
 import { SaleReturnModel } from './sale-return.model';
 import * as returns from './sale-returns.service';
 import { SaleModel } from './sale.model';
@@ -86,8 +86,8 @@ export async function posSearch(t: TenantContext, q: string, limit: number, ids?
   return { items, exact: exactId };
 }
 
-export const POS_FIELDS = 'name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId';
-interface PosProduct { _id: Types.ObjectId; name: string; company?: string; salt?: string; strength?: string; categoryId?: Types.ObjectId; scheduleType: string; gstRate: number; units?: unknown; defaultRack?: string; storageType?: string; photo?: { bytes?: number } | null }
+export const POS_FIELDS = 'name company salt strength scheduleType gstRate hsnCode units defaultRack storageType noExpiry photo.bytes stock.sellable categoryId sellPrice';
+interface PosProduct { _id: Types.ObjectId; name: string; company?: string; salt?: string; strength?: string; categoryId?: Types.ObjectId; scheduleType: string; gstRate: number; units?: unknown; defaultRack?: string; storageType?: string; photo?: { bytes?: number } | null; sellPrice?: number | null }
 
 /** One product as the counter sees it: its sellable batches in FEFO order (search and the offline catalog). */
 export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, string>, now: Date, cost: boolean) {
@@ -101,6 +101,7 @@ export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, s
     category: cats.get(String(p.categoryId)) ?? '',
     scheduleType: p.scheduleType,
     gstRate: p.gstRate,
+    sellPrice: p.sellPrice ?? null,
     units: { base: u.base, sale: u.sale, salePack: salePack(u), allowLooseSale: u.allowLooseSale },
     rack: list[0]?.rack || p.defaultRack,
     cold: p.storageType === 'COLD',
@@ -145,7 +146,7 @@ interface Built {
   /** Offline only: what was sold beyond the stock the system had. */
   short: { item: number; name: string; qtyBase: number; units: Units }[];
 }
-type ProductLean = { _id: Types.ObjectId; name: string; categoryId: Types.ObjectId; hsnCode: string; scheduleType: string; gstRate: number; units: unknown; isActive: boolean };
+type ProductLean = { _id: Types.ObjectId; name: string; categoryId: Types.ObjectId; hsnCode: string; scheduleType: string; gstRate: number; units: unknown; isActive: boolean; sellPrice?: number | null };
 export const SALE_BATCH = 'productId batchNumber expiryDate receivedAt quantity status mrp minPrice rack costPerBaseUnit';
 
 /**
@@ -155,7 +156,7 @@ export const SALE_BATCH = 'productId batchNumber expiryDate receivedAt quantity 
  */
 async function buildParts(t: TenantContext, input: SaleInput, now: Date, session: ClientSession, offline = false): Promise<Built> {
   const ids = [...new Set(input.items.map((i) => i.productId))].map(oid);
-  const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: ids } }).select('name categoryId hsnCode scheduleType gstRate units isActive').session(session).lean<ProductLean[]>();
+  const products = await ProductModel.find({ shopId: t.shopId, _id: { $in: ids } }).select('name categoryId hsnCode scheduleType gstRate units isActive sellPrice').session(session).lean<ProductLean[]>();
   const byId = new Map(products.map((p) => [String(p._id), p]));
   const batches = await BatchModel.find({ shopId: t.shopId, productId: { $in: ids }, status: 'active', quantity: { $gt: 0 } })
     .select(SALE_BATCH)
@@ -188,14 +189,17 @@ async function buildParts(t: TenantContext, input: SaleInput, now: Date, session
       out.short.push({ item: i, name: p.name, qtyBase: al.short, units: u });
     }
     const pack = salePack(u);
-    // Offline every line carries what was charged; exactly MRP is not a typed price.
+    const rate = p.sellPrice ?? null;
+    const shares = parts.map((x) => ({ mrp: x.batch.mrp, qtyBase: x.qty, rate }));
+    // Offline every line carries what was charged; exactly MRP, or the shop's own price, is not a typed price.
     const atMrp = parts.reduce((s, x) => s + amountFor(x.batch.mrp, x.qty, pack), 0);
-    const typed = offline && it.price === atMrp ? null : (it.price ?? null);
-    const split = splitLine(parts.map((x) => ({ mrp: x.batch.mrp, qtyBase: x.qty })), pack, typed, it.discount ?? null);
+    const atShop = shares.reduce((s, x) => s + atRate(x, pack), 0);
+    const typed = offline && (it.price === atMrp || it.price === atShop) ? null : (it.price ?? null);
+    const split = splitLine(shares, pack, typed, it.discount ?? null);
     parts.forEach((x, j) => {
       if (!x.short) used.set(String(x.batch._id), (used.get(String(x.batch._id)) ?? 0) + x.qty);
       const s = split[j];
-      out.parts.push({ item: i, p, b: x.batch, mrp: x.batch.mrp, qtyBase: x.qty, salePack: pack, gstRate: p.gstRate, sell: s?.sell ?? null, discount: s?.discount ?? null, short: x.short });
+      out.parts.push({ item: i, p, b: x.batch, mrp: x.batch.mrp, qtyBase: x.qty, salePack: pack, gstRate: p.gstRate, rate, sell: s?.sell ?? null, discount: s?.discount ?? null, short: x.short });
     });
   }
   return out;
@@ -297,6 +301,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
         salePack: x.salePack,
         mrp: x.mrp,
         gross: r.gross,
+        ...(r.shopOff ? { rate: Math.min(x.rate ?? x.mrp, x.mrp), shopOff: r.shopOff } : {}),
         lineDiscount: r.lineDiscount,
         billDiscountShare: r.billShare,
         discountAmount: r.discount,
@@ -331,6 +336,8 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     const modes = [...new Set(payments.map((x) => x.mode))];
     const totalCost = lines.reduce((s, l) => s + l.lineCost, 0);
     const discountAboveLimit = priced.discountPercent > billing.maxDiscountPercent;
+    // What the cashier's discount came off: the bill at MRP, less the shop's own prices.
+    const subtotal = priced.subtotal - priced.shopDiscount;
     const belowMinPrice = lines.some((l) => l.belowMinPrice);
     await SaleModel.create(
       [
@@ -355,6 +362,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
           orderNumber: order?.orderNumber,
           lines,
           subtotal: priced.subtotal,
+          ...(priced.shopDiscount ? { shopDiscountAmount: priced.shopDiscount } : {}),
           lineDiscountAmount: priced.lineDiscount,
           billDiscountAmount: priced.billDiscount,
           totalDiscount: priced.totalDiscount,
@@ -400,7 +408,7 @@ export async function create(t: TenantContext, actor: Actor, input: SaleInput, i
     await refreshRollups(t.shopId, productIds, session, now);
     // D43: no approval, but the owner hears of it; a tier up is news for whoever looks after customers.
     if (discountAboveLimit) {
-      await emit(t.shopId, { key: `LARGE_DISCOUNT:${billNumber}`, type: 'LARGE_DISCOUNT', priority: 'medium', title: `${billNumber}: ${String(priced.discountPercent)}% discount — above the ${String(billing.maxDiscountPercent)}% limit`, body: `${actor.name} gave ${inr(priced.totalDiscount)} off a ${inr(priced.subtotal)} bill. It is in the discount register.`, route: `/sales/${String(saleId)}`, roles: ['owner'] }, session);
+      await emit(t.shopId, { key: `LARGE_DISCOUNT:${billNumber}`, type: 'LARGE_DISCOUNT', priority: 'medium', title: `${billNumber}: ${String(priced.discountPercent)}% discount — above the ${String(billing.maxDiscountPercent)}% limit`, body: `${actor.name} gave ${inr(priced.totalDiscount)} off a ${inr(subtotal)} bill. It is in the discount register.`, route: `/sales/${String(saleId)}`, roles: ['owner'] }, session);
     }
     if (customer && pts?.tierUp) {
       await emit(t.shopId, { key: `LOYALTY_TIER_UP:${String(customer._id)}:${pts.tierUp.to}`, type: 'LOYALTY_TIER_UP', priority: 'low', title: `${customer.name} moved up to ${pts.tierUp.to}`, body: `On ${billNumber} — earns more points from the next bill.`, route: `/customers/${String(customer._id)}`, perm: { module: 'customers', action: 'view' } }, session);
@@ -494,6 +502,8 @@ function shape(s: SaleLean, cost: boolean) {
       salePack: l.salePack,
       mrp: l.mrp,
       gross: l.gross,
+      rate: l.rate ?? null,
+      shopOff: l.shopOff ?? 0,
       lineDiscount: l.lineDiscount,
       billDiscountShare: l.billDiscountShare,
       discountAmount: l.discountAmount,
@@ -514,6 +524,7 @@ function shape(s: SaleLean, cost: boolean) {
     })),
     offline: s.offline ? { device: s.offline.device, syncedAt: s.offline.syncedAt, shortLines: s.offline.shortLines, afterClose: s.offline.afterClose, paidDiff: s.offline.paidDiff } : null,
     subtotal: s.subtotal,
+    shopDiscountAmount: s.shopDiscountAmount ?? 0,
     lineDiscountAmount: s.lineDiscountAmount,
     billDiscountAmount: s.billDiscountAmount,
     totalDiscount: s.totalDiscount,

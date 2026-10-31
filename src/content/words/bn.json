@@ -412,7 +412,6 @@
   "Barcode has 4 to 32 letters or digits": "Barcode-এ 4 থেকে 32টা অক্ষর বা সংখ্যা থাকে",
   "Another product already has this barcode": "এই barcode আগে থেকেই অন্য একটা product-এর",
   "Units differ from an earlier row of this product — the first row’s units are used": "এই product-এর units আগের row-এর থেকে আলাদা — প্রথম row-এর units নেওয়া হবে",
-  "Already in your products — fill batch, quantity, MRP and rate to add its stock": "আগে থেকেই আপনার products-এ আছে — এর stock যোগ করতে batch, পরিমাণ, MRP আর rate ভরুন",
   "Batch number: letters, numbers, / and - only": "Batch number: শুধু অক্ষর, সংখ্যা, / আর -",
   "Expiry should look like 12/26 or 12/2026": "Expiry এভাবে লিখুন, যেমন 12/26 বা 12/2026",
   "Expiry is missing (MM/YY) — or write No under Has expiry for a device": "Expiry নেই (MM/YY) — বা device হলে Has expiry-তে No লিখুন",
@@ -1015,5 +1014,9 @@
   "At most 7 days": "সর্বোচ্চ 7 দিন",
   "At least 1 hour": "কমপক্ষে 1 ঘণ্টা",
   "Choose how long": "কতক্ষণ, বেছে নিন",
-  "Time to add the doctor saved": "ডাক্তার যোগ করার সময় সেভ হয়েছে"
+  "Time to add the doctor saved": "ডাক্তার যোগ করার সময় সেভ হয়েছে",
+  "Sell price should be a price like 30.00": "বিক্রির দাম দামের মতো লিখুন, যেমন 30.00",
+  "Already in your products and nothing new on this row — skipped. Fill batch, quantity, MRP and rate to add stock, or a sell price to change it": "আগে থেকেই আপনার products-এ আছে আর এই row-তে নতুন কিছু নেই — বাদ দেওয়া হল। stock যোগ করতে batch, পরিমাণ, MRP আর rate ভরুন, বা বদলাতে বিক্রির দাম",
+  "Sell price is above this batch’s MRP — bills stop at the MRP": "বিক্রির দাম এই batch-এর MRP-র চেয়ে বেশি — বিল MRP-তেই থামবে",
+  "Sell price must be more than ₹0": "বিক্রির দাম ₹0-এর বেশি হতে হবে"
 }
