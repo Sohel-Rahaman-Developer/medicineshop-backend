@@ -17,7 +17,8 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 const IST = 5.5 * 3600_000;
 const isoDay = (offsetDays = 0) => new Date(Date.now() + IST + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
-interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: { bills: number; billTotal: number; lineTotal: number } | null; byCategory: { category: string; medicines: number; bills: number; lines: number; qty: string; amount: number }[] | null }
+interface Reg { key: string; name: string; cols: { key: string }[]; rows: Record<string, string | number | null>[]; count: number; summary: { schedule: string; lines: number; docs: number }[]; totals: { bills: number; billTotal: number; lineTotal: number } | null; groups: Group[] | null }
+interface Group { key: string; label: string; sub: string; medicines: number; docs: number; lines: number; qty: string; amount: number | null }
 
 async function main() {
   const h = await startHarness();
@@ -83,11 +84,28 @@ async function main() {
   check('totals with Schedule H1: 2 bills’ full amounts ₹231, these lines ₹92 + ₹45 = ₹137', h1.totals?.bills === 2 && h1.totals.billTotal === 23_100 && h1.totals.lineTotal === 13_700, tt(h1));
   const mid = await reg('sales', 'min=5000&max=10000');
   check('totals of bills ₹50–₹100: every such bill, none left out → 1 bill ₹79', mid.totals?.bills === 1 && mid.totals.billTotal === 7900, tt(mid));
-  const inCat = (n: string) => { const c = all.byCategory?.find((x) => x.category === n); return c ? JSON.stringify({ category: c.category, medicines: c.medicines, bills: c.bills, lines: c.lines, qty: c.qty, amount: c.amount }) : ''; };
-  check('by category — Tablet: 3 medicines, 3 bills, 4 lines, 75 tablets, ₹60 + ₹45 + ₹33.50 + ₹30 = ₹168.50', inCat('Tablet') === JSON.stringify({ category: 'Tablet', medicines: 3, bills: 3, lines: 4, qty: '75 tablets', amount: 16_850 }), JSON.stringify(all.byCategory));
-  check('by category — Capsule: 1 medicine, 1 bill, 10 capsules, ₹92 · biggest amount first', inCat('Capsule') === JSON.stringify({ category: 'Capsule', medicines: 1, bills: 1, lines: 1, qty: '10 capsules', amount: 9200 }) && all.byCategory?.[0]?.category === 'Tablet');
-  check('by category follows the filters: Schedule H1 → Capsule 1 + Tablet 1', (await reg('sales', 'schedule=H1')).byCategory?.map((c) => `${c.category} ${String(c.lines)}`).sort().join() === 'Capsule 1,Tablet 1');
-  check('stock and purchases carry no money total', (await reg('stock')).totals === null && (await reg('purchases')).totals === null && (await reg('stock')).byCategory === null);
+  const by = async (kind: string, view: string, q = '') => (await reg(kind, `view=${view}${q ? `&${q}` : ''}`)).groups ?? [];
+  const brief = (g: Group | undefined) => (g ? `${g.label}|${g.sub}|${String(g.medicines)}|${String(g.docs)}|${String(g.lines)}|${g.qty}|${String(g.amount)}` : '');
+  const byCatRows = await by('sales', 'category');
+  check('by category — Tablet: 3 medicines, 3 bills, 4 lines, 75 tablets, ₹60 + ₹45 + ₹33.50 + ₹30 = ₹168.50 · biggest first', brief(byCatRows[0]) === 'Tablet||3|3|4|75 tablets|16850', JSON.stringify(byCatRows));
+  check('by category — Capsule: 1 medicine, 1 bill, 10 capsules, ₹92', brief(byCatRows[1]) === 'Capsule||1|1|1|10 capsules|9200');
+  check('by category follows the filters: Schedule H1 → Capsule 1 + Tablet 1', (await by('sales', 'category', 'schedule=H1')).map((c) => `${c.label} ${String(c.lines)}`).sort().join() === 'Capsule 1,Tablet 1');
+  const docs = await by('sales', 'doctor');
+  check('by doctor: Dr. S. Banerjee ₹152 · Dr. P. Roy ₹78.50 · No doctor ₹30', docs.map((g) => `${g.label} ${String(g.docs)} ${String(g.amount)}`).join() === 'Dr. S. Banerjee 1 15200,Dr. P. Roy 1 7850,No doctor 1 3000', JSON.stringify(docs));
+  const custs = await by('sales', 'customer');
+  check('by customer: Ratna by her phone ₹152 · the two bills with no phone together as Walk-in', brief(custs.find((g) => g.sub === '98300 12345' || g.key.endsWith('12345'))).startsWith('Ratna Sen|') && custs.some((g) => g.label === 'Walk-in' && g.docs === 2 && g.amount === 10_850), JSON.stringify(custs));
+  const meds = await by('sales', 'medicine');
+  check('by medicine: Dolo 650 — 2 bills, 45 tablets, ₹90, category shown', brief(meds.find((g) => g.label === 'Dolo 650 Tablet')) === 'Dolo 650 Tablet|Tablet|1|2|2|45 tablets|9000', JSON.stringify(meds));
+  const days = await by('sales', 'day');
+  check('by day: one day, 3 bills, ₹260.50, the date spelled out', days.length === 1 && days[0]?.docs === 3 && days[0].amount === 26_050 && /\d{2} [A-Z][a-z]{2} \d{4}/.test(days[0].label), JSON.stringify(days));
+  check('by schedule: full names — Schedule H1 2 lines', (await by('sales', 'schedule')).some((g) => g.label === 'Schedule H1' && g.lines === 2));
+  const ss = await by('stock', 'supplier');
+  check('stock by supplier: Sharma 2 batches · Opening stock 4 · no money', ss.some((g) => g.label === 'Sharma Distributors' && g.lines === 2) && ss.some((g) => g.key === 'opening' && g.label === 'Opening stock' && g.lines === 4) && ss.every((g) => g.amount === null), JSON.stringify(ss));
+  const ps = await by('purchases', 'supplier');
+  check('purchases by supplier: Sharma — 1 invoice, 2 medicines, 16 strips received (10 + 1 free + 5), no money', brief(ps[0]) === 'Sharma Distributors||2|1|2|16 strips|null', JSON.stringify(ps));
+  check('a view a register does not have → 422 (stock by doctor)', (await owner.get('/reports/registers/stock?view=doctor')).status === 422);
+  check('no view → no groups', all.groups === null);
+  check('stock and purchases carry no money total', (await reg('stock')).totals === null && (await reg('purchases')).totals === null && (await reg('stock')).groups === null);
   check('a bad schedule → 422 · min above max → 422 · no dates → 422', (await owner.get(`/reports/registers/sales?${range}&schedule=Z`)).status === 422 && (await owner.get(`/reports/registers/sales?${range}&min=500&max=100`)).status === 422 && (await owner.get('/reports/registers/sales')).status === 422);
 
   section('3. Stock and purchase registers');
@@ -106,6 +124,8 @@ async function main() {
   check('Excel named for what was chosen (Schedule H1)', xl.status === 200 && /Sales-register.*Schedule-H1/.test(xl.headers.get('content-disposition') ?? ''), `${code(xl)} ${xl.headers.get('content-disposition') ?? ''}`);
   const byCat = await owner.get(`/reports/registers/sales/export?${range}&view=category&format=pdf`);
   check('sales by category PDF', byCat.status === 200 && byCat.text.startsWith('%PDF') && /Sales-by-category/.test(byCat.headers.get('content-disposition') ?? ''), `${code(byCat)} ${byCat.headers.get('content-disposition') ?? ''}`);
+  const docXl = await owner.get(`/reports/registers/sales/export?${range}&view=doctor&format=xlsx`);
+  check('sales by doctor Excel', docXl.status === 200 && /Sales-by-doctor/.test(docXl.headers.get('content-disposition') ?? ''), `${code(docXl)} ${docXl.headers.get('content-disposition') ?? ''}`);
   const supXl = await owner.get(`/reports/registers/stock/export?supplier=${sup}&format=xlsx`);
   check('stock Excel names the picked supplier', supXl.status === 200 && /Sharma-Distributors/.test(supXl.headers.get('content-disposition') ?? ''), supXl.headers.get('content-disposition') ?? '');
   const pdf = await owner.get(`/reports/registers/stock/export?schedule=H1&format=pdf`);

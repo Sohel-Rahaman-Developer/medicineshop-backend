@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.40.0',
+    date: '2026-10-31',
+    title: 'Registers: quick reports and group by anything',
+    shop: [
+      'Quick reports on top of Registers — one tap for Schedule H1 register, Category wise, Top medicines, Doctor wise, Customer wise, Day wise, Schedule H/H1/X, Udhaar bills, Expiring in 3 months, Expired stock, Stock by supplier and Purchases by supplier.',
+      'Group any register: sales by category, medicine, doctor, customer, day or schedule; stock by category, medicine, supplier or schedule; purchases by supplier, category or medicine. Each row shows medicines, bills, lines, quantity and (for sales) the amount with its share of the total.',
+      'Tap a group to open its own lines. PDF and Excel follow the grouping and end with a total line.',
+    ],
+    admin: [],
+    api: ['GET /reports/registers/:kind takes view (sales: category|medicine|doctor|customer|day|schedule; stock: category|medicine|supplier|schedule; purchases: supplier|category|medicine) and returns groups [{ key, label, sub, medicines, docs, lines, qty, amount }]; byCategory is gone. A view the register lacks is 422.'],
+  },
+  {
     version: '1.39.0',
     date: '2026-10-31',
     title: 'Registers: sales by category, supplier picker, totals in the table',

@@ -988,5 +988,6 @@
   "Missing device id": "डिवाइस की पहचान नहीं मिली",
   "Choose cash, UPI, credit note or against udhaar": "Cash, UPI, credit note या उधार में से चुनिए",
   "Unknown value": "अनजान मान",
-  "From is more than To": "From, To से ज़्यादा है"
+  "From is more than To": "From, To से ज़्यादा है",
+  "This register can’t be grouped that way": "यह रजिस्टर इस तरह समूह में नहीं बँट सकता"
 }

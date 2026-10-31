@@ -13,7 +13,7 @@ import { gstinFamily } from '../branches/branches.service';
 import { gstMonth } from './gst.service';
 import * as pnl from './pnl.service';
 import { ledgersXml, tallyMonth, vouchersXml } from './tally.service';
-import { KINDS, NAMES, describe, register, type CategoryRow, type Filters, type Kind } from './registers.service';
+import { ALL_VIEWS, KINDS, NAMES, VIEWS, describe, register, type Filters, type GroupRow, type Kind, type View } from './registers.service';
 import { SupplierModel } from '../suppliers/supplier.model';
 import { SCHEDULE_TYPES } from '../products/product.model';
 import { SALE_PAY_MODES } from '../sales/sale.model';
@@ -168,14 +168,18 @@ const csv = (allowed?: readonly string[]) =>
 const words = z.string().trim().max(60).optional();
 const rupeesPaise = z.coerce.number().int().min(0).max(1_000_000_000).optional();
 const registerQuery = z
-  .object({ from: istDay.optional(), to: istDay.optional(), schedule: csv(SCHEDULE_TYPES), category: csv(), pay: csv(SALE_PAY_MODES), q: words, party: words, supplier: z.union([objectId, z.literal('opening')]).optional(), doctor: words, staff: objectId.optional(), view: z.enum(['lines', 'category']).optional(), min: rupeesPaise, max: rupeesPaise, expiry: z.enum(['all', 'expired', 'soon']).optional(), format: z.enum(['xlsx', 'pdf']).optional() })
+  .object({ from: istDay.optional(), to: istDay.optional(), schedule: csv(SCHEDULE_TYPES), category: csv(), pay: csv(SALE_PAY_MODES), q: words, party: words, supplier: z.union([objectId, z.literal('opening')]).optional(), doctor: words, staff: objectId.optional(), view: z.enum(ALL_VIEWS).optional(), min: rupeesPaise, max: rupeesPaise, expiry: z.enum(['all', 'expired', 'soon']).optional(), format: z.enum(['xlsx', 'pdf']).optional() })
   .strict()
   .refine((v) => v.min === undefined || v.max === undefined || v.min <= v.max, { message: 'From is more than To', path: ['min'] });
 const kindParams = z.object({ kind: z.enum(KINDS) }).strict();
-type RegisterQuery = Filters & { format?: 'xlsx' | 'pdf'; view?: 'lines' | 'category' };
+const KIND_WORD: Record<Kind, string> = { sales: 'Sales', stock: 'Stock', purchases: 'Purchases' };
+const VIEW_LABEL: Record<View, string> = { category: 'Category', medicine: 'Medicine', doctor: 'Doctor', customer: 'Customer', day: 'Day', schedule: 'Schedule', supplier: 'Supplier' };
+const PLURAL: Record<View, string> = { category: 'categories', medicine: 'medicines', doctor: 'doctors', customer: 'customers', day: 'days', schedule: 'schedules', supplier: 'suppliers' };
+type RegisterQuery = Filters & { format?: 'xlsx' | 'pdf'; view?: View };
 
 function filtersOf(kind: Kind, q: RegisterQuery): Filters {
   if (kind !== 'stock') paramsOf('range', q);
+  if (q.view && !(VIEWS[kind] as readonly string[]).includes(q.view)) throw AppError.validation('This register can’t be grouped that way');
   return { from: q.from, to: q.to, schedule: q.schedule, category: q.category, q: q.q, party: q.party, supplier: kind === 'sales' ? undefined : q.supplier, doctor: q.doctor, pay: q.pay, staff: q.staff, min: q.min, max: q.max, expiry: q.expiry };
 }
 
@@ -185,7 +189,8 @@ reportsRouter.get(
   validate({ params: kindParams, query: registerQuery }),
   asyncHandler(async (req: Request, res: Response) => {
     const kind = (req.params as { kind: Kind }).kind;
-    fetched(res, await register(tenantOf(req), kind, filtersOf(kind, req.query as unknown as RegisterQuery)));
+    const q = req.query as unknown as RegisterQuery;
+    fetched(res, await register(tenantOf(req), kind, filtersOf(kind, q), false, q.view));
   }),
 );
 
@@ -199,27 +204,33 @@ reportsRouter.get(
     const q = req.query as unknown as RegisterQuery;
     const f = filtersOf(kind, q);
     if (f.supplier && f.supplier !== 'opening') f.supplierName = (await SupplierModel.findOne({ _id: f.supplier, shopId: tenantOf(req).shopId }).select('name').lean())?.name;
-    const r = await register(tenantOf(req), kind, f, true);
+    const r = await register(tenantOf(req), kind, f, true, q.view);
     const span = kind === 'stock' ? `As of ${day(new Date())}` : `${day(f.from ?? new Date())} – ${day(f.to ?? new Date())}`;
     const sub = describe(kind, f, span);
     const t = r.totals;
-    if (q.view === 'category' && r.byCategory) {
-      const title = 'Sales by category';
-      const cats: Column<CategoryRow>[] = [
-        { label: 'Category', w: 2, get: (c) => c.category },
-        { label: 'Medicines', num: true, get: (c) => c.medicines },
-        { label: 'Bills', num: true, get: (c) => c.bills },
-        { label: 'Lines', num: true, get: (c) => c.lines },
-        { label: 'Quantity billed', w: 2.5, get: (c) => c.qty },
-        { label: q.format === 'pdf' ? 'Amount' : 'Amount (₹)', num: true, get: (c) => (q.format === 'pdf' ? rupees(c.amount) : c.amount / 100) },
+    if (q.view && r.groups) {
+      const view = q.view;
+      const title = `${KIND_WORD[kind]} by ${view}`;
+      const pdf = q.format === 'pdf';
+      const cols: (Column<GroupRow> | false)[] = [
+        { label: VIEW_LABEL[view], w: 2.2, get: (g) => g.label },
+        (view === 'medicine' || view === 'customer') && { label: view === 'medicine' ? 'Category' : 'Phone', w: 1.3, get: (g) => g.sub },
+        view !== 'medicine' && { label: 'Medicines', num: true, get: (g) => g.medicines },
+        kind !== 'stock' && { label: kind === 'sales' ? 'Bills' : 'Invoices', num: true, get: (g) => g.docs },
+        { label: kind === 'stock' ? 'Batches' : 'Lines', num: true, get: (g) => g.lines },
+        { label: kind === 'sales' ? 'Quantity billed' : kind === 'stock' ? 'In stock' : 'Quantity received', w: 2.4, get: (g) => g.qty },
+        kind === 'sales' && { label: pdf ? 'Amount' : 'Amount (₹)', num: true, get: (g) => (pdf ? rupees(g.amount ?? 0) : (g.amount ?? 0) / 100) },
       ];
-      const sum = r.byCategory.reduce((a, c) => a + c.amount, 0);
-      const meds = r.byCategory.reduce((a, c) => a + c.medicines, 0);
-      if (q.format === 'pdf') {
-        sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title, sub, columns: cats, rows: r.byCategory, foot: ['Total', meds, t?.bills ?? '', r.count, '', rupees(sum)], landscape: true }), `${title} ${sub}`, 'pdf');
+      const columns = cols.filter((c): c is Column<GroupRow> => c !== false);
+      const sum = r.groups.reduce((a, g) => a + (g.amount ?? 0), 0);
+      const totalLabel = `Total · ${String(r.groups.length)} ${r.groups.length === 1 ? view : PLURAL[view]}`;
+      const foot = columns.map((c) => (c.label === VIEW_LABEL[view] ? totalLabel : c.label === 'Lines' || c.label === 'Batches' ? r.count : c.label === 'Bills' ? (t?.bills ?? '') : c.label.startsWith('Amount') ? (pdf ? rupees(sum) : sum / 100) : ''));
+      if (pdf) {
+        sendFile(res, await pdfTable({ shopId: tenantOf(req).shopId, title, sub, columns, rows: r.groups, foot, landscape: true }), `${title} ${sub}`, 'pdf');
         return;
       }
-      sendFile(res, await xlsx(cats, [...r.byCategory, { category: 'Total', medicines: meds, bills: t?.bills ?? 0, lines: r.count, qty: '', amount: sum }]), `${title} ${sub}`, 'xlsx');
+      const fileCols: Column<GroupRow | null>[] = columns.map((c, i) => ({ ...c, get: (g) => (g ? c.get(g) : (foot[i] ?? '')) }));
+      sendFile(res, await xlsx(fileCols, [...r.groups, null]), `${title} ${sub}`, 'xlsx');
       return;
     }
     if (q.format === 'pdf') {
