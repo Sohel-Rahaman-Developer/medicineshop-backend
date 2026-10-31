@@ -159,7 +159,7 @@ async function main() {
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain', '/backdate'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain', '/backdate', '/ai-next'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
@@ -167,6 +167,12 @@ async function main() {
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
       const body = JSON.parse(raw) as { email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number; days?: number };
+      // D105: the next AI answer (a prescription read), then the usual bill answer again.
+      if (req.url === '/ai-next') {
+        claude.queue.push({ bill: (JSON.parse(raw) as { answer: unknown }).answer, input: 2600, output: 700 });
+        res.writeHead(204).end();
+        return;
+      }
       if (req.url === '/mail') {
         lastMail(body).then(
           (text) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text })),

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -10,6 +10,7 @@ import { rangeSchema } from '../purchases/purchases.validation';
 import { actorOf } from '../user/actor';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { photoSchema } from '../purchases/purchases.routes';
+import { readRx, rxReadSchema } from '../ai/rx-ai';
 import * as returns from './sale-returns.service';
 import { billPdf, returnPdf } from './sale.pdf';
 import * as offline from './offline.service';
@@ -56,6 +57,17 @@ posRouter.get(
   requirePermission('pos', 'view'),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.posSettings(tenantOf(req)));
+  }),
+);
+
+// D105 phase 2: the AI reads a prescription photo (the shop's tokens); the software matches it to the shelf. Nothing is billed.
+posRouter.post(
+  '/rx-read',
+  requirePermission('pos', 'create'),
+  notInDemo,
+  validate({ body: rxReadSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await readRx(tenantOf(req), await actorOf(req), (req.body as { photo: string }).photo));
   }),
 );
 

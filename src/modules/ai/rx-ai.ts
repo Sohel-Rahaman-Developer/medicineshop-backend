@@ -116,8 +116,8 @@ const digits = (s: string): string[] => (s.match(/\d[\d.]*/g) ?? []).map((n) => 
 const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
 /** A different strength is a different medicine: 625 must not become 375. */
 const strengthFits = (h: Hit, it: Pick<AiRxItem, 'strength'>) => digits(it.strength).every((w) => digits(`${h.name} ${h.salt}`).includes(w));
-/** Every word of the written name starts a word of the product's name. */
-const nameFits = (h: Hit, it: Pick<AiRxItem, 'name'>) => words(it.name).every((w) => words(h.name).some((x) => x.startsWith(w)));
+/** Every word of the written name is a word of the product's name — "Pan" is not "Pantocid" (another brand). */
+const nameFits = (h: Hit, it: Pick<AiRxItem, 'name'>) => words(it.name).every((w) => words(h.name).includes(w));
 
 export type RxStatus = 'add' | 'missing' | 'check';
 export interface RxLine {

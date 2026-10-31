@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.43.0',
+    date: '2026-10-31',
+    title: 'Read a prescription with AI',
+    shop: [
+      'New bill → Read a prescription: take a photo (phone or laptop camera, or a file). The AI copies what is written — medicines, strength, BD / 1-0-1, before or after food, days — for the same AI tokens as one bill page.',
+      'Your own stock is matched by the software, not the AI: a medicine in stock with the same name and strength goes on the bill with its quantity worked out (BD × 5 days = 10 tablets) and its How to take filled in.',
+      'Not in stock: shown with medicines of the same salt and strength to choose from — never swapped by itself. Hard to read, or more than one match: highlighted for you to pick. Nothing is billed until you check and press Charge.',
+      'The doctor and patient fill in the bill’s prescription, and with Prescription photo on, the same photo is kept with the bill.',
+    ],
+    admin: ['Every prescription read is in AI reads with its real cost, beside the bill reads.'],
+    api: ['POST /pos/rx-read { photo } → doctor, patient, lines[{ written, status add | missing | check, hit, qtyBase, why, dose, options }], ai { coins, balance }; /pos/settings has aiRx { enabled, coins }; AiRead.kind bill | rx.'],
+  },
+  {
     version: '1.42.1',
     date: '2026-10-31',
     title: 'The doctor added after the bill; How to take roomier on a computer',

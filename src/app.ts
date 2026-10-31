@@ -57,7 +57,7 @@ import { referralRouter } from './modules/referral/referral.routes';
 import { timing } from './modules/perf/perf';
 import { perfRouter } from './modules/perf/perf.routes';
 
-const PHOTO_PATH = /^\/((purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo|sales\/[a-f0-9]{24}\/prescription)$/;
+const PHOTO_PATH = /^\/((purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo|sales\/[a-f0-9]{24}\/prescription|pos\/rx-read)$/;
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
 const BILL_PATH = /^\/purchases\/import\/read$/;
 // D78: a scan or a phone photo for AI reading — up to about 4 MB (Nginx has its own block for this path).

@@ -240,6 +240,55 @@ async function main() {
   check('coin orders: accounts sees them, viewer doesn’t', (await acc.get('/admin/ai/orders?limit=10')).status === 200 && (await viewer.get('/admin/ai/orders?limit=10')).status === 403);
   check('a shop’s coins on its admin page', data<{ balance: number }>(await viewer.get(`/admin/shops/${shopId}/coins`)).balance === (await balance()));
 
+  section('12b. Read a prescription at the counter (D105)');
+  const { default: sharp } = await import('sharp');
+  const rxPhoto = b64(await sharp({ create: { width: 1200, height: 1600, channels: 3, background: '#fbf7ee' } }).jpeg().toBuffer(), 'image/jpeg');
+  const med = async (name: string, salt: string, strength: string, qty: number, units = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 10, purchase: 'BOX', purchasePack: 10, allowLooseSale: true }) =>
+    data<{ id: string }>(await owner.post('/products', { name, company: 'Generic', salt, strength, categoryId: tablet, scheduleType: 'H', storageType: 'NORMAL', hsnCode: '30049099', gstRate: 12, units, packSize: '', defaultRack: '', reorderLevel: 0, reorderQuantity: 0, ...(qty ? { stock: { clientRequestId: randomUUID(), batchNumber: `B${name.slice(0, 3)}`, expiry: '2028-06', quantity: qty, mrp: 5000, purchaseRate: 3000, rack: '' } } : {}) })).id;
+  const augmentin = await med('Augmentin 625 Duo Tablet', 'Amoxycillin + Clavulanic Acid', '625 mg', 10);
+  await med('Pan 40 Tablet', 'Pantoprazole', '40 mg', 0);
+  const pantocid = await med('Pantocid 40 Tablet', 'Pantoprazole', '40 mg', 10);
+  await med('Dolo 650 Tablet', 'Paracetamol', '650 mg', 5);
+  await med('Dolo 500 Tablet', 'Paracetamol', '500 mg', 5);
+  const line = (o: Record<string, unknown>) => ({ written: '', form: 'Tab', name: '', strength: '', salt: '', freq: '', meal: '', days: '', quantity: '', clear: true, ...o });
+  const rxAnswer = {
+    prescription: true,
+    doctor: 'Dr. S. Banerjee',
+    patient: 'Amit Das',
+    items: [
+      line({ written: 'Tab Augmentin 625 BD PC x 5d', name: 'Augmentin', strength: '625', freq: 'BD', meal: 'PC', days: '5' }),
+      line({ written: 'Tab Pan 40 OD AC x 7d', name: 'Pan', strength: '40', freq: 'OD', meal: 'AC', days: '7' }),
+      line({ written: 'Tab Dolo SOS', name: 'Dolo', freq: 'SOS' }),
+      line({ written: 'Tab Azi?em 500 OD', name: 'Azikem', strength: '500', freq: 'OD', clear: false }),
+    ],
+  };
+  await inTransaction((session) => moveCoins(shop, 'grant', 10, 'test', 'smoke', 'smoke', session));
+  check('the counter is told AI can read prescriptions and what it costs', data<{ aiRx: { enabled: boolean; coins: number } }>(await cashier.get('/pos/settings')).aiRx.enabled);
+  fake.answer = { bill: rxAnswer, input: 2600, output: 700 };
+  const rxBefore = await balance();
+  const readRes = await cashier.post('/pos/rx-read', { photo: rxPhoto });
+  type RxOut = { doctor: string; patient: string; lines: { written: string; status: string; hit: { id: string } | null; qtyBase: number; why: string; dose: { freq: string | null; pattern: string | null; meal: string | null; days: number | null } | null; options: { id: string; name: string }[] }[]; ai: { coins: number; balance: number } };
+  const rx = data<RxOut>(readRes);
+  const [l1, l2, l3, l4] = rx.lines;
+  const seenRx = fake.seen.at(-1);
+  check('the cashier reads it: one page’s tokens, doctor and patient copied', readRes.status === 200 && rx.ai.coins > 0 && rxBefore - (await balance()) === rx.ai.coins && rx.doctor === 'Dr. S. Banerjee' && rx.patient === 'Amit Das', code(readRes));
+  check('the AI got the photo as an image and the copy-only rules', seenRx?.blocks[0] === 'image' && seenRx.system.includes('Never guess a medicine'), JSON.stringify(seenRx?.blocks));
+  check('Augmentin 625 in stock → added: BD = 2 a day × 5 days = 10 tablets, after food', l1?.status === 'add' && l1.hit?.id === augmentin && l1.qtyBase === 10 && l1.why === 'BD = 2 a day × 5 days = 10 tablets' && l1.dose?.freq === 'BD' && l1.dose.meal === 'PC' && l1.dose.days === 5, JSON.stringify(l1));
+  check('Pan 40 out of stock → missing, with Pantocid 40 (same salt) to choose — never put in by itself', l2?.status === 'missing' && l2.hit === null && l2.options.map((o) => o.id).join() === pantocid, JSON.stringify(l2));
+  check('“Dolo” with no strength, two Dolos on the shelf → check, both offered', l3?.status === 'check' && l3.options.length === 2 && l3.options.every((o) => o.name.startsWith('Dolo')), JSON.stringify(l3));
+  check('a line the AI could not read clearly → check, never added', l4?.status === 'check' && l4.hit === null && l4.options.some((o) => o.id === azikem), JSON.stringify(l4));
+  const rxRead = await AiReadModel.findOne({ shopId: shop, kind: 'rx' }).sort({ createdAt: -1 }).lean();
+  check('the read is kept: prescription, 4 lines, its real cost', rxRead?.status === 'done' && rxRead.lines === 4 && rxRead.costPaise > 0 && rxRead.supplierName === 'Prescription', JSON.stringify(rxRead));
+  fake.answer = { bill: { prescription: false, doctor: '', patient: '', items: [] }, input: 2600, output: 50 };
+  const notRx = await cashier.post('/pos/rx-read', { photo: rxPhoto });
+  check('not a prescription → 422, the token back', notRx.status === 422 && /No medicines found/.test(notRx.json.error?.message ?? '') && (await balance()) === rxBefore - rx.ai.coins, code(notRx));
+  const askedRx = fake.seen.length;
+  check('not a picture → 422, nothing taken, the AI not asked', (await cashier.post('/pos/rx-read', { photo: 'data:image/jpeg;base64,aGVsbG8=' })).status === 422 && (await balance()) === rxBefore - rx.ai.coins && fake.seen.length === askedRx);
+  fake.answer = { bill: rxAnswer, input: 2600, output: 700 };
+  await inTransaction((session) => moveCoins(new Types.ObjectId(owner2.shopId ?? ''), 'grant', 5, 'test', 'smoke', 'smoke', session));
+  const theirs = data<RxOut>(await owner2.post('/pos/rx-read', { photo: rxPhoto }));
+  check('another shop’s read never sees this shop’s shelf', theirs.lines.every((x) => x.hit === null && x.options.length === 0));
+
   section('13. Off again');
   await root.put('/admin/ai/settings', { settings: settings({ enabled: false }), reason: 'pause while we check costs' });
   check('turned off → the shop can’t read with AI (403), the offer says off', (await photo()).status === 403 && !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
