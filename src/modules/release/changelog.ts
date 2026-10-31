@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.40.1',
+    date: '2026-10-31',
+    title: 'The chosen dates show without a tap',
+    shop: [
+      'Registers show the chosen dates above the list, like “Last 30 days · 2 Oct – 31 Oct 2026”; tap them to change. Stock says “Stock as of today”.',
+      'The date menu shows each choice’s own dates (Today, Last 7 days, This month…) before you pick, and a custom range reads “1 Oct – 5 Oct 2026”.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.40.0',
     date: '2026-10-31',
     title: 'Registers: quick reports and group by anything',
