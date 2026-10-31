@@ -126,7 +126,7 @@ export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, s
 export async function posSettings(t: TenantContext) {
   const [shop, offer, balance] = await Promise.all([ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean(), aiOffer(), balanceOf(t.shopId)]);
   // Why the prescription reader can't run now, so the counter can say so instead of hiding it.
-  const why = t.demo ? 'demo' : !offer.enabled ? 'off' : balance < offer.coinsPerPage ? 'tokens' : 'ok';
+  const why = !offer.enabled ? 'off' : balance < offer.coinsPerPage ? 'tokens' : 'ok';
   const billing = shop?.settings.billing;
   const inv = shop?.settings.inventory;
   const r = loyalty.rulesFor(t, shop?.settings.loyalty);
@@ -136,7 +136,7 @@ export async function posSettings(t: TenantContext) {
     enforceH1: billing?.enforceH1Prescription ?? true,
     rxPhoto: billing?.rxPhoto ?? false,
     rxEditHours: billing?.rxEditHours ?? 24,
-    aiRx: { enabled: why === 'ok', why, coins: offer.coinsPerPage, balance },
+    aiRx: { enabled: why === 'ok', why, coins: offer.coinsPerPage, balance, demo: t.demo },
     canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
     seesCost: seesCost(t),
     loyalty: { ...r, canRedeem: can(t.permissions, 'loyalty', 'create'), canSetUp: can(t.permissions, 'loyalty', 'edit') },

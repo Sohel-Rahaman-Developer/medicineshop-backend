@@ -57,8 +57,23 @@ export const CATALOG: Row[] = [
   ['Coca-Cola 300 ml Can', 'Coca-Cola', '', '', 'Drinks', 'NON_DRUG', 40, '2202', 'CAN', 'CAN', 1, 24, 'Normal', 5, 72, 40, 30, 'FRIDGE-2', 'CC3001'],
 ];
 
+const halfDown = (n: number) => Math.floor(n * 2) / 2;
+
+/** The shop's own price in rupees (D108): 10 % under MRP on medicines, 5 % on Ayurvedic, 8 % on devices; other goods at MRP. */
+export function sellOf(row: Row): number | null {
+  const [category, schedule, mrp] = [row[4], row[5], row[15]];
+  const off = category === 'Ayurvedic' ? 0.05 : category === 'Device' ? 0.08 : schedule === 'NON_DRUG' ? 0 : 0.1;
+  return off ? halfDown(mrp * (1 - off)) : null;
+}
+
+/** A batch's lowest price in rupees (D57): its cost + 10 %, never above what the shop sells at. */
+export const floorOf = (row: Row) => Math.min(Math.ceil(row[16] * 1.1 * 2) / 2, sellOf(row) ?? row[15]);
+
+/** Sell prices raised with the stock bought in the last 20 days, rupees — the counter sees the new price. */
+export const NEW_SELL: Record<string, number> = { 'Pan 40': 145, 'Montair LC': 235, 'Telma 40': 230 };
+
 /** Template columns of the product import, in order. */
-export const IMPORT_KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'minPrice', 'rack'] as const;
+export const IMPORT_KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'sellPrice', 'minPrice', 'rack'] as const;
 
 /** name, phone, udhaar limit in paise */
 export const CUSTOMERS: [string, string, number][] = [

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { sendFile } from '../../core/export';
-import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -64,7 +64,6 @@ posRouter.get(
 posRouter.post(
   '/rx-read',
   requirePermission('pos', 'create'),
-  notInDemo,
   validate({ body: rxReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await readRx(tenantOf(req), await actorOf(req), (req.body as { photo: string }).photo));

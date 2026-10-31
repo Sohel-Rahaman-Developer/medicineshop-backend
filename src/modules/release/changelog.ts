@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.45.1',
+    date: '2026-11-01',
+    title: 'Demo shop: AI prescription reading on, sell and lowest prices in its data',
+    shop: [
+      'Demo shop: Read a prescription with AI works there too, from the demo shop’s own AI tokens. If they run out it says so; they come back with the fresh demo data at night.',
+      'Demo shop data now has a sell price on medicines (10 % under MRP, 5 % on Ayurvedic, 8 % on devices; other goods at MRP) and a lowest price on every batch. Pan 40, Montair LC and Telma 40 got a new sell price with the last 20 days’ stock, shown in their history.',
+    ],
+    admin: ['Reset demo data to see the new prices in the demo shop at once; otherwise they come with the nightly rebuild.'],
+    api: ['/pos/rx-read is no longer blocked in the demo shop. /pos/settings aiRx: why is ok | off | tokens (no longer demo) and gains demo (true in the demo shop).'],
+  },
+  {
     version: '1.45.0',
     date: '2026-10-31',
     title: 'Easier counter: every price on the line, Prescription button, camera fixes',

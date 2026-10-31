@@ -100,8 +100,19 @@ async function main() {
   const { OldUdhaarModel } = await import('../src/modules/customers/customer.model.js');
   check('old khata udhaar brought in for 3 customers', (await OldUdhaarModel.countDocuments({ shopId, amount: { $gt: 0 } })) === 3);
   check('owner and 3 staff', (await MembershipModel.countDocuments({ shopId, status: 'active' })) === 4);
+  const { ProductModel } = await import('../src/modules/products/product.model.js');
+  const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
+  const priced = await ProductModel.find({ shopId }).select('name sellPrice').lean();
+  const dolo = priced.find((p) => p.name === 'Dolo 650 Tablet');
+  check('D108: medicines have a sell price under MRP (Dolo ₹33.50 → ₹30.00); Coca-Cola sells at MRP', dolo?.sellPrice === 3000 && priced.find((p) => p.name.startsWith('Coca-Cola'))?.sellPrice == null, JSON.stringify(dolo));
+  check('…most products have one', priced.filter((p) => p.sellPrice).length >= 30, String(priced.filter((p) => p.sellPrice).length));
+  const pan = priced.find((p) => p.name === 'Pan 40 Tablet');
+  check('…Pan 40 raised to ₹145.00 with the last 20 days’ stock, in its history', pan?.sellPrice === 14_500 && (await AuditLogModel.exists({ shopId, entityId: String(pan._id), text: /sell price ₹139\.50 → ₹145\.00 \(purchase/ })) !== null, JSON.stringify(pan));
+  const noFloor = await BatchModel.countDocuments({ shopId, quantity: { $gt: 0 }, $or: [{ minPrice: null }, { minPrice: { $exists: false } }] });
+  check('D57: every batch in stock has a lowest price', noFloor === 0, String(noFloor));
+  check('bills priced at the shop’s own price (under MRP, not a discount)', (await SaleModel.countDocuments({ shopId, shopDiscountAmount: { $gt: 0 } })) > 100);
   const c = first.counts;
-  check('the page counts this month and all time', Boolean(c && c.all.bills === bills.filter((b) => b.status !== 'cancelled').length && c.month.bills <= c.all.bills && c.week.bills <= c.month.bills && c.today.bills <= c.week.bills), JSON.stringify(c));
+  check('the page counts this month and all time', Boolean(c && c.all.bills === bills.filter((b) => b.status !== 'cancelled').length && c.month.bills <= c.all.bills && c.week.bills <= c.all.bills && c.today.bills <= Math.min(c.week.bills, c.month.bills)), JSON.stringify(c));
 
   section('3. The sign-in code: only a super admin sets it; no guessable codes');
   check('support role → 403', (await helper.put('/admin/demo/code', { code: '482916', reason: 'Code for the sales team' })).status === 403);
@@ -121,6 +132,9 @@ async function main() {
   };
   const { s: demo, r: signed } = await shop('482916');
   check('demo@medbox24.in signs in with the code', signed.status === 200, code(signed));
+  const rx = data<{ aiRx: { why: string; demo: boolean } }>(await demo.get('/pos/settings')).aiRx;
+  check('the prescription reader is on in the demo shop too (why is never "demo")', rx.demo && rx.why !== 'demo', JSON.stringify(rx));
+  check('…and its read is not blocked as a demo (bad photo → 422, not 403)', (await demo.post('/pos/rx-read', { photo: 'x' })).status === 422);
   const sub = data<{ planName: string; status: string; demo: boolean; readOnly: boolean }>(await demo.get('/subscription'));
   check('plan: demo, free for life, active', sub.demo && sub.status === 'active' && !sub.readOnly && /free for life/.test(sub.planName), JSON.stringify(sub));
   check('no plan payment → 403', (await demo.post('/subscription/order', { planCode: 'monthly' })).status === 403);

@@ -40,7 +40,7 @@ import * as suppliers from '../suppliers/suppliers.service';
 import { paymentSchema, supplierSchema } from '../suppliers/suppliers.validation';
 import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
-import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, IMPORT_KEYS, OLD_KHATA, RESTOCK, SHORT_DATED, SUPPLIERS } from './demo.data';
+import { BASKETS, CATALOG, CUSTOMERS, DOCTORS, floorOf, IMPORT_KEYS, NEW_SELL, OLD_KHATA, RESTOCK, sellOf, SHORT_DATED, SUPPLIERS } from './demo.data';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -105,6 +105,8 @@ export function dayPlan(dayStart: Date, today: Date): Event[] {
     out.push({ at: 11.5 * HOUR, kind: 'purchase', supplier: Math.floor(n / 5) % 3, lines, pay: (['full', 'part', 'credit'] as const)[n % 3] ?? 'credit', seq: n });
   }
   if (ago === 10) out.push({ at: 12.4 * HOUR, kind: 'purchase', supplier: 1, lines: SHORT_DATED.map((_, i) => i), pay: 'credit', seq: n + 50_000, short: true });
+  // New stock at a higher sell price, so the counter and the product history show a price change.
+  if (ago === 12) out.push({ at: 11.8 * HOUR, kind: 'purchase', supplier: 2, lines: RESTOCK.flatMap(([p], i) => (p in NEW_SELL ? [i] : [])), pay: 'full', seq: 99_912 });
   if (dom === 1) {
     out.push({ at: 10.25 * HOUR, kind: 'expense', category: 'Rent', description: 'Shop rent', amount: 1_800_000, mode: 'BANK' });
     out.push({ at: 10.3 * HOUR, kind: 'expense', category: 'Salary', description: 'Staff salary — 3 people', amount: 4_200_000, mode: 'BANK' });
@@ -209,8 +211,9 @@ export async function setUp(shopId: Types.ObjectId, emails: Record<Who, string>,
   const clock = new Clock(shopId);
   const rules = Object.fromEntries(Object.entries(await loyalty.getRules(t)).filter(([k]) => k !== 'configured'));
   await clock.step(start, () => loyalty.updateRules(t, actor, rulesSchema.parse({ ...rules, enabled: true })));
-  const rows = CATALOG.map(([name, company, salt, strength, category, schedule, gst, hsn, saleUnit, baseUnit, pack, purchasePack, storage, months, qty, mrp, rate, rack, batch]) => {
-    const v: Record<string, string | number> = { name, company, salt, strength, category, schedule, gst, hsn, barcode: '', saleUnit, baseUnit, pack, purchaseUnit: 'BOX', purchasePack, storage, hasExpiry: months === null ? 'No' : 'Yes', batch, expiry: months === null ? '' : expiryIn(months, start).mmyy, quantity: months === null || months > 3 ? qty * STOCK_SCALE : qty, mrp, rate, minPrice: '', rack };
+  const rows = CATALOG.map((row) => {
+    const [name, company, salt, strength, category, schedule, gst, hsn, saleUnit, baseUnit, pack, purchasePack, storage, months, qty, mrp, rate, rack, batch] = row;
+    const v: Record<string, string | number> = { name, company, salt, strength, category, schedule, gst, hsn, barcode: '', saleUnit, baseUnit, pack, purchaseUnit: 'BOX', purchasePack, storage, hasExpiry: months === null ? 'No' : 'Yes', batch, expiry: months === null ? '' : expiryIn(months, start).mmyy, quantity: months === null || months > 3 ? qty * STOCK_SCALE : qty, mrp, rate, sellPrice: sellOf(row) ?? '', minPrice: floorOf(row), rack };
     return Object.fromEntries(IMPORT_KEYS.map((k) => [k, v[k] ?? '']));
   });
   await clock.step(start, () => importRows(t, actor, importSchema.parse({ clientRequestId: randomUUID(), dryRun: false, rows })), true);
@@ -295,7 +298,9 @@ export async function play(shopId: Types.ObjectId, emails: Record<Who, string>, 
           const productId = pid(prefix);
           if (!row || !productId) return [];
           const [gst, saleUnit, mrp, rate] = [row[6], row[8], row[15], row[16]];
-          return [{ productId: String(productId), batchNumber: `${prefix.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase()}${String(e.seq).slice(-4)}`, expiry: expiryIn(months, e.short ? today : at).ym, quantity: qty, freeQuantity: qty >= 100 ? 10 : 0, unit: saleUnit, rate: Math.round(rate * 100), mrp: Math.round(mrp * 100), gstRate: gst }];
+          const raised = NEW_SELL[prefix];
+          const sell = raised !== undefined && at.getTime() > today.getTime() - 20 * DAY ? { sellPrice: Math.round(raised * 100) } : {};
+          return [{ productId: String(productId), batchNumber: `${prefix.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase()}${String(e.seq).slice(-4)}`, expiry: expiryIn(months, e.short ? today : at).ym, quantity: qty, freeQuantity: qty >= 100 ? 10 : 0, unit: saleUnit, rate: Math.round(rate * 100), mrp: Math.round(mrp * 100), minPrice: Math.round(floorOf(row) * 100), gstRate: gst, ...sell }];
         });
         if (!lines.length) return null;
         const { result: p } = await purchases.create(t, actor, purchaseSchema.parse({ clientRequestId: randomUUID(), supplierId: String(s._id), invoiceNumber: `${s.name.split(' ').map((w) => w[0]).join('')}/${String(e.seq).slice(-4)}`, invoiceDate: istIsoDay(at), lines }));
