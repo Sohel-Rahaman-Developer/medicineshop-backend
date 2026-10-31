@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.43.1',
+    date: '2026-10-31',
+    title: 'Install app',
+    shop: [
+      'Install app in the account menu (on a phone: More): installs MedBox24 to open full screen from its own icon, with no browser bar.',
+      'Where the browser can’t install by itself, it shows the steps for that phone: opened inside WhatsApp → Open in Chrome first; iPhone → Safari, Share, Add to Home Screen; an old icon that opens with a browser bar is a shortcut — remove it and install again.',
+      'On a phone in a browser tab, a one-line offer to install; Not now hides it for two weeks.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.43.0',
     date: '2026-10-31',
     title: 'Read a prescription with AI',
