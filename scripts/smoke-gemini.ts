@@ -204,9 +204,20 @@ async function main() {
   const usage = { input: 2400, output: 120, cacheRead: 0, cacheWrite: 0 };
   check('recorded: Gemini model, 2,400 in, 120 out (thinking counted), cost (2,400 × $0.30 + 120 × $2.50) / 1M × ₹88 = 9 paise', q?.model === 'gemini-3.5-flash-lite' && q.inputTokens === 2400 && q.outputTokens === 120 && q.costPaise === costOf(usage, listPrice('gemini-3.5-flash-lite'), 88) && q.costPaise === 9, JSON.stringify(q));
   check('billing on → the question is not free tier, and the AI bill shows it billed', q?.freeTier === false && ((await googleBill())?.billedPaise ?? 0) >= (q.costPaise || 1));
+  // Tools off on the last round, and Gemini still reaches for one: it is told to answer from what it found.
+  const kindCall = { tools: [{ name: 'find_kind', args: { words: ['condom', 'manforce', 'durex'] } }], input: 300 };
+  fake.queue.push(kindCall, kindCall, kindCall, { finish: 'UNEXPECTED_TOOL_CALL' }, { say: 'Dokane kono condom nei — Manforce, Durex dekhechi.' });
+  const seenAt = fake.seen.length;
+  const stuck = data<{ route: string; text: string }>(await owner.post('/ask', { text: 'condom ke baare mein batao salah do', confirm: true }));
+  const last = fake.seen.at(-1)?.body;
+  check('Gemini calls a tool on the tools-off round → one more round with a nudge, and it answers', stuck.route === 'ai' && stuck.text.startsWith('Dokane kono condom nei') && fake.seen.length - seenAt === 5 && JSON.stringify(last?.contents?.at(-1)).includes('Do not call any tool now') && last?.toolConfig?.functionCallingConfig.mode === 'NONE', JSON.stringify(stuck));
+  fake.queue.push({ finish: 'MALFORMED_FUNCTION_CALL' }, { finish: 'MALFORMED_FUNCTION_CALL' });
+  const broken = data<{ route: string }>(await owner.post('/ask', { text: 'diaper ke baare mein batao salah do', confirm: true }));
+  const brokenQ = await AskQuestionModel.findOne({ shopId: shop, status: 'failed' }).sort({ createdAt: -1 }).lean();
+  check('a broken call twice → fails, and the reason is kept for the admin', broken.route === 'failed' && brokenQ?.error === 'Refused (MALFORMED_FUNCTION_CALL)', JSON.stringify(brokenQ?.error));
   fake.queue.push({ status: 429 });
   const busy = await owner.post('/ask', { text: 'Dolo bachchon ko de sakte hain kya', confirm: true });
-  const failedQ = await AskQuestionModel.findOne({ shopId: shop, status: 'failed' }).lean();
+  const failedQ = await AskQuestionModel.findOne({ shopId: shop, status: 'failed' }).sort({ createdAt: -1 }).lean();
   check('Gemini busy → the question fails, the token comes back, the error says Gemini', data<{ route: string }>(busy).route === 'failed' && failedQ?.error === 'Gemini busy 429', `${code(busy)} ${JSON.stringify(busy.json.data)} ${JSON.stringify(failedQ)}`);
 
   section('5. Removing the Gemini key turns off what runs on it');

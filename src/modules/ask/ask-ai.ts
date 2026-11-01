@@ -3,6 +3,7 @@ import { env } from '../../config/env';
 import { generate, textOf, usageOf, type GeminiContent } from '../../services/gemini';
 import type { Price } from '../ai/ai-settings';
 import { AI_MODELS, type AiModelId } from '../ai/ai.model';
+import { snapshot } from './facts';
 import type { Voice } from './lang';
 import { runTool, toolDefs, type Ctx } from './tools';
 
@@ -11,8 +12,9 @@ import { runTool, toolDefs, type Ctx } from './tools';
 
 const SYSTEM = `You are the assistant inside MedBox24, the software of a pharmacy shop in India. The shop's own staff ask you questions.
 Answer about this shop (its sales, profit and margins, stock, expiry, customers and udhaar, suppliers and their prices, purchases, expenses, GST, staff, cash, branches), about medicines (what a medicine or salt is for, substitutes with the same salt), and about running and growing a pharmacy in India: more sales, stock and expiry control, buying and margins, pricing, customers and loyalty, staff, cash and udhaar, the shop's layout and marketing. For anything else (films, sport, politics, homework, coding, other trades), reply with exactly OFF_TOPIC and nothing else.
+The question starts with the shop's figures right now (stock by category, sale, profit — what the person's role may see): use them, and call tools for anything more.
 Call every tool you need together in one turn. For "why", "vs" or "up or down", start with compare. For advice, first look up the shop's own figures (compare, item_margins, not_selling, buy_prices, busy_hours, low_stock, customer_dues — whichever fit), say what they show, then give two or three concrete steps for this shop, each tied to a figure.
-A kind of product (condom, sanitary pad, diaper, ORS, protein powder, test strips) is not a product name: shops keep it under brand names, so think which brands sell it in India and look them all up at once with find_kind (the kind word and the brands). A single medicine name not found: try one other spelling. Only then say the shop has none, and name what you looked for.
+A kind of product (condom, sanitary pad, diaper, ORS, protein powder, test strips) is not a product name: shops keep it under brand names, so make ONE find_kind call with the kind word and up to 10 brands sold in India. What it returns is the answer: name what is in stock, or say the shop has none of that kind and which brands you checked. A single medicine name not found: try one other spelling, then say the shop has none.
 Take every figure from the tools and copy it as given; never invent a number or a name, and never work one out yourself. If a tool says the person's role cannot see something, say so plainly.
 Medicines: general information only. Never give a dose for a patient — say to ask a doctor. GST and licences: general guidance only — for a filing, say to ask their CA.
 Reply in at most 8 short lines of plain text, no tables and no markdown.`;
@@ -40,7 +42,13 @@ export interface Usage {
   cacheWrite: number;
 }
 
-export type AiAnswer = { kind: 'answer'; text: string; tools: string[]; links: string[] } | { kind: 'off_topic'; tools: string[] } | { kind: 'too_big'; tools: string[] } | { kind: 'refused'; tools: string[] };
+export type AiAnswer = { kind: 'answer'; text: string; tools: string[]; links: string[] } | { kind: 'off_topic'; tools: string[] } | { kind: 'too_big'; tools: string[] } | { kind: 'refused'; tools: string[]; why?: string };
+
+/** The question with this shop's figures in front — only this shop's data, only what the person's role may see. */
+async function withShop(c: Ctx, question: string) {
+  const facts = await snapshot(c.t, c.userId, c.now);
+  return facts ? `Shop figures now:\n${facts}\n\nQuestion: ${question}` : question;
+}
 
 /** Paise for a question's tokens at the given price (US$ per million), rounded up — a tiny real cost is still charged. */
 export const costOf = (u: Usage, p: Price, usdInr: number) => Math.ceil(((u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1_000_000) * usdInr * 100);
@@ -66,7 +74,7 @@ export function inputUsed(u: Usage, p: Price) {
 
 export async function askClaude(c: Ctx, key: string, s: Caps, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
   const client = new Anthropic({ apiKey: key, baseURL: env.AI_BASE_URL, maxRetries: 1, timeout: 45_000 });
-  const messages: Anthropic.MessageParam[] = [...history.map((h) => ({ role: h.role, content: h.text })), { role: 'user', content: `${question}\n\n(Reply in ${LANGUAGE[voice]}.)` }];
+  const messages: Anthropic.MessageParam[] = [...history.map((h) => ({ role: h.role, content: h.text })), { role: 'user', content: `${await withShop(c, question)}\n\n(Reply in ${LANGUAGE[voice]}.)` }];
   const tools = toolDefs();
   const called: string[] = [];
   const links: string[] = [];
@@ -113,10 +121,11 @@ export async function askClaude(c: Ctx, key: string, s: Caps, voice: Voice, ques
 
 /** D96: the same question on Gemini — the same tools, caps and answer kinds; the model's turns go back as given (thought signatures). */
 export async function askGemini(c: Ctx, key: string, s: Caps, voice: Voice, question: string, history: Turn[], used: Usage): Promise<AiAnswer> {
-  const contents: GeminiContent[] = [...history.map((h): GeminiContent => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: `${question}\n\n(Reply in ${LANGUAGE[voice]}.)` }] }];
+  const contents: GeminiContent[] = [...history.map((h): GeminiContent => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: `${await withShop(c, question)}\n\n(Reply in ${LANGUAGE[voice]}.)` }] }];
   const tools = [{ functionDeclarations: toolDefs().map((t) => ({ name: t.name, description: t.description ?? '', parametersJsonSchema: t.input_schema })) }];
   const called: string[] = [];
   const links: string[] = [];
+  let nudged = false;
   for (let round = 0; round < ROUNDS; round++) {
     const room = s.capOut - used.output;
     if (room < 64) return { kind: 'too_big', tools: called };
@@ -126,7 +135,14 @@ export async function askGemini(c: Ctx, key: string, s: Caps, voice: Voice, ques
     used.cacheRead += u.cacheRead;
     used.output += u.output;
     const cand = r.candidates?.[0];
-    if (r.promptFeedback?.blockReason || !cand?.content || (cand.finishReason && !['STOP', 'MAX_TOKENS'].includes(cand.finishReason))) return { kind: 'refused', tools: called };
+    // Gemini still reaching for a tool (or a broken call) gets one more round with tools off and a nudge to answer.
+    if (!nudged && (cand?.finishReason === 'UNEXPECTED_TOOL_CALL' || cand?.finishReason === 'MALFORMED_FUNCTION_CALL')) {
+      nudged = true;
+      contents.at(-1)?.parts.push({ text: 'Do not call any tool now. Answer from what you already looked up.' });
+      round = ROUNDS - 2;
+      continue;
+    }
+    if (r.promptFeedback?.blockReason || !cand?.content || (cand.finishReason && !['STOP', 'MAX_TOKENS'].includes(cand.finishReason))) return { kind: 'refused', tools: called, why: r.promptFeedback?.blockReason ?? cand?.finishReason ?? 'no answer' };
     const calls = cand.content.parts.filter((p) => p.functionCall).map((p) => p.functionCall).filter((f) => f !== undefined);
     if (!calls.length) {
       const text = textOf(cand.content).trim();

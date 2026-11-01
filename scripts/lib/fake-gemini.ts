@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 export type GeminiReply =
   | { bill: unknown; input?: number; output?: number; thoughts?: number }
   | { status: number; message?: string }
-  | { finish: 'SAFETY' | 'MAX_TOKENS' | 'RECITATION' }
+  | { finish: 'SAFETY' | 'MAX_TOKENS' | 'RECITATION' | 'UNEXPECTED_TOOL_CALL' | 'MALFORMED_FUNCTION_CALL' }
   | { block: string }
   /** Chat: call these functions, or answer this text. */
   | { tools: { name: string; args: unknown }[]; input?: number; output?: number }
@@ -19,6 +19,7 @@ export interface GeminiSeen {
     contents?: { role: string; parts: Record<string, unknown>[] }[];
     tools?: { functionDeclarations: { name: string; parametersJsonSchema?: unknown }[] }[];
     generationConfig?: { maxOutputTokens?: number; responseMimeType?: string; responseJsonSchema?: Record<string, unknown>; thinkingConfig?: { thinkingLevel?: string } };
+    toolConfig?: { functionCallingConfig: { mode: string } };
   };
 }
 

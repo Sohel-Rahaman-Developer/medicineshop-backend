@@ -109,6 +109,30 @@ export async function stockOf(t: TenantContext, name: string) {
   };
 }
 
+const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+
+/** A few lines the AI starts from: stock by category and, if the role sees them, this shop's sale and profit. */
+export async function snapshot(t: TenantContext, userId: string, now: Date) {
+  const lines: string[] = [];
+  if (can(t.permissions, 'products', 'view') || can(t.permissions, 'stock', 'view')) {
+    const rows = await ProductModel.aggregate<{ _id: Types.ObjectId; n: number; low: number; out: number }>([
+      { $match: { shopId: t.shopId, isActive: true } },
+      { $group: { _id: '$categoryId', n: { $sum: 1 }, low: { $sum: { $cond: [{ $eq: ['$stock.status', 'low'] }, 1, 0] } }, out: { $sum: { $cond: [{ $eq: ['$stock.status', 'out'] }, 1, 0] } } } },
+      { $sort: { n: -1, _id: 1 } },
+    ]);
+    const names = new Map((await CategoryModel.find({ shopId: t.shopId, _id: { $in: rows.map((r) => r._id) } }).select('name').lean()).map((c) => [String(c._id), c.name]));
+    const sum = (k: 'n' | 'low' | 'out') => rows.reduce((a, r) => a + r[k], 0);
+    lines.push(`Stock: ${String(sum('n'))} products (${String(sum('low'))} low, ${String(sum('out'))} out of stock).`);
+    if (rows.length) lines.push(`Products by category: ${rows.slice(0, 20).map((r) => `${names.get(String(r._id)) ?? 'Other'} ${String(r.n)}`).join(', ')}.`);
+  }
+  if (SELLS.some(([m, a]) => can(t.permissions, m, a ?? 'view'))) {
+    const [today, month] = await Promise.all([sales(t, userId, { key: 'today' }, now), sales(t, userId, { key: 'month' }, now)]);
+    lines.push(`Net sale today ${rupees(today.netSales)} from ${String(today.bills)} bills; this month so far ${rupees(month.netSales)} from ${String(month.bills)} bills${month.ownOnly ? ' (only this person’s bills)' : ''}.`);
+    if (month.profit) lines.push(`Gross profit this month so far ${rupees(month.profit.gross)} (margin ${String(month.profit.margin)}%).`);
+  }
+  return lines.join('\n');
+}
+
 /** A kind of product (condom, diaper…) by the kind word and its brands: any word starting a word of the name, salt, company or category. */
 export async function kindOf(t: TenantContext, words: string[]) {
   need(t, ['products'], ['stock']);

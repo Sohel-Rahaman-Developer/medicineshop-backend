@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.49.1',
+    date: '2026-11-01',
+    title: 'The website says plainly: software only, no medicines sold',
+    shop: [
+      'medbox24.in now says in English, Hindi and Bengali that MedBox24 is software for medical stores and sells no medicines — in the footer, in a new question, and in what search engines read.',
+      'Two old answers on the website are put right: billing goes on when the internet drops, and every explanation in the app follows your language.',
+      'Ask AI: every question now carries your shop’s figures — stock by category, today’s and this month’s sale, and profit for those who may see it — only your shop’s, never another’s.',
+      'Ask AI: when the AI keeps looking things up past its last step, it is told to answer from what it found, instead of “could not answer”.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.49.0',
     date: '2026-11-01',
     title: 'Supplier gives more or less on a return, money back from a supplier, AI looks up brands',

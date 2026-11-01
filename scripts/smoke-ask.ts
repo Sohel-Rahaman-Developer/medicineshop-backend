@@ -254,11 +254,22 @@ async function main() {
   const ask1 = await askAs(owner, 'Dolo kis kaam aati hai', { confirm: false });
   const q1 = ask1.a as Answer & { need?: number; most?: number; balance?: number };
   check('without a yes → “confirm”: at most 1 token, 5 held by the shop; nothing set aside, Claude not called, nothing recorded', q1.route === 'confirm' && q1.need === 1 && q1.most === 1 && q1.balance === 5 && fake.seen.length === 0 && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0 && !(await AskQuestionModel.exists({ shopId: shop, route: 'ai' })), JSON.stringify(ask1.a));
+  // Another shop's stock must never reach this shop's AI.
+  const madeOther: Res[] = [];
+  const otherTab = data<{ id: string; name: string }[]>(await other.get('/categories')).find((x) => x.name === 'Tablet')?.id ?? '';
+  for (const n of ['Mina One', 'Mina Two', 'Mina Three']) madeOther.push(await other.post('/products', { name: n, company: 'Cipla', salt: '', strength: '', categoryId: otherTab, scheduleType: 'OTC', storageType: 'NORMAL', hsnCode: '', gstRate: 12, units: units15, packSize: '', defaultRack: '', reorderLevel: 0, reorderQuantity: 0 }));
   fake.queue.push({ tools: [{ name: 'product_stock', input: { name: 'dolo' } }] }, { say: 'Dolo 650 mein paracetamol hai — bukhar aur dard ke liye. Stock mein hai. Dose ke liye doctor se poochhiye.' });
   const ai = await askAs(owner, 'Dolo kis kaam aati hai', { history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹120' }] });
   check('answered by AI at once, a link to the product it looked up, 1 token (5 → 4)', ai.a.route === 'ai' && ai.a.text?.startsWith('Dolo 650 mein paracetamol') === true && ai.a.links?.[0]?.href === `/products/${dolo}` && ai.a.ai?.balance === 4, JSON.stringify(ai.a));
   const [first, second] = fake.seen;
   check('Claude got Haiku 4.5, the 28 read-only tools, a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 28 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
+  const lastMsg = first?.messages.at(-1)?.content;
+  const sent = typeof lastMsg === 'string' ? lastMsg : '';
+  const ownCount = await ProductModel.countDocuments({ shopId: shop, isActive: true });
+  check(`the question carries this shop’s figures: ${String(ownCount)} products by category, today’s and this month’s sale, profit for the owner`, sent.startsWith('Shop figures now:') && sent.includes(`Stock: ${String(ownCount)} products`) && sent.includes('Products by category: Tablet') && sent.includes('Net sale today ₹') && sent.includes('Gross profit this month so far') && sent.includes('Question: Dolo kis kaam aati hai'), sent.slice(0, 400));
+  const otherCount = await ProductModel.countDocuments({ shopId: new Types.ObjectId(other.shopId), isActive: true });
+  check('…and nothing of the other shop: its products are not counted, its names not sent', otherCount >= 3 && !sent.includes(`Stock: ${String(ownCount + otherCount)} products`) && !sent.includes('Mina'), `${String(otherCount)} ${madeOther.map(code).join(' | ')}`);
+  check('the AI is told to start from those figures', first?.system.includes("The question starts with the shop's figures right now") === true);
   check('v1.27: the AI calls its tools together and starts “why / vs” from compare', first?.system.includes('Call every tool you need together in one turn') === true && first.system.includes('start with compare'));
   const lastUser = JSON.stringify(first?.messages.at(-1));
   check('the AI may talk about growing the shop, not only its figures', first?.system.includes('running and growing a pharmacy in India') === true && first.system.includes("look up the shop's own figures"));
@@ -400,7 +411,7 @@ async function main() {
   const hunt = await askAs(owner, 'condom ke baare mein batao salah do');
   const rounds = fake.seen.slice(seenAt);
   check('a name found nowhere: tools for 3 rounds, the 4th has tools off, so it still answers (not “too many steps”)', hunt.a.route === 'ai' && hunt.a.text === 'Dukaan mein condom naam ka kuch nahi hai.' && rounds.length === 4 && rounds.slice(0, 3).every((r) => r.toolChoice === null) && rounds[3]?.toolChoice === 'none', JSON.stringify({ a: hunt.a, c: rounds.map((r) => r.toolChoice) }));
-  check('the AI is told a kind (condom, diaper) lives under brand names: look them all up with find_kind', rounds[0]?.system.includes('think which brands sell it in India') === true && rounds[0].system.includes('find_kind'));
+  check('the AI is told a kind (condom, diaper) lives under brand names: look them all up with find_kind', rounds[0]?.system.includes('make ONE find_kind call') === true && rounds[0].system.includes('find_kind'));
   await mk(owner, 'Manforce Chocolate 10s', '', '');
   fake.queue.push({ tools: [{ name: 'find_kind', input: { words: ['condom', 'manforce', 'durex', 'kamasutra'] } }] }, { say: 'Manforce Chocolate hai.' });
   const kind = await askAs(owner, 'condom ke kaun se brand rakhne chahiye salah do');

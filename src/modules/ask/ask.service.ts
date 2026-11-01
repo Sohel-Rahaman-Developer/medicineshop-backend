@@ -247,7 +247,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
     const after = await settle(t, actor, held, { status: 'done', route: 'off_topic', tools }, used, s, started);
     return { route: 'off_topic' as const, voice, text: say(TEXT.offTopic, voice, { back: took(after) }), ai: after, suggestions };
   }
-  const why = answer.kind === 'too_big' ? 'Over the cap' : 'Refused';
+  const why = answer.kind === 'too_big' ? 'Over the cap' : `Refused${answer.why ? ` (${answer.why})` : ''}`;
   const after = await settle(t, actor, held, { status: 'failed', error: why, tools }, used, s, started);
   return { route: 'failed' as const, voice, text: say(answer.kind === 'too_big' ? TEXT.tooBig : TEXT.failed, voice, { back: took(after) }), ai: after, suggestions };
 }
