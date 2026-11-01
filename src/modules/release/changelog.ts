@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.48.3',
+    date: '2026-11-01',
+    title: 'Expiry centre says what Return and Write off do',
+    shop: [
+      'Above the expired and expiring list, a short card says what each button does, in the language you picked (English, हिंदी or বাংলা): Return to supplier — send it back, the supplier gives a credit note; Write off — it can’t go back, so you throw it away and the loss shows in reports.',
+      'The button names stay in English, as everywhere in the app.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.48.2',
     date: '2026-11-01',
     title: 'New bill search says why a medicine came up',
