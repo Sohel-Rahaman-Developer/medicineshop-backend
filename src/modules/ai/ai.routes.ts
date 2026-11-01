@@ -8,7 +8,8 @@ import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import { aiOffer } from './ai-settings';
-import { balanceOf, coinInvoicePdf, orderCoins, testPayCoins, verifyCoins, wallet } from './coins';
+import { coinInvoicePdf, orderCoins, testPayCoins, verifyCoins, wallet } from './coins';
+import { shopAi } from './meter';
 
 const orderSchema = z.object({ packCode: z.string().trim().min(1).max(20) }).strict();
 const verifySchema = z.object({ orderId: z.string().trim().min(6).max(60), paymentId: z.string().trim().min(6).max(60), signature: z.string().trim().regex(/^[a-f0-9]{64}$/, 'Invalid signature') }).strict();
@@ -23,8 +24,8 @@ aiRouter.get(
   '/offer',
   requirePermission('purchases', 'create'),
   asyncHandler(async (req: Request, res: Response) => {
-    const t = tenantOf(req);
-    fetched(res, { ...(await aiOffer()), balance: await balanceOf(t.shopId) });
+    const mine = await shopAi(tenantOf(req).shopId);
+    fetched(res, { ...(await aiOffer()), coinsPerPage: mine.page.need, mostPerPage: mine.page.most, usualPerPage: mine.page.usual, free: mine.free, balance: mine.balance });
   }),
 );
 aiRouter.get('/wallet', view, asyncHandler(async (req: Request, res: Response) => { fetched(res, await wallet(tenantOf(req))); }));

@@ -21,7 +21,7 @@ import { seesCost } from '../products/products.service';
 import { can } from '../rbac/permissions';
 import { ShopModel } from '../shops/shop.model';
 import { aiOffer } from '../ai/ai-settings';
-import { balanceOf } from '../ai/coins';
+import { shopAi } from '../ai/meter';
 import { BatchModel } from '../stock/batch.model';
 import { allocate, daysLeftOut, fefo, hasExpiry, type BatchLike } from '../stock/stock.domain';
 import { applyMove, refreshRollups } from '../stock/stock.ledger';
@@ -124,9 +124,9 @@ export function posItem(p: PosProduct, batches: SaleBatch[], cats: Map<string, s
 
 /** What the counter needs to price a cart the way the server will (no settings: view needed). */
 export async function posSettings(t: TenantContext) {
-  const [shop, offer, balance] = await Promise.all([ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean(), aiOffer(), balanceOf(t.shopId)]);
-  // Why the prescription reader can't run now, so the counter can say so instead of hiding it.
-  const why = !offer.enabled ? 'off' : balance < offer.coinsPerPage ? 'tokens' : 'ok';
+  const [shop, offer, mine] = await Promise.all([ShopModel.findOne({ _id: t.shopId }).select('settings.billing settings.inventory settings.loyalty').lean(), aiOffer(), shopAi(t.shopId)]);
+  // Why the prescription reader can't run now, so the counter can say so instead of hiding it (D109: after the month's free AI).
+  const why = !offer.enabled ? 'off' : mine.balance < mine.page.need ? 'tokens' : 'ok';
   const billing = shop?.settings.billing;
   const inv = shop?.settings.inventory;
   const r = loyalty.rulesFor(t, shop?.settings.loyalty);
@@ -136,7 +136,7 @@ export async function posSettings(t: TenantContext) {
     enforceH1: billing?.enforceH1Prescription ?? true,
     rxPhoto: billing?.rxPhoto ?? false,
     rxEditHours: billing?.rxEditHours ?? 24,
-    aiRx: { enabled: why === 'ok', why, coins: offer.coinsPerPage, balance, demo: t.demo },
+    aiRx: { enabled: why === 'ok', why, coins: mine.page.need, most: mine.page.most, usual: mine.page.usual, free: mine.free, balance: mine.balance, demo: t.demo },
     canPickBatch: (inv?.allowBatchOverride ?? true) && can(t.permissions, 'stock', 'edit'),
     seesCost: seesCost(t),
     loyalty: { ...r, canRedeem: can(t.permissions, 'loyalty', 'create'), canSetUp: can(t.permissions, 'loyalty', 'edit') },

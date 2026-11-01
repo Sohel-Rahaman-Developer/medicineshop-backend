@@ -242,7 +242,7 @@ interface PriceRise {
   from: Date;
   now: { input: number; output: number };
   next: { input: number; output: number };
-  uses: { feature: 'read' | 'chat'; worstPaise: number; chargePaise: number; safe: boolean; needCoins: number }[];
+  uses: { feature: 'read' | 'chat'; worstPaise: number; coins: number; chargePaise: number; safe: boolean; needCoins: number }[];
 }
 
 /** An announced AI price rise a week ahead: what it does to bill reading and the chat, and the tokens that keep them safe. */
@@ -252,8 +252,9 @@ export function aiPriceEmail(items: PriceRise[]) {
   const usd = (n: number) => `$${n.toFixed(2)}`;
   const rs = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
   const what = { read: ['Bill reading', 'a page'], chat: ['The chat', 'a question'] } as const;
+  // D109: a job takes its real cost × margin in tokens, so a rise only makes it take more — still never a loss.
   const effect = (u: PriceRise['uses'][number]) =>
-    `${what[u.feature][1]} can cost up to ${rs(u.worstPaise)}, its tokens bring ${rs(u.chargePaise)} — ${u.safe ? 'still safe' : `it pauses then; charge ${String(u.needCoins)} tokens ${what[u.feature][1]} before that day`}`;
+    `${what[u.feature][1]} can cost up to ${rs(u.worstPaise)}, then takes up to ${String(u.coins)} tokens (${rs(u.chargePaise)}) — ${u.safe ? 'still never a loss; shops pay more for it' : 'it pauses then; raise the margin before that day'}`;
   const lines = items.flatMap((i) => [
     [`${i.name} from ${day(i.from)}`, `${usd(i.now.input)} / ${usd(i.now.output)} → ${usd(i.next.input)} / ${usd(i.next.output)} per million (in / out)`] as [string, string],
     ...i.uses.map((u) => [what[u.feature][0], effect(u)] as [string, string]),
@@ -267,9 +268,9 @@ export function aiPriceEmail(items: PriceRise[]) {
       eyebrow: 'AI prices',
       title: 'An AI price goes up soon',
       intro: 'A higher price has been announced for a model MedBox24 uses. From that day MedBox24 counts every call at the new price on its own.',
-      body: `${rows(lines)}${button(`${env.ADMIN_APP_URL}/ai`, 'Open AI bill reading', t)}${note('A price that could lose money pauses that AI for every shop. Raise the tokens or pick another model before the day, under AI → Settings or Shop chat → Chat settings.', 'warn')}`,
+      body: `${rows(lines)}${button(`${env.ADMIN_APP_URL}/ai`, 'Open AI reading', t)}${note('Shops pay each job’s real cost × the margin, so a rise is passed on by itself. Nothing to do unless shops would find it too dear — then pick a cheaper model under AI reading.', 'info')}`,
     }),
-    text: `${BRAND} — AI price rise\n\n${lines.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\nCheck the tokens before the day: ${env.ADMIN_APP_URL}/ai`,
+    text: `${BRAND} — AI price rise\n\n${lines.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\nShops pay the new price by themselves; to change the model: ${env.ADMIN_APP_URL}/ai`,
   };
 }
 

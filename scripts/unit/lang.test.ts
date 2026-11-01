@@ -12,7 +12,7 @@ void test('API messages: exact, filled-in, nested pieces; English and unknown te
   assert.equal(translate('hi', 'Rack A-2-1 added'), 'Rack A-2-1 जुड़ गया');
   assert.equal(translate('hi', 'Category “Ayurveda” added'), 'Category “Ayurveda” जुड़ गई');
   assert.equal(translate('hi', 'Line 3: Calpol 500 is deactivated'), 'लाइन 3: Calpol 500 बंद किया हुआ है');
-  assert.equal(translate('hi', 'Could not read the bill: the AI is busy, try again in a minute. Your 3 tokens are back'), 'बिल नहीं पढ़ा जा सका: AI अभी व्यस्त है, एक मिनट में फिर कोशिश कीजिए। आपके 3 tokens वापस आ गए हैं');
+  assert.equal(translate('hi', 'Could not read the bill: the AI is busy, try again in a minute. The AI’s work took 3 tokens'), 'बिल नहीं पढ़ा जा सका: AI अभी व्यस्त है, एक मिनट में फिर कोशिश कीजिए। AI के काम में 3 टोकन लगे');
   assert.equal(translate('hi', 'Line 2: Calpol — Expiry is required'), 'लाइन 2: Calpol — Expiry ज़रूरी है');
   assert.equal(translate('hi', 'Paid Ram'), 'Ram को चुका दिया');
   assert.equal(translate('hi', 'Ram Paid saved'), 'Ram Paid सेव हो गए');

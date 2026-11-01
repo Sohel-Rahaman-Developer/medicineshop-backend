@@ -22,6 +22,9 @@ const questionSchema = new Schema(
     /** An AI question paid from the shop's free questions rather than coins. */
     free: { type: Boolean, required: true, default: false },
     coins: { type: Number, required: true, default: 0 },
+    /** D109: tokens and free paise set aside before the AI ran, and the free paise it used. */
+    hold: { type: new Schema({ coins: Number, freePaise: Number, month: String }, { _id: false }) },
+    freePaise: { type: Number, required: true, default: 0 },
     refunded: { type: Boolean, required: true, default: false },
     error: { type: String },
     model: { type: String },

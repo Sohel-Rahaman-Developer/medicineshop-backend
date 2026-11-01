@@ -13,6 +13,7 @@ import { fits, safeNow, worstQuestion } from '../ai/guard';
 import { outOfCredit } from '../ai/credits';
 import { CoinWalletModel } from '../ai/ai.model';
 import { moveCoins } from '../ai/coins';
+import { freeLeft, holdJob, quote, settleJob, shopAi, type Hold } from '../ai/meter';
 import { audit } from '../audit/audit.model';
 import { brief } from '../brief/brief.service';
 import { can } from '../rbac/permissions';
@@ -126,28 +127,28 @@ async function spentThisMonth(now: Date) {
 export const forgetSpend = () => Object.assign(spent, { month: '', at: 0, paise: 0 });
 
 type Stop = 'aiOff' | 'plan' | 'shopOff' | 'ownerOnly' | 'noCoins' | 'paused' | 'budget' | 'dayLimit';
-type Wallet = { askAi?: boolean | null; balance?: number | null } | null;
+type Wallet = { askAi?: boolean | null; balance?: number | null; freeMonth?: string | null; freeUsedPaise?: number | null } | null;
 
 async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Promise<Stop | null> {
   if (!s.chat.enabled || !readyFor(s, s.chat.model)) return 'aiOff';
   if (!t.features.includes('ai')) return 'plan';
   if (!w?.askAi) return 'shopOff';
   if (!can(t.permissions, 'reports', 'view')) return 'ownerOnly';
-  if ((w.balance ?? 0) < s.chat.coinsPerQuestion) return 'noCoins';
+  if ((w.balance ?? 0) < quote(s, w, worstQuestion(s), now).coins) return 'noCoins';
   if ((await spentThisMonth(now)) >= s.chat.budgetUsd * s.usdInr * 100) return 'budget';
   const today = await AskQuestionModel.countDocuments({ shopId: t.shopId, route: { $in: ['ai', 'off_topic'] }, createdAt: { $gte: istDayStart(now) } });
   if (today >= s.chat.perShopDay) return 'dayLimit';
   // D97: never at a price that could lose money, nor past what this shop has paid for.
-  if (!safeNow(s, 'chat') || !(await fits(t.shopId, s, worstQuestion(s)))) return 'paused';
+  if (!safeNow(s, 'chat') || !(await fits(t.shopId, s, worstQuestion(s), freeLeft(s, w, now)))) return 'paused';
   return null;
 }
 
-/** What the chat shows up top: is AI on for this person, what a question costs, tokens left. */
+/** What the chat shows up top: is AI on for this person, what a question takes at most (D109), tokens and free AI left. */
 export async function offer(t: TenantContext, now = new Date()) {
-  const [s, w] = await Promise.all([aiSettings(), CoinWalletModel.findOne({ shopId: t.shopId }).lean()]);
+  const [s, w, mine] = await Promise.all([aiSettings(), CoinWalletModel.findOne({ shopId: t.shopId }).lean(), shopAi(t.shopId, now)]);
   const stop = await stopOf(t, s, w, now);
   return {
-    ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: s.chat.coinsPerQuestion, balance: w?.balance ?? 0 },
+    ai: { on: s.chat.enabled && readyFor(s, s.chat.model), shopOn: Boolean(w?.askAi), canSwitch: can(t.permissions, 'subscription', 'edit'), stop, coinsPerQuestion: mine.question.need, mostPerQuestion: mine.question.most, free: mine.free, balance: w?.balance ?? 0 },
     chips: CHIPS,
     groups: CHIP_GROUPS,
     aiGroup: AI_GROUP,
@@ -203,15 +204,20 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
     return { route: 'blocked' as const, voice, text: stopText(stop ?? 'aiOff', s, voice), suggestions };
   }
 
-  // Hold the tokens first; they come back if no answer is given.
-  let held: { id: Types.ObjectId; free: boolean; coins: number };
+  // D109: the shop is told what the question may take and says yes first; nothing is asked or set aside before that.
+  if (!input.confirm) {
+    const mine = await shopAi(t.shopId, now);
+    return { route: 'confirm' as const, voice, need: mine.question.need, most: mine.question.most, free: mine.free, balance: mine.balance };
+  }
+
+  // The worst case is set aside first; the real cost is charged after, the rest goes back.
+  let held: { id: Types.ObjectId; hold: Hold };
   try {
     held = await inTransaction(async (session) => {
-      const coins = s.chat.coinsPerQuestion;
-      const [doc] = await AskQuestionModel.create([{ ...who, route: 'ai', status: 'running', free: false, coins, model: s.chat.model }], { session });
+      const hold = await holdJob(t.shopId, s, worstQuestion(s), session, now);
+      const [doc] = await AskQuestionModel.create([{ ...who, route: 'ai', status: 'running', free: false, coins: hold.coins, hold, model: s.chat.model }], { session });
       if (!doc) throw AppError.internal();
-      await moveCoins(t.shopId, 'ask', -coins, 'AI question', actor.name, String(doc._id), session);
-      return { id: doc._id, free: false, coins };
+      return { id: doc._id, hold };
     });
   } catch (err) {
     if (!(err instanceof AppError && (err.details as { reason?: string } | undefined)?.reason === NOT_ENOUGH)) throw err;
@@ -221,56 +227,58 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
 
   const used: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const started = Date.now();
-  const back = say(TEXT.back, voice);
+  // What the AI's work took, for the shop to read: tokens, the month's free AI, or nothing.
+  const took = (r: { coins: number; freePaise: number }) => (r.coins ? say(TEXT.took, voice, { n: r.coins }) : r.freePaise ? say(TEXT.freeTook, voice) : say(TEXT.back, voice));
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
     answer = await (provider === 'google' ? askGemini : askClaude)({ t, userId: actor.id, now }, key, { model: s.chat.model, capIn: s.chat.capIn, capOut: s.chat.capOut, price: priceOf(s, s.chat.model) }, voice, input.text, turnsOf(input.history), used);
   } catch (err) {
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI chat question failed');
     await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail', now);
-    await settle(t, actor, held, { status: 'failed', error: err instanceof Anthropic.APIError ? `Anthropic ${String(err.status)}` : err instanceof GeminiError ? `Gemini ${err.kind}${err.status ? ` ${String(err.status)}` : ''}` : 'Not reached', refund: true }, used, s, started);
-    return { route: 'failed' as const, voice, text: say(TEXT.failed, voice, { back }), suggestions };
+    const after = await settle(t, actor, held, { status: 'failed', error: err instanceof Anthropic.APIError ? `Anthropic ${String(err.status)}` : err instanceof GeminiError ? `Gemini ${err.kind}${err.status ? ` ${String(err.status)}` : ''}` : 'Not reached' }, used, s, started);
+    return { route: 'failed' as const, voice, text: say(TEXT.failed, voice, { back: took(after) }), ai: after, suggestions };
   }
   const tools = answer.tools;
   if (answer.kind === 'answer') {
-    const after = await settle(t, actor, held, { status: 'done', tools, refund: false }, used, s, started);
+    const after = await settle(t, actor, held, { status: 'done', tools }, used, s, started);
     return { route: 'ai' as const, voice, text: answer.text, links: answer.links.map((href) => ({ label: say(TEXT.open, voice), href })), ai: after };
   }
   if (answer.kind === 'off_topic') {
-    const after = await settle(t, actor, held, { status: 'done', route: 'off_topic', tools, refund: true }, used, s, started);
-    return { route: 'off_topic' as const, voice, text: say(TEXT.offTopic, voice), ai: after, suggestions };
+    const after = await settle(t, actor, held, { status: 'done', route: 'off_topic', tools }, used, s, started);
+    return { route: 'off_topic' as const, voice, text: say(TEXT.offTopic, voice, { back: took(after) }), ai: after, suggestions };
   }
   const why = answer.kind === 'too_big' ? 'Over the cap' : 'Refused';
-  const after = await settle(t, actor, held, { status: 'failed', error: why, tools, refund: true }, used, s, started);
-  return { route: 'failed' as const, voice, text: say(answer.kind === 'too_big' ? TEXT.tooBig : TEXT.failed, voice, { back }), ai: after, suggestions };
+  const after = await settle(t, actor, held, { status: 'failed', error: why, tools }, used, s, started);
+  return { route: 'failed' as const, voice, text: say(answer.kind === 'too_big' ? TEXT.tooBig : TEXT.failed, voice, { back: took(after) }), ai: after, suggestions };
 }
 
-/** Records the tokens and real cost; gives the coin (or free question) back when asked to — exactly once. */
-async function settle(t: TenantContext, actor: Actor, held: { id: Types.ObjectId; free: boolean; coins: number }, how: { status: 'done' | 'failed'; route?: 'off_topic'; error?: string; tools?: string[]; refund: boolean }, used: Usage, s: AiSettings, started: number) {
+/** Records the real cost and charges it (D109: the AI's work is paid even when the answer can't be used); exactly once. */
+async function settle(t: TenantContext, actor: Actor, held: { id: Types.ObjectId; hold: Hold }, how: { status: 'done' | 'failed'; route?: 'off_topic'; error?: string; tools?: string[] }, used: Usage, s: AiSettings, started: number) {
   const cost = costOf(used, priceOf(s, s.chat.model), s.usdInr);
   spent.paise += cost;
-  await inTransaction(async (session) => {
+  return inTransaction(async (session) => {
     const claimed = await AskQuestionModel.updateOne(
       { _id: held.id, status: 'running' },
-      { $set: { status: how.status, ...(how.route ? { route: how.route } : {}), refunded: how.refund, error: how.error, tools: how.tools, inputTokens: used.input, outputTokens: used.output, cacheReadTokens: used.cacheRead, cacheWriteTokens: used.cacheWrite, costPaise: cost, freeTier: onFreeTier(s, s.chat.model), ms: Date.now() - started } },
+      { $set: { status: how.status, ...(how.route ? { route: how.route } : {}), error: how.error, tools: how.tools, inputTokens: used.input, outputTokens: used.output, cacheReadTokens: used.cacheRead, cacheWriteTokens: used.cacheWrite, costPaise: cost, freeTier: onFreeTier(s, s.chat.model), ms: Date.now() - started } },
       { session },
     );
-    if (!claimed.modifiedCount || !how.refund) return;
-    if (held.free) await CoinWalletModel.updateOne({ shopId: t.shopId, askFree: { $gt: 0 } }, { $inc: { askFree: -1 } }, { session });
-    else await moveCoins(t.shopId, 'refund', held.coins, `Back: AI question — ${how.error ?? 'not about the shop'}`, actor.name, String(held.id), session);
+    if (!claimed.modifiedCount) return { coins: 0, freePaise: 0, balance: (await CoinWalletModel.findOne({ shopId: t.shopId }).session(session).lean())?.balance ?? 0 };
+    const r = await settleJob(t.shopId, s, held.hold, cost, { kind: 'ask', text: 'AI question', byName: actor.name, ref: String(held.id) }, session);
+    await AskQuestionModel.updateOne({ _id: held.id }, { $set: { coins: r.coins, freePaise: r.freePaise, refunded: r.coins === 0 && how.status === 'failed' } }, { session });
+    return r;
   });
-  const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
-  return { balance: w?.balance ?? 0 };
 }
 
-/** Questions left "running" by a restart give their coin or free question back (scheduler). */
+/** Questions left "running" by a restart give back what was set aside (scheduler); one before D109 its coin or free question. */
 export async function settleStuckQuestions(now = new Date()) {
   const stuck = await AskQuestionModel.find({ status: 'running', createdAt: { $lt: new Date(now.getTime() - 10 * 60_000) } }).lean();
+  const s = await aiSettings(now);
   for (const q of stuck) {
     await inTransaction(async (session) => {
-      const claimed = await AskQuestionModel.updateOne({ _id: q._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished' } }, { session });
+      const claimed = await AskQuestionModel.updateOne({ _id: q._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished', coins: 0 } }, { session });
       if (!claimed.modifiedCount) return;
-      if (q.free) await CoinWalletModel.updateOne({ shopId: q.shopId, askFree: { $gt: 0 } }, { $inc: { askFree: -1 } }, { session });
+      if (q.hold) await settleJob(q.shopId, s, { coins: q.hold.coins ?? 0, freePaise: q.hold.freePaise ?? 0, month: q.hold.month ?? '' }, 0, { kind: 'ask', text: '', byName: 'MedBox24', ref: String(q._id) }, session);
+      else if (q.free) await CoinWalletModel.updateOne({ shopId: q.shopId, askFree: { $gt: 0 } }, { $inc: { askFree: -1 } }, { session });
       else await moveCoins(q.shopId, 'refund', q.coins, 'Back: AI question — it stopped before it finished', 'MedBox24', String(q._id), session);
     });
   }

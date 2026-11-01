@@ -17,11 +17,12 @@ import { DOSE_PATTERN, type Dose } from '../sales/sale.dose';
 import { posSearch } from '../sales/sales.service';
 import type { Actor } from '../user/actor';
 import { aiSettings, apiKey, onFreeTier, priceOf, providerOf } from './ai-settings';
-import { AI_MODELS, AiReadModel } from './ai.model';
+import { AI_MODELS, AiReadModel, CoinWalletModel } from './ai.model';
 import { costPaise } from './bill-ai';
-import { balanceOf, moveCoins } from './coins';
+import { balanceOf } from './coins';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, PAGE_OUT, fits, safeNow, worstPage } from './guard';
+import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 export const rxReadSchema = z.object({ photo: z.string().min(8).max(6_000_000, 'That photo is too large — at most about 4 MB') }).strict();
 
@@ -195,9 +196,7 @@ async function askGemini(photo: Buffer, s: { model: keyof typeof AI_MODELS; effo
   }
 }
 
-const back = (why: string, coins: number) => (coins === 1 ? part(`${why}. Your token is back`) : part(`${why}. Your ${String(coins)} tokens are back`));
-
-/** D105 phase 2: read a prescription photo with the shop's AI tokens (one page's price, D97 guard), then match it to the shelf. */
+/** D105 phase 2: read a prescription photo with the shop's AI tokens (what it used, D109; D97 guard), then match it to the shelf. */
 export async function readRx(t: TenantContext, actor: Actor, photoData: string) {
   const s = await aiSettings();
   const provider = providerOf(s.model);
@@ -212,26 +211,31 @@ export async function readRx(t: TenantContext, actor: Actor, photoData: string) 
     .catch(() => {
       throw AppError.validation('That is not a photo we can read — take it again');
     });
-  const coins = s.coinsPerPage;
-  if (!safeNow(s, 'read') || ((await balanceOf(t.shopId)) >= coins && !(await fits(t.shopId, s, worstPage(s))))) {
+  const worst = worstPage(s);
+  const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
+  // Too few tokens is told by the hold below (buy tokens), not as a pause.
+  if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {
     await signal('ai_paused');
     throw AppError.conflict('AI reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.', { reason: AI_PAUSED });
   }
-  const read = await inTransaction(async (session) => {
-    const [doc] = await AiReadModel.create([{ kind: 'rx', shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, supplierName: 'Prescription', fileName: 'Prescription photo', fileType: 'image', pages: 1, coins, model: s.model }], { session });
+  const { read, hold } = await inTransaction(async (session) => {
+    const h = await holdJob(t.shopId, s, worst, session);
+    const [doc] = await AiReadModel.create([{ kind: 'rx', shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, supplierName: 'Prescription', fileName: 'Prescription photo', fileType: 'image', pages: 1, coins: h.coins, hold: h, model: s.model }], { session });
     if (!doc) throw AppError.internal();
-    await moveCoins(t.shopId, 'read', -coins, 'AI read a prescription', actor.name, String(doc._id), session);
-    return doc;
+    return { read: doc, hold: h };
   });
   const started = Date.now();
-  const cost = (u: { input: number; output: number }) => ({ inputTokens: u.input, outputTokens: u.output, costPaise: costPaise(s.model, u.input, u.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started });
-  const giveBack = async (error: string, usage = { input: 0, output: 0 }) => {
-    await inTransaction(async (session) => {
-      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, ...cost(usage) } }, { session });
-      if (claimed.modifiedCount) await moveCoins(t.shopId, 'refund', coins, `Back: prescription — ${error}`, actor.name, String(read._id), session);
+  // The AI's real work is charged even when nothing came of it (no loss, D109); never reached costs nothing.
+  const settle = async (status: 'done' | 'failed', u: { input: number; output: number }, extra: { error?: string; lines?: number }) =>
+    inTransaction(async (session) => {
+      const cost = costPaise(s.model, u.input, u.output, s.usdInr, priceOf(s, s.model));
+      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status, ...extra, inputTokens: u.input, outputTokens: u.output, costPaise: cost, freeTier: onFreeTier(s, s.model), ms: Date.now() - started } }, { session });
+      if (!claimed.modifiedCount) return { coins: 0, freePaise: 0, balance: await balanceOf(t.shopId) };
+      const r = await settleJob(t.shopId, s, hold, cost, { kind: 'read', text: 'AI read a prescription', byName: actor.name, ref: String(read._id) }, session);
+      await AiReadModel.updateOne({ _id: read._id }, { $set: { coins: r.coins, freePaise: r.freePaise, refunded: status === 'failed' && r.coins === 0 } }, { session });
+      return r;
     });
-    return error;
-  };
+  const giveBack = async (error: string, usage = { input: 0, output: 0 }) => tookText(error, await settle('failed', usage, { error }));
 
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
@@ -240,14 +244,15 @@ export async function readRx(t: TenantContext, actor: Actor, photoData: string) 
     logger.warn({ err: err instanceof Anthropic.APIError ? { status: typeof err.status === 'number' ? err.status : null, type: err.name } : err instanceof GeminiError ? { status: err.status, type: err.kind } : String(err) }, 'AI prescription read failed');
     await signal(outOfCredit(err) ? 'ai_credit_low' : 'ai_fail');
     const busy = err instanceof Anthropic.RateLimitError || (err instanceof GeminiError && err.kind === 'busy');
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', back(part(`Could not read the prescription: ${await giveBack(busy ? part('the AI is busy, try again in a minute') : part('the AI could not be reached'))}`), coins));
+    const why = busy ? part('the AI is busy, try again in a minute') : part('the AI could not be reached');
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', await giveBack(part(`Could not read the prescription: ${why}`)));
   }
-  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', back(await giveBack(answer.error, answer.usage), coins));
+  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', await giveBack(answer.error, answer.usage));
   const rx = 'rx' in answer ? answer.rx : undefined;
-  if (!rx?.prescription || !rx.items.length) throw new AppError(422, 'VALIDATION_ERROR', back(await giveBack(part('No medicines found on this photo'), answer.usage), coins));
+  if (!rx?.prescription || !rx.items.length) throw new AppError(422, 'VALIDATION_ERROR', await giveBack(part('No medicines found on this photo'), answer.usage));
 
   const lines: RxLine[] = [];
   for (const it of rx.items.slice(0, 30)) lines.push(await matchLine(t, it));
-  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: lines.length, ...cost(answer.usage) } });
-  return { doctor: rx.doctor.trim(), patient: rx.patient.trim(), lines, ai: { coins, balance: await balanceOf(t.shopId) } };
+  const done = await settle('done', answer.usage, { lines: lines.length });
+  return { doctor: rx.doctor.trim(), patient: rx.patient.trim(), lines, ai: { coins: done.coins, freePaise: done.freePaise, balance: done.balance } };
 }

@@ -68,8 +68,13 @@ const settingsSchema = new Schema(
     effort: { type: String, enum: AI_EFFORTS, required: true, default: 'low' },
     coinsPerPage: { type: Number, required: true, default: 1 },
     maxPages: { type: Number, required: true, default: 10 },
-    /** Free coins every shop gets once (D96); 0 stops new ones. */
-    welcomeCoins: { type: Number, required: true, default: 100 },
+    /** Free coins every shop gets once (D96); 0 since D109 — the monthly free AI replaced them. */
+    welcomeCoins: { type: Number, required: true, default: 0 },
+    /** D109: MedBox24's real AI cost each shop may use free in an IST month, in paise; it resets, never adds up. */
+    freeMonthPaise: { type: Number, required: true, default: 1000 },
+    /** D109: when tokens became ₹0.10 each, and what one old token was worth then (GST out) — older gifts count at that. */
+    tokensAt: { type: Date },
+    oldCoinPaise: { type: Number },
     /** What coins should bring in against the AI cost (1.5 = $20 of AI sold for $30); suggestions aim at it (D97). */
     targetMargin: { type: Number, required: true, default: 1.5 },
     /** Rupees for one US dollar, for the real cost of each read. */
@@ -85,16 +90,27 @@ const settingsSchema = new Schema(
 );
 export const AiSettingsModel = model('AiSettings', settingsSchema);
 
+/** D109: one token is ₹0.10 with GST — a pack's tokens are its price ÷ 10 paise. */
+export const TOKEN_PRICE_PAISE = 10;
 export const DEFAULT_PACKS = [
-  { code: 'c25', name: 'Starter', coins: 25, price: 29_900 },
-  { code: 'c100', name: 'Shop', coins: 100, price: 99_900 },
-  { code: 'c500', name: 'Busy shop', coins: 500, price: 449_900 },
+  { code: 'c25', name: 'Starter', coins: 2_990, price: 29_900 },
+  { code: 'c100', name: 'Shop', coins: 9_990, price: 99_900 },
+  { code: 'c500', name: 'Busy shop', coins: 44_990, price: 449_900 },
 ];
 
 const walletSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, unique: true },
     balance: { type: Number, required: true, default: 0, min: 0 },
+    /** D109: tokens set aside for jobs still running (their worst case); not in balance until settled. */
+    held: { type: Number, required: true, default: 0, min: 0 },
+    /** D109: the IST month (YYYY-MM) freeUsedPaise belongs to; a new month starts it at 0. */
+    freeMonth: { type: String },
+    freeUsedPaise: { type: Number, required: true, default: 0, min: 0 },
+    /** Every month's free AI ever used, for the guard (D97). */
+    freeTotalPaise: { type: Number, required: true, default: 0, min: 0 },
+    /** Old free tokens (before ₹0.10 tokens) taken back by D109 — the guard no longer counts them as given. */
+    oldFreeGone: { type: Number, required: true, default: 0, min: 0 },
     /** Free chat questions used before v1.22.3 (when every answer became a token) — still counted as a gift (D97). */
     askFree: { type: Number, required: true, default: 0, min: 0 },
     /** When the welcome coins were given — once per shop. */
@@ -109,7 +125,7 @@ const walletSchema = new Schema(
 walletSchema.plugin(tenantScoped);
 export const CoinWalletModel = model('CoinWallet', walletSchema);
 
-export const COIN_KINDS = ['purchase', 'grant', 'welcome', 'read', 'ask', 'refund'] as const;
+export const COIN_KINDS = ['purchase', 'grant', 'welcome', 'read', 'ask', 'refund', 'convert'] as const;
 export type CoinKind = (typeof COIN_KINDS)[number];
 
 // Append-only: every coin in or out, with the balance after it.
@@ -143,7 +159,11 @@ const readSchema = new Schema(
     fileName: { type: String, required: true },
     fileType: { type: String, enum: ['pdf', 'image', 'docx'], required: true },
     pages: { type: Number, required: true },
+    /** Tokens charged; while running, the tokens held for the worst case (D109). */
     coins: { type: Number, required: true },
+    /** D109: what was set aside before the AI ran — tokens and this month's free paise — and the free paise used. */
+    hold: { type: new Schema({ coins: Number, freePaise: Number, month: String }, { _id: false }) },
+    freePaise: { type: Number, required: true, default: 0 },
     model: { type: String, required: true },
     status: { type: String, enum: ['running', 'done', 'failed'], required: true, default: 'running' },
     /** Coins went back to the wallet (the read failed or found no lines). */

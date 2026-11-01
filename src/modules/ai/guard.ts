@@ -24,25 +24,32 @@ export const coinValue = (s: Pick<AiSettings, 'packs'>) => Math.min(...s.packs.m
 export const worstPage = (s: AiSettings, model: AiModelId = s.model) => paise(PAGE_IN, PAGE_OUT, priceOf(s, model), s.usdInr);
 export const worstQuestion = (s: AiSettings, chat: Pick<AiSettings['chat'], 'model' | 'capIn' | 'capOut'> = s.chat) => paise(chat.capIn, chat.capOut, priceOf(s, chat.model), s.usdInr);
 
+/** D109: tokens for a real AI cost — cost × margin ÷ a token's value (GST out), rounded up; at least 1 for any cost. */
+export const tokensFor = (s: Pick<AiSettings, 'targetMargin' | 'packs'>, costPaise: number) => (costPaise <= 0 ? 0 : Math.max(1, Math.ceil((costPaise * s.targetMargin) / coinValue(s))));
+
 export interface Check {
   feature: 'read' | 'chat';
   on: boolean;
   worstPaise: number;
+  /** The most tokens one job can take (its worst case) and what they bring in. */
+  coins: number;
   chargePaise: number;
   safe: boolean;
 }
 
-/** Both features against the coins they charge, whether on or not. */
-export function checks(s: AiSettings): Check[] {
+/** Both features: their worst case against the tokens it would take (D109: the cost × margin, so never below it). */
+export function checks(s: AiSettings): [Check, Check] {
   const coin = coinValue(s);
-  const read = { feature: 'read' as const, on: s.enabled, worstPaise: worstPage(s), chargePaise: s.coinsPerPage * coin };
-  const chat = { feature: 'chat' as const, on: s.chat.enabled, worstPaise: worstQuestion(s), chargePaise: s.chat.coinsPerQuestion * coin };
-  return [read, chat].map((c) => ({ ...c, safe: c.chargePaise >= c.worstPaise }));
+  const one = (feature: Check['feature'], on: boolean, worstPaise: number) => {
+    const coins = tokensFor(s, worstPaise);
+    return { feature, on, worstPaise, coins, chargePaise: coins * coin, safe: coins * coin >= worstPaise };
+  };
+  return [one('read', s.enabled, worstPage(s)), one('chat', s.chat.enabled, worstQuestion(s))];
 }
 
 const rs = (p: number) => `₹${(p / 100).toFixed(2)}`;
 const WHAT = { read: 'A bill page', chat: 'A chat question' } as const;
-const FIX = { read: 'charge more tokens a page or pick a cheaper model', chat: 'charge more tokens a question, lower the caps or pick a cheaper model' } as const;
+const FIX = { read: 'raise the margin or pick a cheaper model', chat: 'raise the margin, lower the caps or pick a cheaper model' } as const;
 
 /** Refuses settings, prices or packs under which a feature that is on could cost more than it brings in. */
 export function assertNoLoss(s: AiSettings, field: string) {
@@ -64,28 +71,33 @@ export interface Room {
 }
 
 /**
- * What a shop may still cost: coins bought (GST out) plus coins MedBox24 gave and free questions used, both at a
- * coin's value, less every AI cost so far — failed and refunded work included, and running work at its worst case.
+ * What a shop may still cost: tokens bought (GST out), tokens MedBox24 gave (at a token's value — older gifts at the
+ * old token's, less free tokens taken back by D109) and the free AI it used, less every AI cost so far — failed work
+ * included, and running work at its worst case.
  */
 export async function roomOf(shopId: Types.ObjectId, s: AiSettings): Promise<Room> {
   const coin = coinValue(s);
+  const old = s.oldCoinPaise ?? coin;
+  const since = s.tokensAt ?? new Date(8.64e15);
   const [paid, gifts, wallet, reads, asks] = await Promise.all([
     CoinOrderModel.aggregate<{ net: number }>([{ $match: { shopId, status: 'paid' } }, { $group: { _id: null, net: { $sum: { $subtract: ['$amount', '$gst'] } } } }]),
-    CoinEntryModel.aggregate<{ coins: number }>([{ $match: { shopId, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: null, coins: { $sum: '$coins' } } }]),
-    CoinWalletModel.findOne({ shopId }).select('askFree').lean(),
+    CoinEntryModel.aggregate<{ _id: boolean; coins: number }>([{ $match: { shopId, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: { $lt: ['$createdAt', since] }, coins: { $sum: '$coins' } } }]),
+    CoinWalletModel.findOne({ shopId }).select('askFree freeTotalPaise oldFreeGone').lean(),
     AiReadModel.aggregate<{ cost: number; runningPages: number }>([{ $match: { shopId } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, runningPages: { $sum: { $cond: [{ $eq: ['$status', 'running'] }, '$pages', 0] } } } }]),
     AskQuestionModel.aggregate<{ cost: number; running: number }>([{ $match: { shopId, route: { $in: ['ai', 'off_topic'] } } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, running: { $sum: { $cond: [{ $eq: ['$status', 'running'] }, 1, 0] } } } }]),
   ]);
   const paidPaise = paid[0]?.net ?? 0;
-  const giftedPaise = Math.max(0, gifts[0]?.coins ?? 0) * coin + (wallet?.askFree ?? 0) * s.chat.coinsPerQuestion * coin;
+  const before = Math.max(0, (gifts.find((g) => g._id)?.coins ?? 0) - (wallet?.oldFreeGone ?? 0));
+  const after = Math.max(0, gifts.find((g) => !g._id)?.coins ?? 0);
+  const giftedPaise = after * coin + (before + (wallet?.askFree ?? 0)) * old + (wallet?.freeTotalPaise ?? 0);
   const burnedPaise = (reads[0]?.cost ?? 0) + (reads[0]?.runningPages ?? 0) * worstPage(s) + (asks[0]?.cost ?? 0) + (asks[0]?.running ?? 0) * worstQuestion(s);
   const allowancePaise = paidPaise + giftedPaise;
   return { paidPaise, giftedPaise, allowancePaise, burnedPaise, leftPaise: allowancePaise - burnedPaise };
 }
 
-/** True when this job's worst case still fits in what the shop has paid for (or was given). */
-export async function fits(shopId: Types.ObjectId, s: AiSettings, worstPaise: number) {
-  return (await roomOf(shopId, s)).leftPaise >= worstPaise;
+/** True when this job's worst case still fits in what the shop has paid for, was given, or has free this month. */
+export async function fits(shopId: Types.ObjectId, s: AiSettings, worstPaise: number, freeLeftPaise: number) {
+  return (await roomOf(shopId, s)).leftPaise + freeLeftPaise >= worstPaise;
 }
 
 export const AI_PAUSED = 'AI_PAUSED';

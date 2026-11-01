@@ -27,7 +27,7 @@ const PACKS = [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { cod
 interface Money {
   targetMargin: number;
   coin: { paise: number };
-  read: { safe: boolean; worstPaise: number; chargePaise: number; suggestCoins: number; avgPaise: number | null };
+  read: { safe: boolean; worstPaise: number; chargePaise: number; coinsPerJob: number; usualCoins: number | null; avgPaise: number | null };
   chat: { safe: boolean; worstPaise: number };
   shops: { shopName: string; paidPaise: number; giftedCoins: number; costPaise: number; allowancePaise: number; leftPaise: number; reads: { done: number; failed: number }; users: { name: string; costPaise: number }[] }[];
 }
@@ -70,20 +70,21 @@ async function main() {
   const readAi = (c: Client, file: Buffer, type: string, name: string) => c.post('/purchases/import/ai', { supplierId: ma, fileName: name, data: b64(file, type) });
   const money = async () => data<Money>(await viewer.get('/admin/ai/money'));
 
-  section('1. A price that could lose money can’t be saved');
-  const lossy = await root.put('/admin/ai/settings', settings({ coinsPerPage: 1 }));
-  check('Opus 5.5 at 1 coin a page → 422: a page (4,000 in × $5 + 8,000 out × $20) / 1M × ₹88 = ₹15.84 against ₹7.62', lossy.status === 422 && lossy.json.error?.message === 'That would lose money. A bill page can cost up to ₹15.84 but its tokens bring in ₹7.62 — charge more tokens a page or pick a cheaper model.', code(lossy));
-  check('…the same price with reading off can be kept (nothing runs)', (await root.put('/admin/ai/settings', settings({ coinsPerPage: 1, enabled: false }))).status === 200);
-  const ok3 = await root.put('/admin/ai/settings', settings());
-  check('3 coins a page → ₹22.86 ≥ ₹15.84 → saved', ok3.status === 200, code(ok3));
-  const cheap = await root.put('/admin/ai/settings', settings({ packs: [{ code: 'bulk', name: 'Bulk', coins: 500, price: 99_900 }] }));
-  check('a pack that drops a coin to ₹1.69 (₹999 ÷ 1.18 ÷ 500) → 422, 3 coins = ₹5.07', cheap.status === 422 && String(cheap.json.error?.message).includes('its tokens bring in ₹5.07'), code(cheap));
+  section('1. A job takes its real cost × the margin in tokens — no price can lose money (D109)');
+  const thin = await root.put('/admin/ai/settings', settings({ targetMargin: 1 }));
+  check('a margin of 1 (no room for fees) → 422', thin.status === 422 && JSON.stringify(thin.json).includes('Keep the margin at 1.1 or more'), code(thin));
+  const ok = await root.put('/admin/ai/settings', settings());
+  check('Opus 5.5 at 1.5× → saved', ok.status === 200, code(ok));
   const m0 = await money();
-  check('the money view shows it: coin ₹7.62, page worst ₹15.84 vs ₹22.86, safe; 1.5× suggests 4 coins (1.5 × ₹15.84 ÷ ₹7.62)', m0.coin.paise === 762 && m0.read.worstPaise === 1584 && m0.read.chargePaise === 2286 && m0.read.safe && m0.read.suggestCoins === 4 && m0.read.avgPaise === null, JSON.stringify(m0.read));
+  check('the money view: token ₹7.62; a page’s worst ₹15.84 (4,000 in × $5 + 8,000 out × $20, × ₹88) takes ⌈1,584 × 1.5 ÷ 762⌉ = 4 tokens = ₹30.48 — safe', m0.coin.paise === 762 && m0.read.worstPaise === 1584 && m0.read.coinsPerJob === 4 && m0.read.chargePaise === 3048 && m0.read.safe && m0.read.usualCoins === null && m0.read.avgPaise === null, JSON.stringify(m0.read));
+  const cheap = await root.put('/admin/ai/settings', settings({ packs: [{ code: 'bulk', name: 'Bulk', coins: 500, price: 99_900 }] }));
+  const mc = await money();
+  check('a pack that drops a token to ₹1.69 (₹999 ÷ 1.18 ÷ 500) → still safe: a page then takes ⌈1,584 × 1.5 ÷ 169⌉ = 15 tokens = ₹25.35', cheap.status === 200 && mc.coin.paise === 169 && mc.read.coinsPerJob === 15 && mc.read.chargePaise === 2535 && mc.read.safe, JSON.stringify(mc.read));
+  await root.put('/admin/ai/settings', settings());
 
-  section('2. A losing price left from before pauses reading — no coins taken');
+  section('2. A losing margin left from before pauses reading — no tokens taken');
   await root.post(`/admin/shops/${shopId}/coins`, { coins: 20, reason: 'coins to test the guard' });
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { coinsPerPage: 1 } });
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { targetMargin: 0.5 } });
   check('the shop’s offer turns off', !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
   const seen0 = fake.seen.length;
   const paused = await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg');
@@ -91,32 +92,37 @@ async function main() {
   check('MedBox24 is told (a monitor signal)', Boolean(await SignalModel.exists({ kind: 'ai_paused' })));
   check('the money view marks it unsafe', !(await money()).read.safe);
 
-  section('3. Each read can spend only what its pages pay for');
-  await root.put('/admin/ai/settings', settings({ model: 'claude-sonnet-5-5', coinsPerPage: 2 }));
+  section('3. Each read holds its pages’ worst case and takes its real cost');
+  await root.put('/admin/ai/settings', settings({ model: 'claude-sonnet-5-5' }));
   fake.answer = { bill: MA_AI, input: 3200, output: 2400 };
   const r1 = await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg');
-  check('a photo (1 page): Claude may answer 8,000 tokens at most (was 32,000)', r1.status === 200 && fake.seen.at(-1)?.maxTokens === 8000, `${code(r1)} ${String(fake.seen.at(-1)?.maxTokens)}`);
+  const rec = async (r: { json: unknown }) => AiReadModel.findById(data<{ ai: { readId: string } }>(r as never).ai.readId).lean();
+  const one = await rec(r1);
+  check('a photo (1 page): Claude may answer 8,000 at most; ⌈₹7.92 × 1.5 ÷ ₹7.62⌉ = 2 held, its ₹2.68 took 1', r1.status === 200 && fake.seen.at(-1)?.maxTokens === 8000 && one?.hold?.coins === 2 && one.coins === 1, `${code(r1)} ${JSON.stringify(one)}`);
   const scan = await makeBillPdf(MA_TOP, MA_HEADER, MA_LINES, MA_FOOT, { perPage: 5, scan: true });
   const r3 = await readAi(owner, scan, 'application/pdf', 'scan.pdf');
-  check('a 3-page scan: 24,000 at most, 6 coins', r3.status === 200 && fake.seen.at(-1)?.maxTokens === 24_000 && data<{ ai: { coins: number } }>(r3).ai.coins === 6, code(r3));
+  const three = await rec(r3);
+  check('a 3-page scan: 24,000 at most, ⌈₹23.76 × 1.5 ÷ ₹7.62⌉ = 5 held, took 1', r3.status === 200 && fake.seen.at(-1)?.maxTokens === 24_000 && three?.hold?.coins === 5 && three.coins === 1, `${code(r3)} ${JSON.stringify(three)}`);
   const longDoc = makeDocx(Array.from({ length: 60 }, (_, i) => `Line ${String(i)}: ${'AZIKEM 500 TAB 10*3 GENERIC 25443288 1/28 28.19 '.repeat(7)}`), [MA_HEADER, ...MA_LINES]);
   const before = await balance();
   const rd = await readAi(owner, longDoc, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'long.docx');
   const pages = data<{ ai: { pages: number; coins: number } }>(rd).ai;
-  check('a long Word file pays by its length (≈9,000 characters a page), not as one page', rd.status === 200 && pages.pages >= 3 && pages.coins === pages.pages * 2 && (await balance()) === before - pages.coins && fake.seen.at(-1)?.maxTokens === pages.pages * 8000, JSON.stringify(pages));
+  const long = await rec(rd);
+  check('a long Word file holds by its length (≈9,000 characters a page), not as one page', rd.status === 200 && pages.pages >= 3 && long?.hold?.coins === Math.ceil((pages.pages * 792 * 1.5) / 762) && (await balance()) === before - pages.coins && fake.seen.at(-1)?.maxTokens === pages.pages * 8000, JSON.stringify(long));
 
   section('4. A shop can’t spend past what it paid for — failed reads included');
-  // A read that uses its whole allowance (4,000 in, 8,000 out — Claude stops there) and finds no lines: it fails, the coins
-  // go back, ₹7.92 is spent.
+  // A read that uses its whole allowance (4,000 in, 8,000 out — Claude stops there) and finds no lines: it fails, ₹7.92 spent.
   fake.answer = { bill: { ...MA_AI, lines: [] }, input: 4000, output: 40_000 };
-  let pausedAt = 0;
-  for (let i = 1; i <= 30 && !pausedAt; i++) {
+  let stopped = '';
+  let n = 0;
+  for (let i = 1; i <= 30 && !stopped; i++) {
     const r = await readAi(owner, PHOTO, 'image/jpeg', `blank-${String(i)}.jpg`);
-    if (r.status === 409 && reason(r) === 'AI_PAUSED') pausedAt = i;
+    if (r.status === 409) stopped = reason(r) ?? '';
+    else n = i;
   }
   const row = (await money()).shops.find((x) => x.shopName === 'Shri Ram Medical Store');
-  check('failed reads give the coins back, yet the spend counts: reading pauses before it would pass 20 coins × ₹7.62 = ₹152.40 — never over', pausedAt > 1 && (row?.allowancePaise ?? 0) === 15_240 && (row?.costPaise ?? Infinity) <= 15_240 && (row?.leftPaise ?? 0) < 792, JSON.stringify({ pausedAt, row }));
-  check('…while the shop still holds coins (nothing was charged for the failures)', (await balance()) > 0);
+  check('a failed read that used the AI is paid (⌈₹7.92 × 1.5 ÷ ₹7.62⌉ = 2 tokens) — at 0 tokens “buy tokens”, never a pause', stopped === 'NOT_ENOUGH_COINS' && n > 1 && (await balance()) < 2, JSON.stringify({ stopped, n, balance: await balance() }));
+  check('…and the AI cost never passed what the tokens brought in (20 × ₹7.62 = ₹152.40)', (row?.allowancePaise ?? 0) === 15_240 && (row?.costPaise ?? Infinity) <= 15_240 && (row?.leftPaise ?? -1) >= 0, JSON.stringify(row));
   const w = await root.post(`/admin/shops/${shopId}/coins`, { coins: 30, reason: 'more coins after a check' });
   fake.answer = { bill: MA_AI, input: 3200, output: 2400 };
   check('MedBox24 gives 30 more → reading works again', w.status === 200 && (await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg')).status === 200);
@@ -157,7 +163,7 @@ async function main() {
   const mails = await EmailJobModel.find({ kind: 'ai_credit' }).lean();
   check('the scheduler emails the super admin once a day — “Time to top up”, Claude about $… left', mails.length === 1 && mails[0]?.to === 'root@guard.test' && mails[0].subject.includes('top up AI credit: Claude about $'), JSON.stringify(mails.map((m) => [m.to, m.subject])));
   fake.queue.push({ status: 400, type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' });
-  await root.post(`/admin/shops/${shopId}/coins`, { coins: 10, reason: 'coins for the credit test' });
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 150, reason: 'coins for the credit test' });
   const empty = await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg');
   check('Anthropic says the credit is used up → the read fails, coins back, and an alert of its own', empty.status === 503 && Boolean(await SignalModel.exists({ kind: 'ai_credit_low' })), code(empty));
 

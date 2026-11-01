@@ -1,5 +1,5 @@
 // D78 checks: AI bill reading with Claude (a local stand-in for Anthropic), paid in coins — admin key and settings,
-// coins by hand and by Razorpay, charge by the page, coins back on every failure, records of every read.
+// coins by hand and by Razorpay, charge by the page, the AI’s real work paid even on a failure (D109), records of every read.
 import { createHmac, randomUUID } from 'node:crypto';
 import { startFakeClaude } from './lib/fake-claude';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
@@ -38,7 +38,16 @@ async function main() {
   const { SignalModel } = await import('../src/services/monitor.js');
   const { settleStuckReads, costPaise } = await import('../src/modules/ai/bill-ai.js');
   const { moveCoins } = await import('../src/modules/ai/coins.js');
+  const { holdJob } = await import('../src/modules/ai/meter.js');
+  const { aiSettings } = await import('../src/modules/ai/ai-settings.js');
+  const { worstPage } = await import('../src/modules/ai/guard.js');
   const { inTransaction } = await import('../src/core/transaction.js');
+  // D109: a token is ₹0.10 with GST → the packs' cheapest token brings in ⌊₹299 ÷ 1.18 ÷ 2,990⌋ = 8 paise. A Sonnet page's
+  // worst case (4,000 in × $2.50 + 8,000 out × $10) × ₹88 = ₹7.92 is held as ⌈792 × 1.5 ÷ 8⌉ = 149 tokens; a read that
+  // really cost ₹2.68 takes ⌈268 × 1.5 ÷ 8⌉ = 51.
+  const HOLD = 149;
+  const READ = 51;
+  const tokensOf = (costPaise: number) => (costPaise > 0 ? Math.max(1, Math.ceil((costPaise * 1.5) / 8)) : 0);
   const { totpAt } = await import('../src/utils/totp.js');
   const { Types } = await import('mongoose');
   const step = () => Math.floor(Date.now() / 30_000);
@@ -82,7 +91,7 @@ async function main() {
   const offer0 = data<{ enabled: boolean; balance: number }>(await owner.get('/ai/offer'));
   check('a new platform: AI reading off, 0 coins', !offer0.enabled && offer0.balance === 0, JSON.stringify(offer0));
   check('reading with AI while off → 403, nothing asked of Claude', (await photo()).status === 403 && fake.seen.length === 0);
-  const settings = (over: Record<string, unknown> = {}) => ({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 100, price: 99_900 }], ...over });
+  const settings = (over: Record<string, unknown> = {}) => ({ enabled: true, model: 'claude-sonnet-5-5', effort: 'low', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 2_990, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 9_990, price: 99_900 }], ...over });
   const early = await root.put('/admin/ai/settings', { settings: settings(), reason: 'launch AI bill reading' });
   check('turning it on before a key is set → 422', early.status === 422, code(early));
 
@@ -100,15 +109,16 @@ async function main() {
   check('“Test key” → Anthropic accepts it', tested.ok && fake.seen.length === 0, JSON.stringify(tested));
   check('setting the key is in the admin audit log with its reason', Boolean(await AdminAuditModel.exists({ action: 'ai_key_set', reason: 'new key from Anthropic console', text: { $regex: fake.key.slice(-4) } })));
 
-  section('3. Settings: model, coins a page, packs');
+  section('3. Settings: model, margin, packs');
+  check('a margin under 1.1 → 422 (tokens must bring in more than the AI costs)', (await root.put('/admin/ai/settings', { settings: settings({ targetMargin: 1 }), reason: 'turn it on now' })).status === 422);
   check('viewer can’t change settings → 403', (await viewer.put('/admin/ai/settings', { settings: settings(), reason: 'turn it on now' })).status === 403);
   check('two packs with one code → 422', (await root.put('/admin/ai/settings', { settings: settings({ packs: [{ code: 'a1', name: 'A', coins: 1, price: 100 }, { code: 'a1', name: 'B', coins: 2, price: 200 }] }), reason: 'turn it on now' })).status === 422);
   check('a model not on the list → 422', (await root.put('/admin/ai/settings', { settings: settings({ model: 'gpt-4' }), reason: 'turn it on now' })).status === 422);
   const on = await root.put('/admin/ai/settings', { settings: settings(), reason: 'launch AI bill reading' });
-  check('on: Sonnet 5.5, 2 coins a page, 5 pages at most', on.status === 200 && data<{ enabled: boolean; model: string }>(on).model === 'claude-sonnet-5-5', code(on));
+  check('on: Sonnet 5.5, 5 pages at most', on.status === 200 && data<{ enabled: boolean; model: string }>(on).model === 'claude-sonnet-5-5', code(on));
   check('the change is audited with before / after', Boolean(await AdminAuditModel.exists({ action: 'ai_settings', text: { $regex: 'turned on' } })));
-  const offer1 = data<{ enabled: boolean; coinsPerPage: number; packs: unknown[] }>(await owner.get('/ai/offer'));
-  check('the shop now sees it: 2 coins a page, 2 packs', offer1.enabled && offer1.coinsPerPage === 2 && offer1.packs.length === 2);
+  const offer1 = data<{ enabled: boolean; coinsPerPage: number; mostPerPage: number; usualPerPage: number | null; free: { leftPaise: number }; packs: unknown[] }>(await owner.get('/ai/offer'));
+  check(`the shop now sees it: a page takes ${String(HOLD)} tokens at most (no free AI in this test), none read yet, 2 packs`, offer1.enabled && offer1.coinsPerPage === HOLD && offer1.mostPerPage === HOLD && offer1.usualPerPage === null && offer1.free.leftPaise === 0 && offer1.packs.length === 2, JSON.stringify(offer1));
   check('cashier can’t read with AI (no purchases) → 403', (await readAi(cashier, PHOTO, 'image/jpeg', 'x.jpg')).status === 403);
 
   section('4. No coins → no read');
@@ -129,24 +139,24 @@ async function main() {
   check('cashier can’t buy coins → 403', (await cashier.post('/ai/coins/order', { packCode: 'c25' })).status === 403);
   const paid = await owner.post('/ai/coins/test-pay', { orderId: o.orderId });
   const paidOut = data<{ coins: number; balance: number; invoiceNumber: string; id: string }>(paid);
-  check('paid → 25 tokens added, balance 35, a tax invoice number', paid.status === 200 && paidOut.balance === 35 && /^MS-\d{4}-\d{2}-\d{5}$/.test(paidOut.invoiceNumber), code(paid));
+  check('paid → 2,990 tokens added, balance 3,000, a tax invoice number', paid.status === 200 && paidOut.balance === 3_000 && /^MS-\d{4}-\d{2}-\d{5}$/.test(paidOut.invoiceNumber), code(paid));
   const twice = await owner.post('/ai/coins/test-pay', { orderId: o.orderId });
-  check('the same payment again → replayed, still 35', data<{ replayed: boolean }>(twice).replayed && (await balance()) === 35);
+  check('the same payment again → replayed, still 3,000', data<{ replayed: boolean }>(twice).replayed && (await balance()) === 3_000);
   const pdfInv = await owner.raw('GET', `/ai/coins/${paidOut.id}/invoice`);
   check('the coin invoice downloads as a PDF', pdfInv.status === 200 && pdfInv.text.startsWith('%PDF'));
   const o2 = data<{ orderId: string }>(await owner.post('/ai/coins/order', { packCode: 'c100' }));
   const hook = h.client({ origin: null });
   const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_COIN100', order_id: o2.orderId, amount: 99_900, method: 'upi' } } } });
   const w1 = await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign('smoke-razorpay-webhook-secret', raw), 'x-razorpay-event-id': 'evt_coin_1' });
-  check('the webhook pays a coin pack → +100, balance 135', w1.status === 200 && (await balance()) === 135, code(w1));
+  check('the webhook pays a coin pack → +9,990, balance 12,990', w1.status === 200 && (await balance()) === 12_990, code(w1));
   await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign('smoke-razorpay-webhook-secret', raw), 'x-razorpay-event-id': 'evt_coin_2' });
-  check('the same payment in another event → no second 100', (await balance()) === 135);
+  check('the same payment in another event → no second 9,990', (await balance()) === 12_990);
   const o3 = data<{ orderId: string }>(await owner.post('/ai/coins/order', { packCode: 'c25' }));
   const rawShort = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_SHORT1', order_id: o3.orderId, amount: 100, method: 'upi' } } } });
   await hook.raw('POST', '/webhooks/razorpay', rawShort, { 'x-razorpay-signature': sign('smoke-razorpay-webhook-secret', rawShort), 'x-razorpay-event-id': 'evt_coin_3' });
-  check('₹1 paid on a ₹299 pack → failed, no coins', (await CoinOrderModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await balance()) === 135);
+  check('₹1 paid on a ₹299 pack → failed, no coins', (await CoinOrderModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await balance()) === 12_990);
   const wallet = data<{ balance: number; entries: { kind: string }[]; orders: { status: string }[] }>(await owner.get('/ai/wallet'));
-  check('the shop’s coin page: balance, 3 coin entries, 2 paid packs + 1 failed', wallet.balance === 135 && wallet.entries.length === 3 && wallet.orders.filter((x) => x.status === 'paid').length === 2 && wallet.orders.some((x) => x.status === 'failed'), JSON.stringify(wallet).slice(0, 300));
+  check('the shop’s coin page: balance, 3 coin entries, 2 paid packs + 1 failed', wallet.balance === 12_990 && wallet.entries.length === 3 && wallet.orders.filter((x) => x.status === 'paid').length === 2 && wallet.orders.some((x) => x.status === 'failed'), JSON.stringify(wallet).slice(0, 300));
 
   section('6. Read a photo of the bill');
   fake.answer = { bill: MA_AI, input: 3200, output: 2400 };
@@ -157,71 +167,84 @@ async function main() {
   const az = out1?.lines.find((l) => l.name === 'AZIKEM 500 TAB');
   check('…Azikem: the batch on the shelf (stock up), 10 strips at ₹28.19', az?.status === 'same' && az.productId === azikem && az.quantity === 10 && az.rate === 2819);
   check('…the note and TOTAL listed, not items', (out1?.skipped.some((s) => s.includes('3 PICE ER PATA DEBE')) ?? false) && (out1?.skipped.some((s) => s.includes('TOTAL')) ?? false));
-  check('1 page × 2 coins → 2 coins, 133 left', out1?.ai.pages === 1 && out1.ai.coins === 2 && out1.ai.balance === 133 && (await balance()) === 133, JSON.stringify(out1?.ai));
+  check(`1 page: ${String(HOLD)} held, its real ₹2.68 × 1.5 ÷ 8 paise = ${String(READ)} tokens taken, 12,939 left, nothing still held`, out1?.ai.pages === 1 && out1.ai.coins === READ && out1.ai.balance === 12_990 - READ && (await balance()) === 12_990 - READ && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0, JSON.stringify(out1?.ai));
   const seen1 = fake.seen.at(-1);
   check('Claude got the picture as an image, the chosen model and effort, a JSON schema, the saved key', seen1?.blocks[0] === 'image' && seen1.model === 'claude-sonnet-5-5' && seen1.effort === 'low' && seen1.schema && seen1.stream && seen1.key === fake.key && seen1.system.includes('Never calculate'), JSON.stringify(seen1));
   const rec1 = await AiReadModel.findById(out1?.ai.readId).lean();
-  check('the read is recorded: who, supplier, file, 2 coins, 3,200 + 2,400 tokens, Anthropic’s cost ₹2.68', rec1?.status === 'done' && rec1.userName === 'Rohit Agarwal' && rec1.supplierName === 'M.A. Pharma' && rec1.fileName === 'bill-photo.jpg' && rec1.fileType === 'image' && rec1.coins === 2 && rec1.inputTokens === 3200 && rec1.outputTokens === 2400 && rec1.costPaise === 268 && rec1.lines === 13 && costPaise('claude-sonnet-5-5', 3200, 2400, 88) === 268, JSON.stringify(rec1));
-  check('…and a read line in the coin ledger', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'read', coins: -2, ref: String(rec1?._id) })));
+  check(`the read is recorded: who, supplier, file, ${String(READ)} tokens (${String(HOLD)} held), 3,200 + 2,400 AI words, Anthropic’s cost ₹2.68`, rec1?.status === 'done' && rec1.userName === 'Rohit Agarwal' && rec1.supplierName === 'M.A. Pharma' && rec1.fileName === 'bill-photo.jpg' && rec1.fileType === 'image' && rec1.coins === READ && rec1.hold?.coins === HOLD && rec1.inputTokens === 3200 && rec1.outputTokens === 2400 && rec1.costPaise === 268 && rec1.lines === 13 && costPaise('claude-sonnet-5-5', 3200, 2400, 88) === 268, JSON.stringify(rec1));
+  check('…one read line in the ledger: what it took, never the hold', (await CoinEntryModel.countDocuments({ shopId: shop, ref: String(rec1?._id) })) === 1 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'read', coins: -READ, ref: String(rec1?._id) })));
+  check('never a loss: the tokens taken bring in at least 1.5 × the AI cost', READ * 8 >= 1.5 * 268);
 
   section('7. A 3-page scanned PDF and a Word file');
   const scan = await makeBillPdf(MA_TOP, MA_HEADER, MA_LINES, MA_FOOT, { perPage: 5, scan: true });
   const r2 = await readAi(owner, scan, 'application/pdf', 'scan.pdf');
   const out2 = r2.status === 200 ? data<ReadOut>(r2) : null;
-  check('a scan (no text in it) → read by AI: 3 pages × 2 = 6 coins, 127 left', out2?.ai.pages === 3 && out2.ai.coins === 6 && (await balance()) === 127 && out2.lines.length === 13, code(r2));
+  check(`a scan (no text in it) → read by AI: 3 pages held (446 tokens), its real cost took ${String(READ)}, 12,888 left`, out2?.ai.pages === 3 && out2.ai.coins === READ && (await AiReadModel.findById(out2.ai.readId).lean())?.hold?.coins === 446 && (await balance()) === 12_888 && out2.lines.length === 13, code(r2));
   check('…sent to Claude as a PDF document', fake.seen.at(-1)?.blocks[0] === 'document');
   const docx = makeDocx(MA_TOP, [MA_HEADER, ...MA_LINES]);
   const r3 = await readAi(owner, docx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'bill.docx');
-  check('a Word file → 1 page, sent as its text', r3.status === 200 && data<ReadOut>(r3).ai.coins === 2 && fake.seen.at(-1)?.blocks[0] === 'text' && (await balance()) === 125, code(r3));
+  check(`a Word file → 1 page, sent as its text, ${String(READ)} tokens`, r3.status === 200 && data<ReadOut>(r3).ai.coins === READ && fake.seen.at(-1)?.blocks[0] === 'text' && (await balance()) === 12_837, code(r3));
   const big = await makeBillPdf(MA_TOP, MA_HEADER, [...MA_LINES, ...MA_LINES], MA_FOOT, { perPage: 4 });
   const asked = fake.seen.length;
   const tooBig = await readAi(owner, big, 'application/pdf', 'big.pdf');
-  check('8 pages when 5 is the limit → 422, no coins taken, Claude not asked', tooBig.status === 422 && (await balance()) === 125 && fake.seen.length === asked, code(tooBig));
+  check('8 pages when 5 is the limit → 422, no coins taken, Claude not asked', tooBig.status === 422 && (await balance()) === 12_837 && fake.seen.length === asked, code(tooBig));
   const junk = await readAi(owner, Buffer.from('just some text, not a bill'), 'text/plain', 'a.txt');
-  check('not a PDF, photo or Word file → 422, no coins taken', junk.status === 422 && (await balance()) === 125);
-  check('another shop’s supplier → 404, no coins taken', (await readAi(owner, PHOTO, 'image/jpeg', 'x.jpg', otherSupplier)).status === 404 && (await balance()) === 125);
+  check('not a PDF, photo or Word file → 422, no coins taken', junk.status === 422 && (await balance()) === 12_837);
+  check('another shop’s supplier → 404, no coins taken', (await readAi(owner, PHOTO, 'image/jpeg', 'x.jpg', otherSupplier)).status === 404 && (await balance()) === 12_837);
 
-  section('8. Every failure gives the coins back');
+  section('8. A failure: never reached costs nothing, the AI’s real work is paid (no loss, D109)');
   const ledgerBefore = await CoinEntryModel.countDocuments({ shopId: shop });
   fake.queue.push({ status: 500, type: 'api_error' }, { status: 500, type: 'api_error' }, { status: 500, type: 'api_error' });
   const down = await photo();
-  check('Anthropic down (after 2 retries) → 503 that says the tokens are back, balance 125', down.status === 503 && /tokens are back/.test(down.json.error?.message ?? '') && (await balance()) === 125, code(down));
+  check('Anthropic down (after 2 retries) → 503 “No tokens were taken”, balance 12,837', down.status === 503 && /No tokens were taken/.test(down.json.error?.message ?? '') && (await balance()) === 12_837, code(down));
   const failedRead = await AiReadModel.findOne({ shopId: shop, status: 'failed' }).sort({ createdAt: -1 }).lean();
-  check('…the read is recorded failed and refunded; ledger: −2 then +2', failedRead?.refunded === true && (await CoinEntryModel.countDocuments({ shopId: shop })) === ledgerBefore + 2 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'refund', coins: 2, ref: String(failedRead._id) })));
+  check('…the read is recorded failed, 0 tokens, no ledger line, nothing left held', failedRead?.refunded === true && failedRead.coins === 0 && (await CoinEntryModel.countDocuments({ shopId: shop })) === ledgerBefore && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0);
   check('…and the admin alert counter moved', ((await SignalModel.find({ kind: 'ai_fail' }).lean()).reduce((a, s) => a + s.n, 0)) >= 1);
+  // Each failure after the AI worked: the tokens its real cost takes, told in the message.
+  const paidFail = async (label: string, test: (msg: string) => boolean) => {
+    const was = await balance();
+    const r = await photo();
+    const rec = await AiReadModel.findOne({ shopId: shop, status: 'failed' }).sort({ createdAt: -1 }).lean();
+    const n = tokensOf(rec?.costPaise ?? 0);
+    const msg = r.json.error?.message ?? '';
+    check(`${label} → ${String(r.status)}, the AI’s work (₹${((rec?.costPaise ?? 0) / 100).toFixed(2)}) took ${String(n)} tokens, said so`, r.status === 422 && test(msg) && n > 0 && rec?.coins === n && (await balance()) === was - n && msg.includes(`The AI’s work took ${String(n)} token`), `${code(r)} ${JSON.stringify(rec)}`);
+  };
   fake.queue.push({ text: 'Sorry, I cannot help with that.' });
-  const garbage = await photo();
-  check('an answer that is not the JSON → 422, tokens back', garbage.status === 422 && /tokens are back/.test(garbage.json.error?.message ?? '') && (await balance()) === 125, code(garbage));
+  await paidFail('an answer that is not the JSON', (m) => /could not be used/.test(m));
   fake.queue.push({ stop: 'refusal' });
-  check('a refusal → 422, coins back', (await photo()).status === 422 && (await balance()) === 125);
+  await paidFail('a refusal', () => true);
   fake.queue.push({ stop: 'max_tokens' });
-  check('cut off at max tokens → 422 “upload fewer pages”, coins back', /fewer pages/.test((await photo()).json.error?.message ?? '') && (await balance()) === 125);
+  await paidFail('cut off at max tokens (“upload fewer pages”)', (m) => /fewer pages/.test(m));
   fake.queue.push({ bill: { ...MA_AI, lines: [], notes: ['not a bill'] } });
-  check('a file with no items (not a bill) → 422, coins back', (await photo()).status === 422 && (await balance()) === 125);
+  await paidFail('a file with no items (not a bill)', (m) => /No item lines/.test(m));
   const realKey = fake.key;
   fake.key = 'sk-ant-api03-rotated-0000000000000000000000';
+  const keyWas = await balance();
   const refused = await photo();
-  check('Anthropic refuses the key → 503, coins back', refused.status === 503 && /key was refused/.test(refused.json.error?.message ?? '') && (await balance()) === 125, code(refused));
+  check('Anthropic refuses the key → 503, never reached, nothing taken', refused.status === 503 && /key was refused/.test(refused.json.error?.message ?? '') && /No tokens were taken/.test(refused.json.error?.message ?? '') && (await balance()) === keyWas, code(refused));
   check('“Test key” now says so', !data<{ ok: boolean }>(await root.post('/admin/ai/key/test', {})).ok);
   fake.key = realKey;
 
-  section('9. Two reads at once never spend coins the shop doesn’t have');
-  await inTransaction((session) => moveCoins(shop, 'grant', -(125 - 2), 'test: leave 2', 'smoke', 'smoke', session));
+  section('9. Two reads at once never spend tokens the shop doesn’t have');
+  await inTransaction(async (session) => moveCoins(shop, 'grant', -((await balance()) - HOLD), `test: leave ${String(HOLD)}`, 'smoke', 'smoke', session));
   const [a, b] = await Promise.all([photo(), photo()]);
-  check('2 coins, two photos at once → one read, one 409', [a.status, b.status].sort().join() === '200,409' && (await balance()) === 0, `${code(a)} | ${code(b)}`);
+  check(`${String(HOLD)} tokens (one page’s worst case), two photos at once → one read, one 409; ${String(HOLD - READ)} left`, [a.status, b.status].sort().join() === '200,409' && (await balance()) === HOLD - READ, `${code(a)} | ${code(b)}`);
   check('the wallet never went below 0 (ledger balances all ≥ 0)', !(await CoinEntryModel.exists({ shopId: shop, balance: { $lt: 0 } })));
 
   section('10. A read cut off by a restart');
-  await inTransaction((session) => moveCoins(shop, 'grant', 4, 'test', 'smoke', 'smoke', session));
-  const [stuck] = await AiReadModel.create([{ shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'Rohit Agarwal', supplierId: new Types.ObjectId(ma), supplierName: 'M.A. Pharma', fileName: 'cut.jpg', fileType: 'image', pages: 2, coins: 4, model: 'claude-sonnet-5-5' }]);
-  await inTransaction((session) => moveCoins(shop, 'read', -4, 'AI read cut.jpg', 'Rohit Agarwal', String(stuck?._id), session));
+  await inTransaction((session) => moveCoins(shop, 'grant', 2 * HOLD, 'test', 'smoke', 'smoke', session));
+  const cutBefore = await balance();
+  const st = await aiSettings();
+  const cutHold = await inTransaction((session) => holdJob(shop, st, 2 * worstPage(st), session));
+  const [stuck] = await AiReadModel.create([{ shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'Rohit Agarwal', supplierId: new Types.ObjectId(ma), supplierName: 'M.A. Pharma', fileName: 'cut.jpg', fileType: 'image', pages: 2, coins: cutHold.coins, hold: cutHold, model: 'claude-sonnet-5-5' }]);
+  check('a 2-page read holds 2 pages’ worst case (297 tokens) out of the balance', cutHold.coins === 297 && (await balance()) === cutBefore - 297 && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 297);
   await AiReadModel.collection.updateOne({ _id: stuck?._id }, { $set: { createdAt: new Date(Date.now() - 25 * 60_000) } });
   const settled = await settleStuckReads();
   const again = await settleStuckReads();
-  check('25 minutes “running” → failed, 4 coins back once', settled === 1 && again === 0 && (await balance()) === 4 && (await AiReadModel.findById(stuck?._id).lean())?.refunded === true);
+  check('25 minutes “running” → failed, the hold back once, nothing held', settled === 1 && again === 0 && (await balance()) === cutBefore && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0 && (await AiReadModel.findById(stuck?._id).lean())?.refunded === true);
 
   section('11. Save what AI read — the usual Confirm & save');
-  await inTransaction((session) => moveCoins(shop, 'grant', 10, 'test', 'smoke', 'smoke', session));
+  await inTransaction((session) => moveCoins(shop, 'grant', HOLD, 'test', 'smoke', 'smoke', session));
   const shelf = async () => (await BatchModel.findOne({ shopId: shop, batchNumberUpper: '25443288' }).lean())?.quantity ?? 0;
   const before = await shelf();
   const read = data<ReadOut>(await photo());
@@ -262,7 +285,7 @@ async function main() {
       line({ written: 'Tab Azi?em 500 OD', name: 'Azikem', strength: '500', freq: 'OD', clear: false }),
     ],
   };
-  await inTransaction((session) => moveCoins(shop, 'grant', 10, 'test', 'smoke', 'smoke', session));
+  await inTransaction((session) => moveCoins(shop, 'grant', HOLD, 'test', 'smoke', 'smoke', session));
   check('the counter is told AI can read prescriptions and what it costs', data<{ aiRx: { enabled: boolean; coins: number } }>(await cashier.get('/pos/settings')).aiRx.enabled);
   fake.answer = { bill: rxAnswer, input: 2600, output: 700 };
   const rxBefore = await balance();
@@ -281,11 +304,14 @@ async function main() {
   check('the read is kept: prescription, 4 lines, its real cost', rxRead?.status === 'done' && rxRead.lines === 4 && rxRead.costPaise > 0 && rxRead.supplierName === 'Prescription', JSON.stringify(rxRead));
   fake.answer = { bill: { prescription: false, doctor: '', patient: '', items: [] }, input: 2600, output: 50 };
   const notRx = await cashier.post('/pos/rx-read', { photo: rxPhoto });
-  check('not a prescription → 422, the token back', notRx.status === 422 && /No medicines found/.test(notRx.json.error?.message ?? '') && (await balance()) === rxBefore - rx.ai.coins, code(notRx));
+  const notRxRec = await AiReadModel.findOne({ shopId: shop, kind: 'rx' }).sort({ createdAt: -1 }).lean();
+  const notRxTook = tokensOf(notRxRec?.costPaise ?? 0);
+  check('not a prescription → 422; the AI looked, so its real cost is taken and said', notRx.status === 422 && /No medicines found/.test(notRx.json.error?.message ?? '') && notRxTook > 0 && notRxRec?.coins === notRxTook && (await balance()) === rxBefore - rx.ai.coins - notRxTook && /The AI’s work took/.test(notRx.json.error?.message ?? ''), code(notRx));
   const askedRx = fake.seen.length;
-  check('not a picture → 422, nothing taken, the AI not asked', (await cashier.post('/pos/rx-read', { photo: 'data:image/jpeg;base64,aGVsbG8=' })).status === 422 && (await balance()) === rxBefore - rx.ai.coins && fake.seen.length === askedRx);
+  const rxNow = await balance();
+  check('not a picture → 422, nothing taken, the AI not asked', (await cashier.post('/pos/rx-read', { photo: 'data:image/jpeg;base64,aGVsbG8=' })).status === 422 && (await balance()) === rxNow && fake.seen.length === askedRx);
   fake.answer = { bill: rxAnswer, input: 2600, output: 700 };
-  await inTransaction((session) => moveCoins(new Types.ObjectId(owner2.shopId ?? ''), 'grant', 5, 'test', 'smoke', 'smoke', session));
+  await inTransaction((session) => moveCoins(new Types.ObjectId(owner2.shopId ?? ''), 'grant', HOLD, 'test', 'smoke', 'smoke', session));
   const theirs = data<RxOut>(await owner2.post('/pos/rx-read', { photo: rxPhoto }));
   check('another shop’s read never sees this shop’s shelf', theirs.lines.every((x) => x.hit === null && x.options.length === 0));
 

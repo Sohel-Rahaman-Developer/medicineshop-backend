@@ -90,10 +90,14 @@ async function main() {
   const pur = await owner.post('/purchases', { clientRequestId: randomUUID(), supplierId: sup, invoiceNumber: 'SD/1', invoiceDate: isoDay(), lines: [{ productId: dolo, batchNumber: 'DL2', expiry: '2029-01', quantity: 10, freeQuantity: 0, unit: 'STRIP', rate: 2000, discountPercent: 0, mrp: 3000, gstRate: 12, rack: '' }] });
   check('setup: a ₹224 purchase on credit, Rahim owes ₹450', pur.status === 201, code(pur));
 
+  // D109: an AI question runs only after the shop says yes to what it may take — the chat sends confirm then.
   const askAs = async (c: Client, text: string, over: Record<string, unknown> = {}) => {
-    const r = await c.post('/ask', { text, ...over });
+    const r = await c.post('/ask', { text, confirm: true, ...over });
     return { r, a: data<Answer>(r) };
   };
+  // Old-size tokens (₹4,499 ÷ 1.18 ÷ 500 = ₹7.62 each), so one question holds and takes 1 and the counts stay small.
+  const { AiSettingsModel } = await import('../src/modules/ai/ai.model.js');
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 100, price: 99_900 }, { code: 'c500', name: 'Busy shop', coins: 500, price: 449_900 }] } });
   const card = (a: Answer) => a.cards?.[0];
 
   section('1. Free answers: every chip, in three languages, without Claude');
@@ -218,9 +222,9 @@ async function main() {
   const view = data<{ pricing: { worstPaise: number; coinPaise: number; chargePaise: number; safe: boolean } }>(await viewer.get('/admin/ai/chat'));
   check('worst case of a question: (8,000 × $1.25 cache-write + 500 × $5) / 1M × ₹88 = 110 paise', view.pricing.worstPaise === 110, JSON.stringify(view.pricing));
   check('a coin brings in at least ₹7.62 (₹4,499 pack ÷ 1.18 GST ÷ 500) → safe, even in the worst case', view.pricing.coinPaise === 762 && view.pricing.chargePaise === 762 && view.pricing.safe, JSON.stringify(view.pricing));
-  const pricey = await root.put('/admin/ai/prices', { prices: [{ model: 'claude-haiku-4-5-20251001', input: 50, output: 5, cacheRead: 5, cacheWrite: 62.5 }], reason: 'Anthropic raised Haiku prices' });
-  check('D97: a price under which a question could lose money is refused — (8,000 × $62.50 + 500 × $5) / 1M × ₹88 = ₹44.22 against ₹7.62', pricey.status === 422 && String(pricey.json.error?.message) === 'That would lose money. A chat question can cost up to ₹44.22 but its tokens bring in ₹7.62 — charge more tokens a question, lower the caps or pick a cheaper model.', code(pricey));
-  check('…nothing saved, nothing audited', data<{ pricing: { worstPaise: number } }>(await viewer.get('/admin/ai/chat')).pricing.worstPaise === 110 && !(await AdminAuditModel.exists({ action: 'ai_prices', reason: 'Anthropic raised Haiku prices' })));
+  const pricey = await root.put('/admin/ai/prices', { prices: [{ model: 'claude-haiku-4-5-20251001', input: 50, output: 5, cacheRead: 5, cacheWrite: 62.5 }], reason: 'Anthropic raised Haiku prices a lot' });
+  const dear = data<{ pricing: { worstPaise: number; mostCoins: number; chargePaise: number; safe: boolean } }>(pricey).pricing;
+  check('D109: a far dearer price is still no loss — a question’s worst (8,000 × $62.50 + 500 × $5) / 1M × ₹88 = ₹44.22 just holds ⌈4,422 × 1.5 ÷ 762⌉ = 9 tokens', pricey.status === 200 && dear.worstPaise === 4422 && dear.mostCoins === 9 && dear.chargePaise === 6858 && dear.safe, code(pricey));
   const raised = await root.put('/admin/ai/prices', { prices: [{ model: 'claude-haiku-4-5-20251001', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }], reason: 'Anthropic raised Haiku prices' });
   check('a raise that still pays → saved: worst (8,000 × $2.50 + 500 × $10) / 1M × ₹88 = ₹2.20, audited', raised.status === 200 && data<{ pricing: { worstPaise: number; safe: boolean } }>(raised).pricing.worstPaise === 220 && Boolean(await AdminAuditModel.exists({ action: 'ai_prices', reason: 'Anthropic raised Haiku prices' })), code(raised));
   await root.put('/admin/ai/prices', { prices: [], reason: 'back to the list price' });
@@ -240,11 +244,14 @@ async function main() {
   check('…in the shop’s activity log once, with who and when (a repeat adds nothing)', trail.length === 1 && trail[0]?.text.endsWith('turned AI answers on') === true && trail[0].createdAt instanceof Date && trail[0].userName.length > 0, JSON.stringify(trail));
   check('another shop’s switch stays off', !data<{ ai: { shopOn: boolean } }>(await other.get('/ask/offer')).ai.shopOn);
 
-  section('6. The AI answers with the shop’s tools — a token a question, no “ask?” first');
+  section('6. The shop says yes to what it may take (D109), then the AI answers with the shop’s tools');
   const empty = await askAs(owner, 'Dolo kis kaam aati hai');
   check('no tokens → “AI token khatam — buy more”, Claude not called', empty.a.route === 'blocked' && empty.a.text === 'AI token khatam — Settings → AI tokens mein aur kharidiye. Taiyar jawab (button wale) chalte hain.' && fake.seen.length === 0, JSON.stringify(empty.a));
   await root.post(`/admin/shops/${shopId}/coins`, { coins: 5, reason: 'trial tokens for the chat' });
   check('a cashier → only owner / manager / accountant, Claude not called', (await askAs(cashier, 'Dolo kis kaam aati hai')).a.text === 'AI jawab owner, manager ya accountant ke liye hain — unse poochhiye.' && fake.seen.length === 0);
+  const ask1 = await askAs(owner, 'Dolo kis kaam aati hai', { confirm: false });
+  const q1 = ask1.a as Answer & { need?: number; most?: number; balance?: number };
+  check('without a yes → “confirm”: at most 1 token, 5 held by the shop; nothing set aside, Claude not called, nothing recorded', q1.route === 'confirm' && q1.need === 1 && q1.most === 1 && q1.balance === 5 && fake.seen.length === 0 && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0 && !(await AskQuestionModel.exists({ shopId: shop, route: 'ai' })), JSON.stringify(ask1.a));
   fake.queue.push({ tools: [{ name: 'product_stock', input: { name: 'dolo' } }] }, { say: 'Dolo 650 mein paracetamol hai — bukhar aur dard ke liye. Stock mein hai. Dose ke liye doctor se poochhiye.' });
   const ai = await askAs(owner, 'Dolo kis kaam aati hai', { history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹120' }] });
   check('answered by AI at once, a link to the product it looked up, 1 token (5 → 4)', ai.a.route === 'ai' && ai.a.text?.startsWith('Dolo 650 mein paracetamol') === true && ai.a.links?.[0]?.href === `/products/${dolo}` && ai.a.ai?.balance === 4, JSON.stringify(ai.a));
@@ -267,14 +274,15 @@ async function main() {
   const before = fake.seen.length;
   fake.queue.push({ say: 'OFF_TOPIC' });
   const ot = await askAs(owner, 'kal cricket match kaun jeeta');
-  check('not about the shop → the fixed answer in the asker’s language, the token back (3)', ot.a.route === 'off_topic' && ot.a.text === 'Main aapki dukaan, kaarobaar aur dawaiyon ke baare mein baat kar sakta hoon — token nahi kata.' && ot.a.ai?.balance === 3 && fake.seen.length === before + 1, JSON.stringify(ot.a));
+  check('not about the shop → the fixed answer in the asker’s language; the AI looked, so it took its 1 token (2) and says so', ot.a.route === 'off_topic' && ot.a.text === 'Main aapki dukaan, kaarobaar aur dawaiyon ke baare mein baat kar sakta hoon. AI ke kaam mein 1 token lage.' && ot.a.ai?.balance === 2 && fake.seen.length === before + 1, JSON.stringify(ot.a));
 
   fake.queue.push({ tools: [{ name: 'customer_dues', input: { shopId: other.shopId, name: 'x' } }] }, { say: 'Kuch nahi mila.' });
   await askAs(owner, 'Mina Medical ke customers ka udhaar compare karo');
   const injected = JSON.stringify(fake.seen.at(-1)?.messages.at(-1));
   check('a model asking for another shop (extra shopId) gets “Bad input”, no data', injected.includes('Bad input') && injected.includes('"is_error":true') && !injected.includes('Rahim'), injected.slice(0, 300));
 
-  section('7. Every failure gives the token back');
+  section('7. A failure: never reached costs nothing, the AI’s real work is paid (no loss, D109)');
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 5, reason: 'more tokens for the chat' });
   const bal = async () => (await CoinWalletModel.findOne({ shopId: shop }).lean())?.balance ?? 0;
   const b0 = await bal();
   fake.queue.push({ say: 'Theek hai.' });
@@ -283,11 +291,12 @@ async function main() {
   const signals = await SignalModel.countDocuments({ kind: 'ai_fail' });
   fake.queue.push({ status: 500 }, { status: 500 });
   const down = await askAs(owner, 'Dolo kis kaam aati hai');
-  check('Anthropic down → “try again”, the token back, a monitor signal', down.a.route === 'failed' && down.a.text?.includes('Aapka token wapas aa gaya.') === true && (await bal()) === b0 - 1 && (await SignalModel.countDocuments({ kind: 'ai_fail' })) > signals && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'refund', coins: 1 })), JSON.stringify(down.a));
+  const entries = await CoinEntryModel.countDocuments({ shopId: shop });
+  check('Anthropic down → “try again”, never reached so nothing taken (no ledger line), a monitor signal', down.a.route === 'failed' && down.a.text?.includes('Koi token nahi kata.') === true && (await bal()) === b0 - 1 && (await SignalModel.countDocuments({ kind: 'ai_fail' })) > signals && (await CoinEntryModel.countDocuments({ shopId: shop })) === entries && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.held === 0, JSON.stringify(down.a));
   const calls = fake.seen.length;
   fake.queue.push({ tools: [{ name: 'low_stock', input: {} }], input: 7900 });
   const big = await askAs(owner, 'stock ke baare mein salah do');
-  check('a second round that would pass the 8,000-token input cap is never sent; token back', big.a.route === 'failed' && fake.seen.length === calls + 1 && big.a.ai?.balance === b0 - 1 && Boolean(await AskQuestionModel.exists({ shopId: shop, error: 'Over the cap', refunded: true })), JSON.stringify(big.a));
+  check('a second round that would pass the 8,000-token input cap is never sent; the first round’s work took its token, said so', big.a.route === 'failed' && fake.seen.length === calls + 1 && big.a.ai?.balance === b0 - 2 && big.a.text?.includes('AI ke kaam mein 1 token lage.') === true && Boolean(await AskQuestionModel.exists({ shopId: shop, error: 'Over the cap', refunded: false, coins: 1 })), JSON.stringify(big.a));
 
   section('8. Day limit, month budget, a restart mid-question');
   const asked = await AskQuestionModel.countDocuments({ shopId: shop, route: { $in: ['ai', 'off_topic'] } });
@@ -316,8 +325,8 @@ async function main() {
   check('a cashier can’t open it → 403', (await cashier.get('/ai/wallet')).status === 403);
   const month = data<{ shopsOn: number; month: { questions: number; free: number; unmatched: number; ai: number; offTopic: number; blocked: number; costPaise: number; coins: number }; voices: { voice: string }[]; shops: { shopName: string; aiOn: boolean }[] }>(await viewer.get('/admin/ai/chat'));
   check('admin: 1 shop has AI answers on, and the shop row says so', month.shopsOn === 1 && month.shops.find((x) => x.shopName === 'Shri Ram Medical Store')?.aiOn === true, JSON.stringify({ on: month.shopsOn, shops: month.shops }));
-  const earned = (await AskQuestionModel.find({ shopId: shop, route: 'ai', status: 'done', refunded: { $ne: true } }).lean()).reduce((a, q) => a + q.coins, 0);
-  check(`this month: ready answers, AI, off-topic and blocked counted; ${String(earned)} tokens earned`, month.month.free >= chips.length && month.month.unmatched === 0 && month.month.offTopic === 1 && month.month.blocked >= 5 && month.month.coins === earned && earned === 4, JSON.stringify(month.month));
+  const earned = (await AskQuestionModel.find({ shopId: shop }).lean()).reduce((a, q) => a + q.coins, 0);
+  check(`this month: ready answers, AI, off-topic and blocked counted; ${String(earned)} tokens earned (4 answers + the off-topic look + the first round over the cap)`, month.month.free >= chips.length && month.month.unmatched === 0 && month.month.offTopic === 1 && month.month.blocked >= 5 && month.month.coins === earned && earned === 6, JSON.stringify(month.month));
   check('…by language and by shop', month.voices.some((v) => v.voice === 'bn') && month.shops.some((s) => s.shopName === 'Shri Ram Medical Store'));
   const list = await viewer.get('/admin/ai/chat/questions?limit=50');
   check('the question list never carries what was asked', list.status === 200 && !JSON.stringify(list.json).includes('kaam aati') && !JSON.stringify(list.json).includes('cricket'), code(list));

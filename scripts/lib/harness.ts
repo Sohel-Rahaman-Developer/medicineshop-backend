@@ -185,8 +185,8 @@ export interface Harness {
 
 /** Must run before anything imports src/config/env — env is read once at import. */
 /** `dbPath`: a fixed folder, wiped first — for servers that get killed before they can clean up (e2e on Windows). */
-/** welcomeCoins: the free coins a new shop gets (D96) — 0 unless a test is about them, so balances start at zero. */
-export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number } = {}): Promise<Harness> {
+/** welcomeCoins / freeMonthPaise: the free coins (D96) and monthly free AI (D109) — 0 unless a test is about them, so balances start at zero. */
+export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number; freeMonthPaise?: number } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
   // Suites fire far more calls a minute than a person; smoke-vapt sets low limits of its own to test them.
   process.env.RATE_API_PER_USER_PER_MIN ??= '100000';
@@ -229,7 +229,7 @@ export async function startHarness(opts: { port?: number; dbPath?: string; welco
 
   await connectDb();
   const { AiSettingsModel } = await import('../../src/modules/ai/ai.model.js');
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { welcomeCoins: opts.welcomeCoins ?? 0 } }, { upsert: true });
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { welcomeCoins: opts.welcomeCoins ?? 0, freeMonthPaise: opts.freeMonthPaise ?? 0 } }, { upsert: true });
   const server: Server = createApp().listen(opts.port ?? 0);
   await new Promise<void>((resolve) => server.once('listening', () => { resolve(); }));
   const address = server.address();

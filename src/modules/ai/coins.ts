@@ -14,6 +14,7 @@ import { billingInfo, gateway } from '../subscription/gateway';
 import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
 import { aiOffer, aiSettings, readyFor } from './ai-settings';
+import { shopAi } from './meter';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 
 const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
@@ -67,10 +68,11 @@ export const shapeRead = (r: { _id: Types.ObjectId; userName: string; supplierNa
 
 /** The shop's coin page: balance, packs, every coin in or out, its AI reads and its coin invoices. */
 export async function wallet(t: TenantContext) {
-  const [offer, s, w, entries, reads, questions, orders] = await Promise.all([
+  const [offer, s, w, mine, entries, reads, questions, orders] = await Promise.all([
     aiOffer(),
     aiSettings(),
     CoinWalletModel.findOne({ shopId: t.shopId }).lean(),
+    shopAi(t.shopId),
     CoinEntryModel.find({ shopId: t.shopId }).sort({ createdAt: -1, _id: -1 }).limit(100).lean(),
     AiReadModel.find({ shopId: t.shopId }).sort({ createdAt: -1, _id: -1 }).limit(50).lean(),
     AskQuestionModel.find({ shopId: t.shopId, route: { $in: ['ai', 'off_topic'] } }).sort({ createdAt: -1, _id: -1 }).limit(50).lean(),
@@ -78,9 +80,15 @@ export async function wallet(t: TenantContext) {
   ]);
   return {
     ...offer,
+    // D109: one page at most, usually, and this month's free AI.
+    coinsPerPage: mine.page.most,
+    usualPerPage: mine.page.usual,
+    free: mine.free,
+    margin: s.targetMargin,
     balance: w?.balance ?? 0,
+    held: w?.held ?? 0,
     payments: (await gateway()).mode,
-    ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: s.chat.coinsPerQuestion },
+    ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: mine.question.most },
     questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
     reads: reads.map(shapeRead),

@@ -27,7 +27,9 @@ export const aiSettingsSchema = z
     coinsPerPage: z.number().int().min(1).max(100),
     maxPages: z.number().int().min(1).max(20),
     welcomeCoins: z.number().int().min(0).max(1000),
-    targetMargin: z.number().min(1).max(20),
+    /** D109: free real AI cost a shop gets each month, paise; up to ₹1,000. */
+    freeMonthPaise: z.number().int().min(0).max(100_000).optional(),
+    targetMargin: z.number().min(1.1, 'Keep the margin at 1.1 or more — tokens must bring in more than the AI costs').max(20),
     usdInr: z.number().min(50).max(200),
     packs: z.array(packSchema).min(1).max(6).refine((p) => new Set(p.map((x) => x.code)).size === p.length, 'Each pack needs its own code'),
   })
@@ -93,7 +95,10 @@ export async function aiSettings(now = new Date()) {
     effort: s?.effort ?? 'low',
     coinsPerPage: s?.coinsPerPage ?? 1,
     maxPages: s?.maxPages ?? 10,
-    welcomeCoins: s?.welcomeCoins ?? 100,
+    welcomeCoins: s?.welcomeCoins ?? 0,
+    freeMonthPaise: s?.freeMonthPaise ?? 1000,
+    tokensAt: s?.tokensAt ?? null,
+    oldCoinPaise: s?.oldCoinPaise ?? null,
     targetMargin: s?.targetMargin ?? 1.5,
     usdInr: s?.usdInr ?? 88,
     packs: (s?.packs?.length ? s.packs : DEFAULT_PACKS).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 })),
@@ -122,7 +127,7 @@ export const onFreeTier = (s: AiSettings, model: AiModelId) => providerOf(model)
 /** What the shop sees: on only when the admin turned it on and a key is set. */
 export async function aiOffer() {
   const s = await aiSettings();
-  return { enabled: s.enabled && readyFor(s, s.model) && safeNow(s, 'read'), coinsPerPage: s.coinsPerPage, maxPages: s.maxPages, packs: s.packs };
+  return { enabled: s.enabled && readyFor(s, s.model) && safeNow(s, 'read'), maxPages: s.maxPages, packs: s.packs };
 }
 
 const needKey = (s: AiSettings, model: AiModelId, what: string, field: string) => {

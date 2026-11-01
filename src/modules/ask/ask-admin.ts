@@ -4,7 +4,7 @@ import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
 import { aiSettings, priceOf, saveChatSettings, savePrices, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import { CoinWalletModel } from '../ai/ai.model';
-import { coinValue, worstQuestion } from '../ai/guard';
+import { coinValue, tokensFor, worstQuestion } from '../ai/guard';
 import { AskQuestionModel } from './ask.model';
 import { forgetSpend } from './ask.service';
 
@@ -41,10 +41,12 @@ export async function chatOverview(now = new Date()) {
   // Worst case: every token of the caps, input at the dearer of input and cache-write (D97).
   const worstPaise = worstQuestion(s);
   const coinPaise = coinValue(s);
-  const chargePaise = c.coinsPerQuestion * coinPaise;
+  // D109: a question takes its real cost × margin in tokens — chargePaise is what its worst case would bring in.
+  const mostCoins = tokensFor(s, worstPaise);
+  const chargePaise = mostCoins * coinPaise;
   const avgPaise = last30[0]?.n ? Math.round(last30[0].cost / last30[0].n) : null;
   const ratio = (cost: number | null) => (cost ? Math.round((chargePaise / cost) * 10) / 10 : null);
-  const suggest = Math.max(1, Math.ceil((s.targetMargin * (avgPaise ?? worstPaise)) / Math.max(1, coinPaise)));
+  const suggest = tokensFor(s, avgPaise ?? worstPaise);
 
   const by = (r: string) => routes.find((x) => x._id === r);
   const sum = (k: 'n' | 'cost' | 'coins' | 'free' | 'tokensIn' | 'tokensOut') => routes.reduce((a, r) => a + r[k], 0);
@@ -57,7 +59,7 @@ export async function chatOverview(now = new Date()) {
     model: { id: c.model, price: p },
     usdInr: s.usdInr,
     targetMargin: s.targetMargin,
-    pricing: { worstPaise, coinPaise, chargePaise, avgPaise, worstRatio: ratio(worstPaise), avgRatio: ratio(avgPaise), suggestCoins: suggest, safe: chargePaise >= worstPaise },
+    pricing: { worstPaise, coinPaise, mostCoins, chargePaise, avgPaise, worstRatio: ratio(worstPaise), avgRatio: ratio(avgPaise), suggestCoins: suggest, safe: chargePaise >= worstPaise },
     month: {
       questions: sum('n'),
       free,

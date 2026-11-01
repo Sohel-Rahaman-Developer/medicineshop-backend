@@ -27,6 +27,7 @@ import { brief } from '../brief/brief.service';
 import { can } from '../rbac/permissions';
 import { demoTick } from '../demo/demo.service';
 import { welcomeMissing } from '../ai/welcome';
+import { tokensToTenPaise } from '../ai/meter';
 import { lowCredits } from '../ai/credits';
 import { aiSettings } from '../ai/ai-settings';
 import { noticesDue } from '../ai/price-changes';
@@ -211,7 +212,14 @@ export async function tick(now = new Date()) {
     });
     if (asks) ran.push(`asks:${String(asks)}`);
     if (back) ran.push(`aireads:${String(back)}`);
-    // D96: shops made before the welcome coins get theirs too.
+    // D109, once: tokens become ₹0.10 each and the monthly free AI replaces welcome tokens — before any welcome below.
+    const moved = await tokensToTenPaise(now).catch(async (err: unknown) => {
+      logger.error({ err }, 'Moving AI tokens to ₹0.10 failed');
+      await signal('job_fail', now);
+      return 0;
+    });
+    if (moved) ran.push(`tokens:${String(moved)}`);
+    // D96: shops made before the welcome coins get theirs too (none while welcomeCoins is 0, D109).
     const welcomed = await welcomeMissing().catch(async (err: unknown) => {
       logger.error({ err }, 'Welcome coins failed');
       await signal('job_fail', now);

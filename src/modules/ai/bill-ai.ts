@@ -15,10 +15,11 @@ import { previewRead } from '../purchases/bill-import';
 import { SupplierModel } from '../suppliers/supplier.model';
 import type { Actor } from '../user/actor';
 import { aiSettings, apiKey, listPrice, onFreeTier, priceOf, providerOf, type Price } from './ai-settings';
-import { AI_MODELS, AiReadModel } from './ai.model';
+import { AI_MODELS, AiReadModel, CoinWalletModel } from './ai.model';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, MAX_OUT, PAGE_OUT, fits, safeNow, worstPage } from './guard';
 import { balanceOf, moveCoins } from './coins';
+import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 export const aiReadSchema = z
   .object({
@@ -163,9 +164,7 @@ async function askGemini(kind: Kind, file: Buffer, s: { model: keyof typeof AI_M
   }
 }
 
-const failed = (why: string, coins: number) => (coins === 1 ? part(`${why}. Your token is back`) : part(`${why}. Your ${String(coins)} tokens are back`));
-
-/** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude or Gemini (D96), paid by the page in coins. */
+/** D78: read any supplier bill — PDF (scan too), a photo, or Word — with Claude or Gemini (D96), paid by what it used (D109). */
 export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadInput) {
   const s = await aiSettings();
   const provider = providerOf(s.model);
@@ -185,30 +184,37 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   // A Word file is counted by its text: about 9,000 characters (3,000 tokens) a page, so a long one costs what it uses.
   if (kind.type === 'docx') pages = Math.max(1, Math.ceil(docxChars(file) / 9000));
   if (pages > s.maxPages) throw AppError.validation(`AI reads up to ${String(s.maxPages)} pages at a time — this file has ${String(pages)}`);
-  const coins = pages * s.coinsPerPage;
-  // D97: nothing runs at a price that could lose money, or past what this shop has paid for; no coins are taken.
-  // Too few coins is told as such (buy coins) by the charge below.
-  if (!safeNow(s, 'read') || ((await balanceOf(t.shopId)) >= coins && !(await fits(t.shopId, s, pages * worstPage(s))))) {
+  const worst = pages * worstPage(s);
+  // D97: nothing runs at a price that could lose money, or past what this shop has paid for (or has free); no tokens are taken.
+  const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
+  // Too few tokens is told by the hold below (buy tokens), not as a pause.
+  if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {
     await signal('ai_paused');
     throw AppError.conflict('AI bill reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.', { reason: AI_PAUSED });
   }
 
-  const read = await inTransaction(async (session) => {
-    const [doc] = await AiReadModel.create([{ shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, supplierId: supplier._id, supplierName: supplier.name, fileName: input.fileName, fileType: kind.type, pages, coins, model: s.model }], { session });
+  // D109: the worst case is set aside first; too few tokens is told as such (buy tokens).
+  const { read, hold } = await inTransaction(async (session) => {
+    const h = await holdJob(t.shopId, s, worst, session);
+    const [doc] = await AiReadModel.create([{ shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, supplierId: supplier._id, supplierName: supplier.name, fileName: input.fileName, fileType: kind.type, pages, coins: h.coins, hold: h, model: s.model }], { session });
     if (!doc) throw AppError.internal();
-    await moveCoins(t.shopId, 'read', -coins, `AI read ${input.fileName} — ${String(pages)} page${pages === 1 ? '' : 's'}`, actor.name, String(doc._id), session);
-    return doc;
+    return { read: doc, hold: h };
   });
 
   const started = Date.now();
-  // Claims the read while it is still running, so the stuck-read sweep and this never both give the coins back.
-  const giveBack = async (error: string, usage = { input: 0, output: 0 }) => {
-    await inTransaction(async (session) => {
-      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error, inputTokens: usage.input, outputTokens: usage.output, costPaise: costPaise(s.model, usage.input, usage.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started } }, { session });
-      if (claimed.modifiedCount) await moveCoins(t.shopId, 'refund', coins, `Back: ${input.fileName} — ${error}`, actor.name, String(read._id), session);
+  const line = { kind: 'read' as const, text: `AI read ${input.fileName} — ${String(pages)} page${pages === 1 ? '' : 's'}`, byName: actor.name, ref: String(read._id) };
+  // The AI's real work is charged even when nothing came of it (no loss, D109); never reached costs nothing.
+  // Claims the read while it is still running, so the stuck-read sweep and this never both settle it.
+  const settle = async (status: 'done' | 'failed', usage: { input: number; output: number }, extra: { error?: string; lines?: number }) =>
+    inTransaction(async (session) => {
+      const cost = costPaise(s.model, usage.input, usage.output, s.usdInr, priceOf(s, s.model));
+      const claimed = await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status, ...extra, inputTokens: usage.input, outputTokens: usage.output, costPaise: cost, freeTier: onFreeTier(s, s.model), ms: Date.now() - started } }, { session });
+      if (!claimed.modifiedCount) return { coins: 0, freePaise: 0, balance: await balanceOf(t.shopId) };
+      const r = await settleJob(t.shopId, s, hold, cost, line, session);
+      await AiReadModel.updateOne({ _id: read._id }, { $set: { coins: r.coins, freePaise: r.freePaise, refunded: status === 'failed' && r.coins === 0 } }, { session });
+      return r;
     });
-    return error;
-  };
+  const giveBack = async (error: string, usage = { input: 0, output: 0 }) => tookText(error, await settle('failed', usage, { error }));
 
   let answer: Awaited<ReturnType<typeof askClaude>>;
   try {
@@ -220,23 +226,22 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
     const refused = err instanceof Anthropic.AuthenticationError || (err instanceof GeminiError && err.kind === 'refused');
     const busy = err instanceof Anthropic.RateLimitError || (err instanceof GeminiError && err.kind === 'busy');
     const why = refused ? part('the AI key was refused — MedBox24 has been told') : busy ? part('the AI is busy, try again in a minute') : part('the AI could not be reached');
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', failed(part(`Could not read the bill: ${await giveBack(why)}`), coins));
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', await giveBack(part(`Could not read the bill: ${why}`)));
   }
-  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', failed(await giveBack(answer.error, answer.usage), coins));
+  if ('error' in answer && answer.error) throw new AppError(422, 'VALIDATION_ERROR', await giveBack(answer.error, answer.usage));
   const bill = 'bill' in answer ? answer.bill : undefined;
   const result = bill ? rowsOfAiSafe(bill) : null;
-  if (!result || !result.lines.length) throw new AppError(422, 'VALIDATION_ERROR', failed(await giveBack(part('No item lines found on this file'), answer.usage), coins));
+  if (!result || !result.lines.length) throw new AppError(422, 'VALIDATION_ERROR', await giveBack(part('No item lines found on this file'), answer.usage));
 
   let preview: Awaited<ReturnType<typeof previewRead>>;
   try {
     preview = await previewRead(t, input.supplierId, result);
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
-    throw new AppError(err.status, err.code, failed(await giveBack(err.message, answer.usage), coins), err.details);
+    throw new AppError(err.status, err.code, await giveBack(err.message, answer.usage), err.details);
   }
-  await AiReadModel.updateOne({ _id: read._id, status: 'running' }, { $set: { status: 'done', lines: result.lines.length, inputTokens: answer.usage.input, outputTokens: answer.usage.output, costPaise: costPaise(s.model, answer.usage.input, answer.usage.output, s.usdInr, priceOf(s, s.model)), freeTier: onFreeTier(s, s.model), ms: Date.now() - started } });
-  const balance = await balanceOf(t.shopId);
-  return { ...preview, ai: { readId: String(read._id), pages, coins, balance } };
+  const done = await settle('done', answer.usage, { lines: result.lines.length });
+  return { ...preview, ai: { readId: String(read._id), pages, coins: done.coins, freePaise: done.freePaise, balance: done.balance } };
 }
 
 /** readRows throws when no header is found — the AI rows always carry one, but a refund must still follow a throw. */
@@ -248,14 +253,17 @@ function rowsOfAiSafe(bill: AiBill) {
   }
 }
 
-/** Reads left "running" by a restart get their coins back (scheduler, every few minutes). */
+/** Reads left "running" by a restart give back what was set aside (scheduler, every few minutes); a read before D109 its coins. */
 export async function settleStuckReads(now = new Date()) {
   // Longer than a read can take (4 min × 3 tries with the SDK's retries).
   const stuck = await AiReadModel.find({ status: 'running', createdAt: { $lt: new Date(now.getTime() - 20 * 60_000) } }).lean();
+  const s = await aiSettings(now);
   for (const r of stuck) {
     await inTransaction(async (session) => {
-      const claimed = await AiReadModel.updateOne({ _id: r._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished' } }, { session });
-      if (claimed.modifiedCount) await moveCoins(r.shopId, 'refund', r.coins, `Back: ${r.fileName} — the read stopped before it finished`, 'MedBox24', String(r._id), session);
+      const claimed = await AiReadModel.updateOne({ _id: r._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished', coins: 0 } }, { session });
+      if (!claimed.modifiedCount) return;
+      if (r.hold) await settleJob(r.shopId, s, { coins: r.hold.coins ?? 0, freePaise: r.hold.freePaise ?? 0, month: r.hold.month ?? '' }, 0, { kind: 'read', text: '', byName: 'MedBox24', ref: String(r._id) }, session);
+      else await moveCoins(r.shopId, 'refund', r.coins, `Back: ${r.fileName} — the read stopped before it finished`, 'MedBox24', String(r._id), session);
     });
   }
   return stuck.length;

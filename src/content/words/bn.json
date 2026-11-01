@@ -34,7 +34,6 @@
   "Set the Gemini key first": "আগে Gemini key দিন",
   "Add a Claude or Gemini API key first": "আগে Claude বা Gemini-এর API key দিন",
   "Add a Claude API key, or a Gemini key with billing on, first": "আগে Claude-এর API key দিন, অথবা billing চালু থাকা Gemini key",
-  "Even the most tokens allowed would not cover this model — pick a cheaper one in Settings": "সবচেয়ে বেশি টোকেন রেখেও এই মডেলের খরচ উঠবে না — Settings-এ সস্তা মডেল বাছুন",
   "No Gemini key": "Gemini key নেই",
   "Invalid signature": "ভুল signature",
   "Order created": "Order তৈরি হয়েছে",
@@ -45,8 +44,6 @@
   "The AI would not read this file": "AI এই ফাইল পড়েনি",
   "The bill is too long to read in one go — upload fewer pages": "বিল একবারে পড়ার পক্ষে খুব লম্বা — কম পাতা upload করুন",
   "The AI answer could not be used": "AI-এর উত্তর কাজে লাগানো গেল না",
-  "{why}. Your token is back": "{why}। আপনার token ফেরত এসেছে",
-  "{why}. Your {coins} tokens are back": "{why}। আপনার {coins} tokens ফেরত এসেছে",
   "AI bill reading is off": "AI দিয়ে বিল পড়া বন্ধ",
   "Supplier not found": "Supplier পাওয়া যায়নি",
   "Upload a PDF, a photo (JPG, PNG) or a Word file": "PDF, ছবি (JPG, PNG) বা Word ফাইল upload করুন",
@@ -1007,7 +1004,6 @@
   "AI reading is off": "AI দিয়ে পড়া বন্ধ আছে",
   "That is not a photo we can read — take it again": "এই ছবিটা পড়া যাচ্ছে না — আবার তুলুন",
   "AI reading is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "আপনার দোকানের জন্য AI দিয়ে পড়া থেমে আছে — MedBox24-কে জানানো হয়েছে, ঠিক করে দেবে। কোনো টোকেন কাটা হয়নি।",
-  "Could not read the prescription: {part}": "প্রেসক্রিপশন পড়া গেল না: {part}",
   "No medicines found on this photo": "এই ছবিতে কোনো ওষুধ পাওয়া যায়নি",
   "Prescription saved on the bill": "প্রেসক্রিপশনের তথ্য বিলে সেভ হয়েছে",
   "A cancelled bill can’t be changed": "বাতিল বিল বদলানো যায় না",
@@ -1021,5 +1017,11 @@
   "Sell price should be a price like 30.00": "বিক্রির দাম দামের মতো লিখুন, যেমন 30.00",
   "Already in your products and nothing new on this row — skipped. Fill batch, quantity, MRP and rate to add stock, or a sell price to change it": "আগে থেকেই আপনার products-এ আছে আর এই row-তে নতুন কিছু নেই — বাদ দেওয়া হল। stock যোগ করতে batch, পরিমাণ, MRP আর rate ভরুন, বা বদলাতে বিক্রির দাম",
   "Sell price is above this batch’s MRP — bills stop at the MRP": "বিক্রির দাম এই batch-এর MRP-র চেয়ে বেশি — বিল MRP-তেই থামবে",
-  "Sell price must be more than ₹0": "বিক্রির দাম ₹0-এর বেশি হতে হবে"
+  "Sell price must be more than ₹0": "বিক্রির দাম ₹0-এর বেশি হতে হবে",
+  "Keep the margin at 1.1 or more — tokens must bring in more than the AI costs": "মার্জিন 1.1 বা তার বেশি রাখুন — টোকেন থেকে AI-এর খরচের চেয়ে বেশি আসতে হবে",
+  "{why}. The AI’s work took {coins} tokens": "{why}। AI-এর কাজে {coins} টোকেন লেগেছে",
+  "{why}. The AI’s work took 1 token": "{why}। AI-এর কাজে 1 টোকেন লেগেছে",
+  "{why}. This month’s free AI covered it": "{why}। এই মাসের ফ্রি AI-তে হয়ে গেছে",
+  "{why}. No tokens were taken": "{why}। কোনো টোকেন কাটা হয়নি",
+  "Could not read the prescription: {why}": "প্রেসক্রিপশন পড়া গেল না: {why}"
 }

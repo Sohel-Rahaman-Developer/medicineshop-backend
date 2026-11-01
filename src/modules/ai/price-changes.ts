@@ -16,7 +16,7 @@ export function upcomingPrices(s: AiSettings, now = new Date()) {
     const after = checks({ ...s, prices: s.prices.map((p) => (p.model === c.model ? next : p)) });
     const uses = after
       .filter((k) => (k.feature === 'read' ? s.model : s.chat.model) === c.model)
-      .map((k) => ({ feature: k.feature, on: k.on, tokensIn: k.feature === 'read' ? PAGE_IN : s.chat.capIn, tokensOut: k.feature === 'read' ? PAGE_OUT : s.chat.capOut, coins: k.feature === 'read' ? s.coinsPerPage : s.chat.coinsPerQuestion, worstPaise: k.worstPaise, chargePaise: k.chargePaise, safe: k.safe, needCoins: Math.max(1, Math.ceil(k.worstPaise / Math.max(1, coin))) }));
+      .map((k) => ({ feature: k.feature, on: k.on, tokensIn: k.feature === 'read' ? PAGE_IN : s.chat.capIn, tokensOut: k.feature === 'read' ? PAGE_OUT : s.chat.capOut, coins: k.coins, worstPaise: k.worstPaise, chargePaise: k.chargePaise, safe: k.safe, needCoins: k.coins }));
     return { model: c.model, name: AI_MODELS[c.model].name, from: at, days: Math.ceil((at.getTime() - now.getTime()) / DAY), now: { input: cur.input, output: cur.output }, next: { input: next.input, output: next.output, dearIn: Math.max(next.input, next.cacheWrite) }, usdInr: s.usdInr, coinPaise: coin, uses };
   });
 }

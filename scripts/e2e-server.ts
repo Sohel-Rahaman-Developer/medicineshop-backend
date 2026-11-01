@@ -70,12 +70,13 @@ async function main() {
   const { CHAT_DEFAULTS, saveChatSettings, setApiKey, saveAiSettings } = await import('../src/modules/ai/ai-settings.js');
   const { moveCoins } = await import('../src/modules/ai/coins.js');
   const { inTransaction } = await import('../src/core/transaction.js');
-  const { DEFAULT_PACKS } = await import('../src/modules/ai/ai.model.js');
   /** AI suite (D78): AI reading on with the stand-in's key, and coins for the named shop. */
   const seedAi = async (b: { shopName?: string; coins?: number; chatOff?: boolean }) => {
     await setApiKey(claude.key, 'E2E');
     if (b.chatOff) await saveChatSettings(CHAT_DEFAULTS, 'E2E');
-    await saveAiSettings({ enabled: true, model: 'claude-haiku-4-5-20251001', effort: 'low', coinsPerPage: 1, maxPages: 10, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: DEFAULT_PACKS }, 'E2E');
+    // D109: old-size tokens (₹4,499 ÷ 1.18 ÷ 500 = ₹7.62), so a page or a question holds and takes 1; no free AI, so the
+    // tokens given are what the screens show.
+    await saveAiSettings({ enabled: true, model: 'claude-haiku-4-5-20251001', effort: 'low', coinsPerPage: 1, maxPages: 10, welcomeCoins: 0, freeMonthPaise: 0, targetMargin: 1.5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }, { code: 'c100', name: 'Shop', coins: 100, price: 99_900 }, { code: 'c500', name: 'Busy shop', coins: 500, price: 449_900 }] }, 'E2E');
     if (!b.shopName || !b.coins) return;
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop) throw new Error('shop not found');

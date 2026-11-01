@@ -10,6 +10,27 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.46.0',
+    date: '2026-11-01',
+    title: 'AI tokens: pay for what the AI really uses, ₹10 of AI free every month',
+    shop: [
+      'One AI token is now ₹0.10. Reading a bill or a prescription, or an Ask AI answer, takes what the AI really used — a short prescription takes fewer tokens than a long bill.',
+      'Before any AI runs you see the most it can take and say Yes — reading a bill, a prescription, or asking AI. Nothing is taken before Yes.',
+      'Every shop gets AI free each month (₹10 of it), used before bought tokens. It comes back on the 1st and never adds up.',
+      'If the AI could not be reached nothing is taken; if it did the work but found nothing, that work is paid and the message says how many tokens.',
+      'Tokens you bought keep their value in the new ₹0.10 tokens; free welcome tokens left over are replaced by the monthly free AI.',
+    ],
+    admin: [
+      'AI reading → What shops pay: a margin (× the real AI cost) and the free AI each month per shop, in place of tokens a page and welcome tokens. A margin under 1.1 can’t be saved, so no price can lose money.',
+      'At a glance, Money & safety and the chat’s price check show what a job takes at most and usually; the price-rise email says a rise is passed on by itself.',
+    ],
+    api: [
+      'Tokens: a job holds its worst case (free AI first), then settles at ⌈real cost × margin ÷ token value⌉. /ai/offer, /ai/wallet and /pos/settings aiRx carry need / most / usual and free {leftPaise, monthPaise, resetsOn}.',
+      'POST /ask without confirm answers route "confirm" (need, most, free, balance) when the question needs the AI; with confirm: true it runs.',
+      'Once on the scheduler: packs become price ÷ 10 paise tokens, balances move to the new tokens (bought value kept), welcome tokens stop (convert ledger lines).',
+    ],
+  },
+  {
     version: '1.45.3',
     date: '2026-11-01',
     title: 'Admin: the AI page in five plain steps',

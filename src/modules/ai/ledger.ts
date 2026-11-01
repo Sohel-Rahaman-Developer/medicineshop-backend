@@ -4,7 +4,7 @@ import { ShopModel } from '../shops/shop.model';
 import { istMonth } from '../../utils/date';
 import { PROVIDER_NAME, aiSettings, priceOf } from './ai-settings';
 import { AI_MODELS, AI_PROVIDERS, AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type AiProvider } from './ai.model';
-import { PAGE_IN, PAGE_OUT, checks, coinValue, worstPage, worstQuestion } from './guard';
+import { PAGE_IN, PAGE_OUT, checks, coinValue, roomOf, tokensFor } from './guard';
 
 // D97: the admin's money view of AI — is every price safe, what margin it really makes, and which shop (and who in it)
 // spends how much against what it paid.
@@ -37,7 +37,7 @@ export async function aiMoney(now = new Date()) {
   for (const r of [...reads, ...asks, ...paid]) ids.set(String(r._id), r._id);
   const [shopRows, wallets] = await Promise.all([
     ShopModel.find({ _id: { $in: [...ids.values()] } }).select('name').lean(),
-    CoinWalletModel.find({ shopId: { $in: [...ids.values()] } }).select('shopId balance askFree').lean(),
+    CoinWalletModel.find({ shopId: { $in: [...ids.values()] } }).select('shopId balance').lean(),
   ]);
   const shopNames = new Map(shopRows.map((x) => [String(x._id), x.name]));
   const get = <T extends { _id: Types.ObjectId }>(rows: T[], id: string) => rows.find((r) => String(r._id) === id);
@@ -48,14 +48,15 @@ export async function aiMoney(now = new Date()) {
     m.set(u._id.user, (m.get(u._id.user) ?? 0) + u.cost);
     users.set(k, m);
   }
-  const shops = [...ids.keys()].map((id) => {
+  const rows = await Promise.all(
+    [...ids.entries()].map(async ([id, oid]) => {
     const r = get(reads, id);
     const a = get(asks, id);
     const p = get(paid, id);
     const giftedCoins = Math.max(0, get(gifts, id)?.coins ?? 0);
     const burned = (r?.cost ?? 0) + (a?.cost ?? 0);
-    const freeUsed = wallets.find((w) => String(w.shopId) === id)?.askFree ?? 0;
-    const allowance = (p?.net ?? 0) + giftedCoins * coin + freeUsed * s.chat.coinsPerQuestion * coin;
+    // The guard's own sum (D97, D109): bought + given + the free AI used.
+    const allowance = (await roomOf(oid, s)).allowancePaise;
     const earned = ((r?.coins ?? 0) + (a?.coins ?? 0)) * coin;
     return {
       shopId: id,
@@ -74,28 +75,26 @@ export async function aiMoney(now = new Date()) {
       margin: burned ? Math.round((earned / burned) * 10) / 10 : null,
       users: [...(users.get(id)?.entries() ?? [])].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([name, cost]) => ({ name, costPaise: cost })),
     };
-  }).sort((x, y) => y.costPaise - x.costPaise || y.paidPaise - x.paidPaise).slice(0, 50);
+    }),
+  );
+  const shops = rows.sort((x, y) => y.costPaise - x.costPaise || y.paidPaise - x.paidPaise).slice(0, 50);
 
   const monthCost = reads.reduce((t, r) => t + r.month, 0) + asks.reduce((t, r) => t + r.month, 0);
   const monthSales = paid.reduce((t, r) => t + r.month, 0);
   const perPage = avgRead[0]?.pages ? Math.round(avgRead[0].cost / avgRead[0].pages) : null;
   const perQuestion = avgAsk[0]?.n ? Math.round(avgAsk[0].cost / avgAsk[0].n) : null;
-  const m = s.targetMargin;
-  const need = (cost: number) => Math.max(1, Math.ceil((m * cost) / Math.max(1, coin)));
   const [read, chat] = checks(s);
   const pr = priceOf(s, s.model);
   const pc = priceOf(s, s.chat.model);
-  // The least price a coin must sell for (with GST) so each feature makes the target margin at its present coins a job.
-  const floor = Math.max(perPage === null ? 0 : (m * perPage) / s.coinsPerPage, perQuestion === null ? 0 : (m * perQuestion) / s.chat.coinsPerQuestion);
+  // D109: a job takes its real cost × margin in tokens — coinsPerJob is its worst case, usualCoins the last 30 days' average.
   return {
-    targetMargin: m,
+    targetMargin: s.targetMargin,
     usdInr: s.usdInr,
     coin: { paise: coin, packs: s.packs.map((k) => ({ name: k.name, coins: k.coins, price: k.price, perCoin: Math.floor(k.price / GST / Math.max(1, k.coins)) })) },
-    read: { ...read, model: s.model, coinsPerJob: s.coinsPerPage, tokensIn: PAGE_IN, tokensOut: PAGE_OUT, price: { input: Math.max(pr.input, pr.cacheWrite), output: pr.output }, avgPaise: perPage, suggestCoins: need(perPage ?? worstPage(s)) },
-    chat: { ...chat, model: s.chat.model, coinsPerJob: s.chat.coinsPerQuestion, tokensIn: s.chat.capIn, tokensOut: s.chat.capOut, price: { input: Math.max(pc.input, pc.cacheWrite), output: pc.output }, avgPaise: perQuestion, suggestCoins: need(perQuestion ?? worstQuestion(s)) },
+    read: { ...read, model: s.model, coinsPerJob: read.coins, tokensIn: PAGE_IN, tokensOut: PAGE_OUT, price: { input: Math.max(pr.input, pr.cacheWrite), output: pr.output }, avgPaise: perPage, usualCoins: perPage === null ? null : tokensFor(s, perPage) },
+    chat: { ...chat, model: s.chat.model, coinsPerJob: chat.coins, tokensIn: s.chat.capIn, tokensOut: s.chat.capOut, price: { input: Math.max(pc.input, pc.cacheWrite), output: pc.output }, avgPaise: perQuestion, usualCoins: perQuestion === null ? null : tokensFor(s, perQuestion) },
     month: { costPaise: monthCost, salesPaise: monthSales, margin: monthCost ? Math.round((monthSales / monthCost) * 10) / 10 : null },
-    coinFloorPaise: Math.ceil(floor * GST),
-    gifts: { welcomeCoins: s.welcomeCoins, perShopPaise: s.welcomeCoins * coin },
+    gifts: { freeMonthPaise: s.freeMonthPaise },
     shops,
   };
 }

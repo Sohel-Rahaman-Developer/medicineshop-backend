@@ -1,5 +1,5 @@
 // D96 checks: Gemini next to Claude — its own sealed key from the admin app, bill reading and the shop chat on a Gemini
-// model (a local stand-in plays Google), coins back on every failure, removing the key turns off what used it; welcome coins.
+// model (a local stand-in plays Google), the AI’s real work paid even on a failure (D109), removing the key turns off what used it; welcome coins.
 import { randomUUID } from 'node:crypto';
 import { startFakeGemini } from './lib/fake-gemini';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
@@ -77,13 +77,15 @@ async function main() {
 
   section('2. Bill reading on Gemini');
   const on = await root.put('/admin/ai/settings', read());
-  check('on: Gemini 3.8 Flash, medium thinking, 2 coins a page', on.status === 200 && data<Settings>(on).model === 'gemini-3.8-flash', code(on));
+  check('on: Gemini 3.8 Flash, medium thinking', on.status === 200 && data<Settings>(on).model === 'gemini-3.8-flash', code(on));
+  // D109 with these packs (₹299 ÷ 1.18 ÷ 25 = ₹10.13 a token): a page's worst ₹2.97 holds 1, a 3-page scan 2; a read takes ⌈cost × 1.5 ÷ ₹10.13⌉.
+  const tokensOf = (costPaise: number) => (costPaise > 0 ? Math.max(1, Math.ceil((costPaise * 1.5) / 1013)) : 0);
   check('the shop sees it on', data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
   await root.post(`/admin/shops/${shopId}/coins`, { coins: 30, reason: 'coins to try Gemini' });
   fake.answer = { bill: MA_AI, input: 3200, output: 2000, thoughts: 400 };
   const r1 = await readAi(owner, PHOTO, 'image/jpeg', 'bill-photo.jpg');
   const out1 = r1.status === 200 ? data<ReadOut>(r1) : null;
-  check('a photo → the 13 lines of the M.A. Pharma bill, 2 coins', out1?.lines.length === 13 && out1.meta.invoiceNumber === 'A085013' && out1.ai.coins === 2 && (await balance()) === 28, code(r1));
+  check('a photo → the 13 lines of the M.A. Pharma bill; its ₹1.00 took 1 token', out1?.lines.length === 13 && out1.meta.invoiceNumber === 'A085013' && out1.ai.coins === 1 && (await balance()) === 29, code(r1));
   const g1 = fake.seen.at(-1);
   const part = g1?.body.contents?.[0]?.parts[0] as { inlineData?: { mimeType: string } } | undefined;
   const schema = g1?.body.generationConfig?.responseJsonSchema;
@@ -93,7 +95,7 @@ async function main() {
   const scan = await makeBillPdf(MA_TOP, MA_HEADER, MA_LINES, MA_FOOT, { perPage: 5, scan: true });
   const r2 = await readAi(owner, scan, 'application/pdf', 'scan.pdf');
   const pdfPart = fake.seen.at(-1)?.body.contents?.[0]?.parts[0] as { inlineData?: { mimeType: string } } | undefined;
-  check('a 3-page scan goes as a PDF → 6 coins', r2.status === 200 && pdfPart?.inlineData?.mimeType === 'application/pdf' && data<ReadOut>(r2).ai.coins === 6 && (await balance()) === 22, code(r2));
+  check('a 3-page scan goes as a PDF → 2 held, 1 taken', r2.status === 200 && pdfPart?.inlineData?.mimeType === 'application/pdf' && data<ReadOut>(r2).ai.coins === 1 && (await AiReadModel.findById(data<ReadOut>(r2).ai.readId).lean())?.hold?.coins === 2 && (await balance()) === 28, code(r2));
 
   type Bill = { month: { billedPaise: number; freeTierPaise: number; providers: { provider: string; billedPaise: number; freeTierPaise: number; bills: { calls: number } }[] } };
   const googleBill = async () => data<Bill>(await acc.get('/admin/ai/bill')).month.providers.find((x) => x.provider === 'google');
@@ -104,12 +106,15 @@ async function main() {
   const gc = data<{ provider: string; spentUsd: number; leftUsd: number }[]>(await root.get('/admin/ai/credits')).find((x) => x.provider === 'google');
   check('free-tier reads don’t eat the Google credit: $10 left of $10', gc?.spentUsd === 0 && gc.leftUsd === 10, JSON.stringify(gc));
 
-  section('3. Every failure gives the coins back');
+  section('3. A failure: never reached costs nothing, the AI’s real work is paid (no loss, D109)');
   const failWith = async (reply: Parameters<typeof fake.queue.push>[0] | null, label: string, expect: number, text: string) => {
     if (reply) fake.queue.push(reply);
     const before = await balance();
     const r = await readAi(owner, PHOTO, 'image/jpeg', 'again.jpg');
-    check(`${label} → ${String(expect)}, “${text}”, coins back`, r.status === expect && String(r.json.error?.message).includes(text) && (await balance()) === before, code(r));
+    const rec = await AiReadModel.findOne({ shopId: new Types.ObjectId(shopId), status: 'failed' }).sort({ createdAt: -1 }).lean();
+    const n = tokensOf(rec?.costPaise ?? 0);
+    const said = n ? 'The AI’s work took' : 'No tokens were taken';
+    check(`${label} → ${String(expect)}, “${text}”, ${n ? `its work took ${String(n)}` : 'nothing taken'}`, r.status === expect && String(r.json.error?.message).includes(text) && String(r.json.error?.message).includes(said) && rec?.coins === n && (await balance()) === before - n, `${code(r)} ${JSON.stringify(rec)}`);
   };
   await failWith({ status: 429, message: 'Resource has been exhausted' }, 'over the free tier’s limit (429)', 503, 'the AI is busy');
   await failWith({ finish: 'SAFETY' }, 'stopped for safety', 422, 'would not read this file');
@@ -136,22 +141,20 @@ async function main() {
   check('“Turn off” → bill reading off, the card says “off”, the shop sees it off', off.status === 200 && data<{ status: Status }>(off).status.read.blocks.join() === 'off' && !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled, code(off));
   const back = await flip({ feature: 'read', on: true });
   check('“Turn on” → running again; audited as turned on, with the reason', back.status === 200 && data<{ status: Status }>(back).status.read.blocks.length === 0 && Boolean(await AdminAuditModel.exists({ action: 'ai_settings', reason: 'from the status card', text: { $regex: 'turned on' } })), code(back));
-  // An older setting that now loses money: ₹2,000 a dollar → a page's worst (3,750 + 30,000) × 2,000 × 100 / 1M = 6,750 paise.
+  // D109: ₹2,000 a dollar → a page's worst (3,750 + 30,000) × 2,000 × 100 / 1M = 6,750 paise just holds ⌈6,750 × 1.5 ÷ 1,013⌉ = 10 tokens.
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 2000 } });
-  check('a price that now loses money → “loss” (and the feature pauses)', (await statusOf()).read.blocks.join() === 'loss' && !data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled);
-  check('“Charge 6 coins” → still a loss (6 × ₹10.13 = ₹60.78 < ₹67.50) → 422', (await flip({ feature: 'read', on: true, coins: 6 })).status === 422);
-  const seven = await flip({ feature: 'read', on: true, coins: 7 });
-  check('“Charge 7 coins” (₹70.91) → saved, running', seven.status === 200 && data<{ status: Status; settings: Settings }>(seven).status.read.blocks.length === 0 && data<{ settings: { coinsPerPage: number } }>(seven).settings.coinsPerPage === 7, code(seven));
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 88, coinsPerPage: 2 } });
+  const dear = data<{ coinsPerPage: number; enabled: boolean }>(await owner.get('/ai/offer'));
+  check('a far dearer dollar is no loss: still running, a page now holds 10 tokens', (await statusOf()).read.blocks.length === 0 && dear.enabled && dear.coinsPerPage === 10, JSON.stringify(dear));
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 88 } });
   check('a chat question costs 20 coins at most → 422', (await flip({ feature: 'chat', on: true, coins: 21 })).status === 422);
   // Live on 1 Nov: reading on Claude Opus 5.5 with no Claude key, 1 token a page, switched off — three reasons, one tap fixes all.
   const readModel = (await statusOf()).read.model;
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: 'claude-opus-5-5', coinsPerPage: 1, enabled: false } });
-  check('reading on Claude Opus 5.5, no Claude key, 1 token, off → “key”, “loss”, “off”', (await statusOf()).read.blocks.join() === 'key,loss,off', (await statusOf()).read.blocks.join());
+  check('reading on Claude Opus 5.5, no Claude key, off → “key”, “off” (no price can lose money now)', (await statusOf()).read.blocks.join() === 'key,off', (await statusOf()).read.blocks.join());
   check('the one switch: accounts → 403', (await acc.post('/admin/ai/power', { on: true, reason: 'from the status card' })).status === 403);
   const fixed = await root.post('/admin/ai/power', { on: true, reason: 'one tap from the status card' });
   const fx = data<{ status: Status; settings: { model: string; coinsPerPage: number; enabled: boolean } }>(fixed);
-  check('Turn on → reading on Gemini 3.6 Flash (its key is set), 1 token covers its worst page (₹2.91); the shop sees it on', fixed.status === 200 && fx.settings.model === 'gemini-3.6-flash' && fx.settings.coinsPerPage === 1 && fx.settings.enabled && fx.status.read.blocks.length === 0 && data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled, code(fixed));
+  check('Turn on → reading on Gemini 3.6 Flash (its key is set); the shop sees it on', fixed.status === 200 && fx.settings.model === 'gemini-3.6-flash' && fx.settings.enabled && fx.status.read.blocks.length === 0 && data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled, code(fixed));
   check('…the chat can’t run (no Claude key, Gemini on the free tier): it stays off and the card says why', fx.status.chat.blocks.join() === 'key,off', fx.status.chat.blocks.join());
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: readModel, coinsPerPage: 2 } });
 
@@ -238,21 +241,21 @@ async function main() {
   const { tick } = await import('../src/modules/notifications/jobs.js');
   const { EmailJobModel } = await import('../src/services/mail-queue.js');
   const ist = (s: string) => new Date(`${s}+05:30`);
-  check('Argon on 1 token a page (₹10.13 a token, a page up to ₹7.92) → saved', (await root.put('/admin/ai/settings', read({ enabled: false, model: 'gemini-4-argon', coinsPerPage: 1 }))).status === 200);
+  check('Argon (₹10.13 a token, a page up to ₹7.92) → saved', (await root.put('/admin/ai/settings', read({ enabled: false, model: 'gemini-4-argon' }))).status === 200);
   const nov20 = await aiSettings(ist('2026-11-20T10:00:00'));
   const argon = upcomingPrices(nov20, ist('2026-11-20T10:00:00')).find((c) => c.model === 'gemini-4-argon');
   check('20 Nov: Argon still $2 / $10', priceOf(nov20, 'gemini-4-argon').input === 2 && priceOf(nov20, 'gemini-4-argon').output === 10);
   check('ahead: Argon from 1 Dec IST, $2 / $10 → $4 / $20, in 11 days', argon?.from.toISOString() === '2026-11-30T18:30:00.000Z' && argon.now.input === 2 && argon.next.input === 4 && argon.next.output === 20 && argon.days === 11, JSON.stringify(argon));
-  check('…bill reading on Argon: a page up to ₹15.84, 1 token brings ₹10.13 → pauses, 2 tokens needed', argon?.uses.length === 1 && argon.uses[0]?.feature === 'read' && argon.uses[0].worstPaise === 1584 && argon.uses[0].chargePaise === 1013 && !argon.uses[0].safe && argon.uses[0].needCoins === 2, JSON.stringify(argon?.uses));
+  check('…bill reading on Argon: a page up to ₹15.84 then holds ⌈1,584 × 1.5 ÷ 1,013⌉ = 3 tokens (₹30.39) — still never a loss', argon?.uses.length === 1 && argon.uses[0]?.feature === 'read' && argon.uses[0].worstPaise === 1584 && argon.uses[0].coins === 3 && argon.uses[0].chargePaise === 3039 && argon.uses[0].safe, JSON.stringify(argon?.uses));
   check('3.8 / 3.6 Flash from 1 Jan 2027, not in use → nothing to do', upcomingPrices(nov20, ist('2026-11-20T10:00:00')).filter((c) => c.model !== 'gemini-4-argon').every((c) => c.uses.length === 0 && c.next.input === 1.5 && c.next.output === 7.5));
   check('20 Nov: no notice yet (11 days out)', noticesDue(nov20, ist('2026-11-20T10:00:00')).length === 0);
   check('25 Nov: the notice is due (6 days out)', noticesDue(nov20, ist('2026-11-25T12:00:00')).map((c) => c.model).join() === 'gemini-4-argon');
   await tick(ist('2026-11-25T12:00:00'));
   await tick(ist('2026-11-25T12:20:00'));
   const notices = await EmailJobModel.find({ kind: 'ai_price' }).lean();
-  check('the scheduler emails the super admin once, the fix in it', notices.length === 1 && notices[0]?.to === 'root@gem.test' && notices[0].text.includes('charge 2 tokens a page'), JSON.stringify(notices.map((n) => [n.to, n.subject])));
+  check('the scheduler moves packs to ₹0.10 tokens first, then emails the super admin once: ⌈1,584 × 1.5 ÷ 8⌉ = 297 tokens (₹23.76), still never a loss', notices.length === 1 && notices[0]?.to === 'root@gem.test' && notices[0].text.includes('takes up to 297 tokens (₹23.76)') && notices[0].text.includes('still never a loss'), JSON.stringify(notices.map((n) => [n.to, n.subject, n.text])));
   const dec2 = await aiSettings(ist('2026-12-02T09:00:00'));
-  check('2 Dec: Argon counted at $4 / $20 on its own (cache write $5) — bill reading pauses', priceOf(dec2, 'gemini-4-argon').input === 4 && priceOf(dec2, 'gemini-4-argon').output === 20 && priceOf(dec2, 'gemini-4-argon').cacheWrite === 5 && !safeNow(dec2, 'read'));
+  check('2 Dec: Argon counted at $4 / $20 on its own (cache write $5) — bill reading still runs, shops pay the new price', priceOf(dec2, 'gemini-4-argon').input === 4 && priceOf(dec2, 'gemini-4-argon').output === 20 && priceOf(dec2, 'gemini-4-argon').cacheWrite === 5 && safeNow(dec2, 'read'));
   check('prices saved before the day (today) → the rise still comes in', (await root.put('/admin/ai/prices', { prices: (await aiSettings()).prices, reason: 'prices as Google lists them' })).status === 200 && priceOf(await aiSettings(ist('2026-12-02T09:00:00')), 'gemini-4-argon').input === 4);
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { pricesSetAt: ist('2026-12-05T10:00:00'), prices: (await aiSettings()).prices.map((p) => (p.model === 'gemini-4-argon' ? { ...p, input: 3, output: 15, cacheWrite: 3.75 } : p)) } });
   check('prices saved after the day → the admin’s price stands ($3 / $15)', priceOf(await aiSettings(ist('2026-12-10T09:00:00')), 'gemini-4-argon').input === 3);
