@@ -42,8 +42,8 @@ export interface Usage {
 
 export type AiAnswer = { kind: 'answer'; text: string; tools: string[]; links: string[] } | { kind: 'off_topic'; tools: string[] } | { kind: 'too_big'; tools: string[] } | { kind: 'refused'; tools: string[] };
 
-/** Paise for a question's tokens at the given price (US$ per million). */
-export const costOf = (u: Usage, p: Price, usdInr: number) => Math.round(((u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1_000_000) * usdInr * 100);
+/** Paise for a question's tokens at the given price (US$ per million), rounded up — a tiny real cost is still charged. */
+export const costOf = (u: Usage, p: Price, usdInr: number) => Math.ceil(((u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1_000_000) * usdInr * 100);
 
 /** Tokens a tool result may add, counted high (a character can be a token in Bengali). */
 const roughTokens = (s: string) => Math.ceil(s.length / 2);

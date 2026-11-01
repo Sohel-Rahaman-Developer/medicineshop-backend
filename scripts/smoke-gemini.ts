@@ -91,7 +91,7 @@ async function main() {
   const schema = g1?.body.generationConfig?.responseJsonSchema;
   check('Gemini got the picture inline, the prompt, a JSON schema (no $schema tag), thinking “medium”', g1?.model === 'gemini-3.8-flash' && part?.inlineData?.mimeType === 'image/jpeg' && (g1.body.systemInstruction?.parts[0]?.text.includes('Never calculate') ?? false) && g1.body.generationConfig?.responseMimeType === 'application/json' && Boolean(schema?.properties) && !(schema && '$schema' in schema) && g1.body.generationConfig.thinkingConfig?.thinkingLevel === 'medium', JSON.stringify(g1?.body.generationConfig));
   const rec1 = await AiReadModel.findById(out1?.ai.readId).lean();
-  check('recorded on Gemini: 3,200 in, 2,000 + 400 thinking out, cost (3,200 × $0.75 + 2,400 × $3.75) / 1M × ₹88 = ₹1.00', rec1?.model === 'gemini-3.8-flash' && rec1.inputTokens === 3200 && rec1.outputTokens === 2400 && rec1.costPaise === 100 && costPaise('gemini-3.8-flash', 3200, 2400, 88) === 100, JSON.stringify(rec1));
+  check('recorded on Gemini: 3,200 in, 2,000 + 400 thinking out, cost (3,200 × $0.75 + 2,400 × $3.75) / 1M × ₹88 = ₹1.0032, rounded up to ₹1.01', rec1?.model === 'gemini-3.8-flash' && rec1.inputTokens === 3200 && rec1.outputTokens === 2400 && rec1.costPaise === 101 && costPaise('gemini-3.8-flash', 3200, 2400, 88) === 101, JSON.stringify(rec1));
   const scan = await makeBillPdf(MA_TOP, MA_HEADER, MA_LINES, MA_FOOT, { perPage: 5, scan: true });
   const r2 = await readAi(owner, scan, 'application/pdf', 'scan.pdf');
   const pdfPart = fake.seen.at(-1)?.body.contents?.[0]?.parts[0] as { inlineData?: { mimeType: string } } | undefined;

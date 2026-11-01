@@ -35,6 +35,8 @@ export interface FakeClaude {
   answer: Reply;
   /** What a chat request (one that offers tools) gets when the queue is empty; bill reads keep `answer`. */
   chat?: Reply;
+  /** A reply picked by the system prompt, before the queue — so parallel tests can't take each other's answers. */
+  bySystem?: (system: string) => Reply | undefined;
   seen: Seen[];
   close: () => Promise<void>;
 }
@@ -87,7 +89,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
         maxTokens: body.max_tokens,
         toolChoice: body.tool_choice?.type ?? null,
       });
-      const reply = fake.queue.shift() ?? (body.tools?.length && fake.chat ? fake.chat : fake.answer);
+      const reply = fake.bySystem?.(system) ?? fake.queue.shift() ?? (body.tools?.length && fake.chat ? fake.chat : fake.answer);
       if ('status' in reply) {
         fail(res, reply.status, reply.type ?? 'api_error', reply.message);
         return;

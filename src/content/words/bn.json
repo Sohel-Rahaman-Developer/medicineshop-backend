@@ -1023,5 +1023,10 @@
   "{why}. The AI’s work took 1 token": "{why}। AI-এর কাজে 1 টোকেন লেগেছে",
   "{why}. This month’s free AI covered it": "{why}। এই মাসের ফ্রি AI-তে হয়ে গেছে",
   "{why}. No tokens were taken": "{why}। কোনো টোকেন কাটা হয়নি",
+  "Type at least 3 letters of the medicine": "ওষুধের অন্তত 3টি অক্ষর লিখুন",
+  "AI is off": "AI বন্ধ আছে",
+  "MedBox24’s AI for this month is used up — try again next month. No tokens were taken.": "এই মাসে MedBox24-এর AI শেষ — পরের মাসে আবার চেষ্টা করুন। কোনো টোকেন কাটেনি।",
+  "AI is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "আপনার দোকানের জন্য AI থেমে আছে — MedBox24-কে জানানো হয়েছে, ঠিক করে দেবে। কোনো টোকেন কাটেনি।",
+  "Could not find the salt: {why}": "সল্ট পাওয়া গেল না: {why}",
   "Could not read the prescription: {why}": "প্রেসক্রিপশন পড়া গেল না: {why}"
 }

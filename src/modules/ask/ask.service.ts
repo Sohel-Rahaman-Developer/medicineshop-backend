@@ -114,7 +114,7 @@ async function bareStock(t: TenantContext, text: string): Promise<Intent | null>
 
 // This month's chat spend, kept for a minute and topped up by every answer, so the budget check costs no query.
 const spent = { month: '', at: 0, paise: 0 };
-async function spentThisMonth(now: Date) {
+export async function spentThisMonth(now: Date) {
   const month = istMonth(now);
   if (spent.month === month && now.getTime() - spent.at < 60_000) return spent.paise;
   const ist = new Date(now.getTime() + 5.5 * 3_600_000);

@@ -22,6 +22,10 @@ export const coinValue = (s: Pick<AiSettings, 'packs'>) => Math.min(...s.packs.m
 
 /** Worst cost of one bill page and of one chat question, in paise — input at the dearer of input and cache-write. */
 export const worstPage = (s: AiSettings, model: AiModelId = s.model) => paise(PAGE_IN, PAGE_OUT, priceOf(s, model), s.usdInr);
+/** D110: one medicine name in, its salt and strength out — a short job on the chat's model. */
+export const SALT_IN = 600;
+export const SALT_OUT = 1024;
+export const worstSalt = (s: AiSettings) => paise(SALT_IN, SALT_OUT, priceOf(s, s.chat.model), s.usdInr);
 export const worstQuestion = (s: AiSettings, chat: Pick<AiSettings['chat'], 'model' | 'capIn' | 'capOut'> = s.chat) => paise(chat.capIn, chat.capOut, priceOf(s, chat.model), s.usdInr);
 
 /** D109: tokens for a real AI cost — cost × margin ÷ a token's value (GST out), rounded up; at least 1 for any cost. */

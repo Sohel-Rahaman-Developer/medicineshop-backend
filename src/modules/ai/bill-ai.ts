@@ -99,7 +99,8 @@ function blockOf(kind: Kind, file: Buffer): Block {
 
 /** Anthropic's charge for one read, in paise — at the admin's price for the model when one is set. */
 export function costPaise(model: keyof typeof AI_MODELS, input: number, output: number, usdInr: number, price: Price = listPrice(model)) {
-  return Math.round(((input * price.input + output * price.output) / 1_000_000) * usdInr * 100);
+  // Up, never down: a tiny real cost is at least a paisa, so it is charged (0 means the AI was never reached).
+  return Math.ceil(((input * price.input + output * price.output) / 1_000_000) * usdInr * 100);
 }
 
 /** The model's answer → the same table rows every other reader produces, so one set of checks covers them all. */

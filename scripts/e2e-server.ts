@@ -17,6 +17,8 @@ async function main() {
   process.env.RATE_FILES_PER_USER_PER_MIN ??= '100000';
   // D78: AI reading goes to a local stand-in for Anthropic that copies the M.A. Pharma bill.
   const claude = await startFakeClaude();
+  // D110: a salt lookup always reads as Paracetamol 650mg.
+  claude.bySystem = (system) => (system.includes('what it is made of') ? { say: JSON.stringify({ known: true, salt: 'Paracetamol', strength: '650mg' }), input: 180, output: 30 } : undefined);
   claude.answer = { bill: MA_AI };
   claude.chat = { say: 'Dolo 650 has paracetamol — for fever and pain. For a dose, ask a doctor.' };
   process.env.AI_BASE_URL = claude.url;

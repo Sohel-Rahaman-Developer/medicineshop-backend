@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.47.0',
+    date: '2026-11-01',
+    title: 'Same salt at the counter: free from your stock, the AI only for a medicine you never kept',
+    shop: [
+      'New bill: a medicine out of stock shows the same salt and strength in stock under it — tap one to bill it. Free, from your own products.',
+      'Nothing matches what you typed? “Find its salt with AI” says what the medicine is made of (after your yes) and shows the same salt in your stock. The answer is kept for your shop, so the same name is free after.',
+      'The pharmacist always confirms a substitute.',
+      'AI cost is now rounded up to the paisa, so even a very small AI job is counted.',
+    ],
+    admin: ['A salt lookup is an AI question on the chat’s model (intent “salt”), in the chat’s spend and reports.'],
+    api: ['GET /pos/same-salt/:id (free) and POST /pos/find-salt {name, confirm} (saved / confirm / ai, D109 hold and settle; kept per shop in SaltNote).'],
+  },
+  {
     version: '1.46.2',
     date: '2026-11-01',
     title: 'Ask AI: stock questions free, every AI question gets an answer, the top bar fits',

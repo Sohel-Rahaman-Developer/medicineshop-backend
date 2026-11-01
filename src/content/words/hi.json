@@ -1023,5 +1023,10 @@
   "{why}. The AI’s work took 1 token": "{why}। AI के काम में 1 टोकन लगा",
   "{why}. This month’s free AI covered it": "{why}। इस महीने के मुफ़्त AI से हो गया",
   "{why}. No tokens were taken": "{why}। कोई टोकन नहीं कटा",
+  "Type at least 3 letters of the medicine": "दवा के कम से कम 3 अक्षर लिखिए",
+  "AI is off": "AI बंद है",
+  "MedBox24’s AI for this month is used up — try again next month. No tokens were taken.": "इस महीने MedBox24 का AI खत्म हो गया — अगले महीने फिर कोशिश कीजिए। कोई टोकन नहीं कटा।",
+  "AI is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "आपकी दुकान के लिए AI रुका है — MedBox24 को बता दिया गया है, वह ठीक करेगा। कोई टोकन नहीं कटा।",
+  "Could not find the salt: {why}": "साल्ट नहीं मिल सका: {why}",
   "Could not read the prescription: {why}": "पर्चा नहीं पढ़ा जा सका: {why}"
 }

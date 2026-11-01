@@ -10,7 +10,10 @@ import { rangeSchema } from '../purchases/purchases.validation';
 import { actorOf } from '../user/actor';
 import { attach, photoOf } from '../attachments/attachments.service';
 import { photoSchema } from '../purchases/purchases.routes';
+import type { z } from 'zod';
 import { readRx, rxReadSchema } from '../ai/rx-ai';
+import { findSalt, findSaltSchema } from '../ai/salt-ai';
+import { sameSaltOf } from './same-salt';
 import * as returns from './sale-returns.service';
 import { billPdf, returnPdf } from './sale.pdf';
 import * as offline from './offline.service';
@@ -67,6 +70,25 @@ posRouter.post(
   validate({ body: rxReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await readRx(tenantOf(req), await actorOf(req), (req.body as { photo: string }).photo));
+  }),
+);
+
+// D110: the same salt in stock — for a medicine out of stock (free), or one the shop never kept (the AI, after a yes).
+posRouter.get(
+  '/same-salt/:id',
+  requirePermission('pos', 'view'),
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await sameSaltOf(tenantOf(req), (req.params as { id: string }).id));
+  }),
+);
+
+posRouter.post(
+  '/find-salt',
+  requirePermission('pos', 'create'),
+  validate({ body: findSaltSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await findSalt(tenantOf(req), await actorOf(req), req.body as z.infer<typeof findSaltSchema>));
   }),
 );
 

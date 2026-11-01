@@ -1,6 +1,6 @@
 {
   "name": "medicineshop-backend",
-  "version": "1.46.2",
+  "version": "1.47.0",
   "description": "Medicine Shop POS & Stock Management — API",
   "main": "dist/server.js",
   "scripts": {
@@ -54,6 +54,7 @@
     "smoke:gemini": "tsx scripts/smoke-gemini.ts",
     "smoke:guard": "tsx scripts/smoke-guard.ts",
     "smoke:meter": "tsx scripts/smoke-meter.ts",
+    "smoke:salt": "tsx scripts/smoke-salt.ts",
     "preview:invoices": "tsx scripts/preview-invoices.ts",
     "preview:emails": "tsx scripts/preview-emails.ts",
     "backup": "tsx scripts/backup.ts",

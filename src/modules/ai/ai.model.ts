@@ -215,3 +215,20 @@ orderSchema.index({ shopId: 1, createdAt: -1 });
 orderSchema.index({ createdAt: -1, _id: -1 });
 orderSchema.index({ razorpayPaymentId: 1 }, { unique: true, partialFilterExpression: { razorpayPaymentId: { $type: 'string' } } });
 export const CoinOrderModel = model('CoinOrder', orderSchema);
+
+// D110: what the AI said a medicine the shop has never kept is made of — kept for this shop only, so asking again is free.
+const saltNoteSchema = new Schema(
+  {
+    shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
+    key: { type: String, required: true },
+    name: { type: String, required: true },
+    known: { type: Boolean, required: true },
+    salt: { type: String, default: '' },
+    strength: { type: String, default: '' },
+    byName: { type: String, required: true },
+    model: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+saltNoteSchema.index({ shopId: 1, key: 1 }, { unique: true });
+export const SaltNoteModel = model('SaltNote', saltNoteSchema);

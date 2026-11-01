@@ -267,7 +267,7 @@ async function main() {
   check('the tool result is this shop’s Dolo, money as ₹, no ids, nothing of the other shop', toolResult.includes('Dolo 650 Tablet') && toolResult.includes('tool_result') && !toolResult.includes('"id"') && !toolResult.includes(dolo) && !toolResult.includes('Mina'), toolResult.slice(0, 300));
   const rec = await AskQuestionModel.findOne({ shopId: shop, route: 'ai' }).lean();
   const usage = { input: 2400, output: 120, cacheRead: 0, cacheWrite: 0 };
-  check('recorded: 1 token, tools, 2,400 + 120 AI tokens, the real cost', rec?.status === 'done' && !rec.free && rec.coins === 1 && rec.tools?.[0] === 'product_stock' && rec.inputTokens === 2400 && rec.outputTokens === 120 && rec.costPaise === costOf(usage, listPrice('claude-haiku-4-5-20251001'), 88) && rec.costPaise === 26, JSON.stringify(rec));
+  check('recorded: 1 token, tools, 2,400 + 120 AI tokens, the real cost rounded up (26.4 → 27 paise)', rec?.status === 'done' && !rec.free && rec.coins === 1 && rec.tools?.[0] === 'product_stock' && rec.inputTokens === 2400 && rec.outputTokens === 120 && rec.costPaise === costOf(usage, listPrice('claude-haiku-4-5-20251001'), 88) && rec.costPaise === 27, JSON.stringify(rec));
   check('in the ledger: −1 token, balance 4', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'ask', coins: -1, balance: 4 })));
   fake.queue.push({ say: 'Chronic patients ko monthly refill yaad dilaiye; Dolo jaisa fast item counter ke paas rakhiye.' });
   const grow = await askAs(owner, 'meri dukaan ki bikri kaise badhaun');
