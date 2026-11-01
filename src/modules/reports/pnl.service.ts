@@ -2,7 +2,7 @@ import type { Types } from 'mongoose';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { istIsoDay } from '../../utils/date';
 import { ExpenseModel } from '../expenses/expense.model';
-import { PurchaseModel } from '../purchases/purchase.model';
+import { PurchaseModel, PurchaseReturnModel } from '../purchases/purchase.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import { ShopModel } from '../shops/shop.model';
@@ -19,7 +19,7 @@ const zero = (field: string) => ({ $ifNull: [field, 0] });
 /** Sums per IST day (or one row, `_id: null`) — every P&L number comes from these, so the day book adds up to the P&L. */
 async function parts(shopId: Types.ObjectId, from: Date, to: Date, byDay: boolean) {
   const key = (f: string) => (byDay ? dayKey(f) : null);
-  const [sales, returns, expenses, losses, purchases] = await Promise.all([
+  const [sales, returns, expenses, losses, purchases, short] = await Promise.all([
     SaleModel.aggregate<{ _id: string | null; bills: number; total: number; taxable: number; tax: number; cost: number; points: number }>([
       { $match: { shopId, billDate: { $gte: from, $lt: to }, status: { $ne: 'cancelled' } } },
       { $group: { _id: key('$billDate'), bills: { $sum: 1 }, total: { $sum: '$grandTotal' }, taxable: { $sum: '$taxableAmount' }, tax: { $sum: '$totalTax' }, cost: { $sum: '$totalCost' }, points: { $sum: zero('$loyaltyDiscountAmount') } } },
@@ -40,8 +40,13 @@ async function parts(shopId: Types.ObjectId, from: Date, to: Date, byDay: boolea
       { $match: { shopId, status: 'active', invoiceDate: { $gte: from, $lt: to } } },
       { $group: { _id: key('$invoiceDate'), n: { $sum: 1 }, total: { $sum: '$grandTotal' }, tax: { $sum: { $add: ['$cgst', '$sgst'] } } } },
     ]),
+    // A supplier giving less than the goods cost is a loss like a write-off (more is a gain).
+    PurchaseReturnModel.aggregate<{ _id: string | null; value: number; n: number }>([
+      { $match: { shopId, returnDate: { $gte: from, $lt: to }, credit: { $type: 'number' }, $expr: { $ne: ['$credit', '$total'] } } },
+      { $group: { _id: key('$returnDate'), value: { $sum: { $subtract: ['$total', '$credit'] } }, n: { $sum: 1 } } },
+    ]),
   ]);
-  return { sales, returns, expenses, losses, purchases };
+  return { sales, returns, expenses, losses, purchases, short };
 }
 
 type Parts = Awaited<ReturnType<typeof parts>>;
@@ -52,6 +57,7 @@ function compute(p: Parts, day: string | null) {
   const s = pick(p.sales);
   const r = pick(p.returns);
   const w = pick(p.losses);
+  const sc = pick(p.short);
   const b = pick(p.purchases);
   const ex = p.expenses.filter((e) => e._id.d === day);
   const byCategory = new Map<string, number>();
@@ -60,7 +66,7 @@ function compute(p: Parts, day: string | null) {
   const cogs = (s?.cost ?? 0) - (r?.cost ?? 0);
   const gross = revenue - cogs;
   const expenses = ex.reduce((a, e) => a + e.total, 0);
-  const writeOff = w?.value ?? 0;
+  const writeOff = (w?.value ?? 0) + (sc?.value ?? 0);
   const points = (s?.points ?? 0) - (r?.points ?? 0);
   return {
     bills: s?.bills ?? 0,
@@ -80,7 +86,7 @@ function compute(p: Parts, day: string | null) {
     expenses,
     byCategory: [...byCategory.entries()].map(([category, total]) => ({ category, total })).sort((a, c) => c.total - a.total),
     writeOff,
-    writeOffEntries: w?.n ?? 0,
+    writeOffEntries: (w?.n ?? 0) + (sc?.n ?? 0),
     pointsUsed: s?.points ?? 0,
     pointsBack: r?.points ?? 0,
     points,

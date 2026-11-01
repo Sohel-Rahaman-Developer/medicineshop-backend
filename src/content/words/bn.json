@@ -1030,5 +1030,10 @@
   "Could not find the salt: {why}": "সল্ট পাওয়া গেল না: {why}",
   "Prices saved": "দাম সেভ হয়েছে",
   "The lowest price can’t be above the sell price": "সবচেয়ে কম দাম বিক্রির দামের বেশি হতে পারে না",
-  "Could not read the prescription: {why}": "প্রেসক্রিপশন পড়া গেল না: {why}"
+  "Could not read the prescription: {why}": "প্রেসক্রিপশন পড়া গেল না: {why}",
+  "That is more than twice what it cost — check the amount": "এটা কেনা দামের দ্বিগুণের বেশি — টাকাটা দেখে নিন",
+  "{refundNumber} saved": "{refundNumber} সেভ হয়েছে",
+  "{name} holds only {advance} of your money": "{name}-এর কাছে আপনার শুধু {advance} আছে",
+  "{name} holds none of your money — a return or extra payment first": "{name}-এর কাছে আপনার কোনো টাকা নেই — আগে একটা return বা বেশি payment হতে হবে",
+  "Choose how it came back": "টাকা কীভাবে ফেরত এল বেছে নিন"
 }

@@ -14,6 +14,9 @@ import * as F from './facts';
 const PERIODS = ['today', 'yesterday', 'week', 'month', 'last_month', 'days'] as const;
 const periodInput = z.object({ period: z.enum(PERIODS), days: z.number().int().min(1).max(365).optional().describe('Only with period "days"') }).strict();
 const nameInput = z.object({ name: z.string().trim().min(1).max(60).describe('In English letters, e.g. "dolo 650" or "paracetamol"') }).strict();
+const kindInput = z
+  .object({ words: z.array(z.string().trim().min(2).max(30)).min(1).max(12).describe('In English letters: the kind word and the brands that make it, e.g. ["condom", "manforce", "durex", "kamasutra", "skore", "moods"]') })
+  .strict();
 const maybeName = z.object({ name: z.string().trim().min(1).max(60).optional().describe('Leave out for everyone') }).strict();
 const daysInput = z.object({ days: z.number().int().min(1).max(365) }).strict();
 const none = z.object({}).strict();
@@ -43,6 +46,7 @@ export const TOOLS = [
   tool({ name: 'profit', description: 'Gross profit, sales before tax, cost of goods and margin for a period.', input: periodInput, run: async (c, i) => { const d = await F.profit(c.t, c.userId, toPeriod(i), c.now); return { data: d.profit, href: C.profitCard(d, en).href }; } }),
   tool({ name: 'top_items', description: 'The 10 products that sold the most (by amount) in a period.', input: periodInput, run: async (c, i) => { const d = await F.topItems(c.t, c.userId, toPeriod(i), c.now); return { data: d, href: C.topCard(d, en).href }; } }),
   tool({ name: 'product_stock', description: 'Stock of one product by its name, salt or company: quantity, next expiry, batches with rack.', input: nameInput, run: async (c, i) => { const d = await F.stockOf(c.t, i.name); return { data: d, href: C.stockCard(d, en).href }; } }),
+  tool({ name: 'find_kind', description: 'Products of a kind — condom, sanitary pad, diaper, ORS, protein powder, test strips. Shops name products by brand, so pass the kind word and the brands that make it in India; matches name, salt, company and category, up to 20 with stock.', input: kindInput, run: async (c, i) => ({ data: await F.kindOf(c.t, i.words), href: '/products' }) }),
   tool({ name: 'stock_summary', description: 'The whole stock: products, how many are low or out, value at MRP.', input: none, run: async (c) => { const d = await F.stockSummary(c.t); return { data: d, href: C.stockSummaryCard(d, en).href }; } }),
   tool({ name: 'low_stock', description: 'Products that are low or out of stock (to reorder).', input: none, run: async (c) => { const d = await F.lowStock(c.t); return { data: d, href: C.lowCard(d, en).href }; } }),
   tool({ name: 'expiring', description: 'Batches that expire within the next N days, soonest first.', input: daysInput, run: async (c, i) => { const d = await F.expiring(c.t, i.days, c.now); return { data: d, href: C.expiringCard(d, en).href }; } }),

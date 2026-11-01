@@ -148,6 +148,8 @@ const returnSchema = new Schema(
     subtotal: { type: Number, required: true },
     tax: { type: Number, required: true },
     total: { type: Number, required: true },
+    /** What the supplier gives for it — more or less than the cost; returns before it have none (= total). */
+    credit: { type: Number },
     applied: { type: [appliedSchema], default: [] },
     advanceAdded: { type: Number, required: true, default: 0 },
     status: { type: String, enum: ['pending', 'settled'], required: true, default: 'pending' },
@@ -198,3 +200,32 @@ paymentSchema.index({ shopId: 1, paymentDate: -1 });
 paymentSchema.plugin(tenantScoped);
 
 export const SupplierPaymentModel = model('SupplierPayment', paymentSchema);
+
+// Advance the supplier held, given back in cash or to the bank.
+const refundSchema = new Schema(
+  {
+    shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
+    fy: { type: String, required: true },
+    clientRequestId: { type: String, required: true },
+    refundNumber: { type: String, required: true },
+    supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier', required: true },
+    supplierName: { type: String, required: true },
+    amount: { type: Number, required: true },
+    paymentMode: { type: String, enum: PAY_MODES, required: true },
+    /** Cash put in the counter drawer (day close) or kept by the owner. */
+    toDrawer: { type: Boolean, required: true, default: true },
+    referenceNumber: { type: String, default: '' },
+    refundDate: { type: Date, required: true },
+    notes: { type: String, default: '' },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdByName: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+refundSchema.index({ shopId: 1, refundNumber: 1 }, { unique: true });
+refundSchema.index({ shopId: 1, supplierId: 1, refundDate: -1 });
+refundSchema.index({ shopId: 1, refundDate: -1 });
+refundSchema.plugin(tenantScoped);
+
+export const SupplierRefundModel = model('SupplierRefund', refundSchema);

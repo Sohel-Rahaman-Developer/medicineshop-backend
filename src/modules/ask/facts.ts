@@ -3,6 +3,7 @@ import type { TenantContext } from '../../core/middleware/tenant';
 import { istDayStart, istIsoDay, istMonth } from '../../utils/date';
 import { salePack, type Units } from '../../utils/units';
 import { groupShops } from '../branches/branches.service';
+import { CategoryModel } from '../categories/category.model';
 import { CustomerModel } from '../customers/customer.model';
 import { cashDay } from '../dayclose/dayclose.service';
 import { expiryBlock, kpis, seesCost, stockBlock, supplierDue, udhaar } from '../dashboard/dashboard.service';
@@ -106,6 +107,21 @@ export async function stockOf(t: TenantContext, name: string) {
     found: { id: String(top._id), name: top.name, status: top.stock.status, qty: qtyOf(top.stock.sellable, u), nextExpiry: top.stock.nextExpiry ?? null, batches: batches.map((b) => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, qty: qtyOf(b.quantity, u), rack: b.rack })) },
     others: found.slice(1).map((p) => ({ id: String(p._id), name: p.name, qty: qtyOf(p.stock.sellable, p.units as Units) })),
   };
+}
+
+/** A kind of product (condom, diaper…) by the kind word and its brands: any word starting a word of the name, salt, company or category. */
+export async function kindOf(t: TenantContext, words: string[]) {
+  need(t, ['products'], ['stock']);
+  const ws = [...new Set(words.map(latin).filter((w) => w.length >= 2))].slice(0, 12);
+  if (!ws.length) return { words: ws, categories: [], items: [] };
+  const starts = ws.map((w) => ({ $regex: `(^| )${escape(w)}` }));
+  const cats = await CategoryModel.find({ shopId: t.shopId, $or: ws.map((w) => ({ name: { $regex: `(^| )${escape(w)}`, $options: 'i' } })) }).select('name').lean();
+  const rows = await ProductModel.find({ shopId: t.shopId, isActive: true, $or: [...starts.map((r) => ({ searchKey: r })), ...(cats.length ? [{ categoryId: { $in: cats.map((c) => c._id) } }] : [])] })
+    .sort({ nameLower: 1 })
+    .limit(20)
+    .select('name stock units')
+    .lean();
+  return { words: ws, categories: cats.map((c) => c.name), items: rows.map((p) => ({ id: String(p._id), name: p.name, status: p.stock.status, qty: qtyOf(p.stock.sellable, p.units as Units) })) };
 }
 
 export async function stockSummary(t: TenantContext) {

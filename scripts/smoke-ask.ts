@@ -258,7 +258,7 @@ async function main() {
   const ai = await askAs(owner, 'Dolo kis kaam aati hai', { history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹120' }] });
   check('answered by AI at once, a link to the product it looked up, 1 token (5 → 4)', ai.a.route === 'ai' && ai.a.text?.startsWith('Dolo 650 mein paracetamol') === true && ai.a.links?.[0]?.href === `/products/${dolo}` && ai.a.ai?.balance === 4, JSON.stringify(ai.a));
   const [first, second] = fake.seen;
-  check('Claude got Haiku 4.5, the 27 read-only tools, a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 27 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
+  check('Claude got Haiku 4.5, the 28 read-only tools, a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 28 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
   check('v1.27: the AI calls its tools together and starts “why / vs” from compare', first?.system.includes('Call every tool you need together in one turn') === true && first.system.includes('start with compare'));
   const lastUser = JSON.stringify(first?.messages.at(-1));
   check('the AI may talk about growing the shop, not only its figures', first?.system.includes('running and growing a pharmacy in India') === true && first.system.includes("look up the shop's own figures"));
@@ -400,7 +400,12 @@ async function main() {
   const hunt = await askAs(owner, 'condom ke baare mein batao salah do');
   const rounds = fake.seen.slice(seenAt);
   check('a name found nowhere: tools for 3 rounds, the 4th has tools off, so it still answers (not “too many steps”)', hunt.a.route === 'ai' && hunt.a.text === 'Dukaan mein condom naam ka kuch nahi hai.' && rounds.length === 4 && rounds.slice(0, 3).every((r) => r.toolChoice === null) && rounds[3]?.toolChoice === 'none', JSON.stringify({ a: hunt.a, c: rounds.map((r) => r.toolChoice) }));
-  check('the AI is told to stop after one other spelling and say the shop has nothing by that name', rounds[0]?.system.includes('try at most one other spelling') === true);
+  check('the AI is told a kind (condom, diaper) lives under brand names: look them all up with find_kind', rounds[0]?.system.includes('think which brands sell it in India') === true && rounds[0].system.includes('find_kind'));
+  await mk(owner, 'Manforce Chocolate 10s', '', '');
+  fake.queue.push({ tools: [{ name: 'find_kind', input: { words: ['condom', 'manforce', 'durex', 'kamasutra'] } }] }, { say: 'Manforce Chocolate hai.' });
+  const kind = await askAs(owner, 'condom ke kaun se brand rakhne chahiye salah do');
+  const kr = (fake.seen.at(-1)?.messages.at(-1)?.content ?? []) as { content: string; is_error?: boolean }[];
+  check('find_kind: “condom” + its brands finds Manforce, though no product is named condom', kind.a.route === 'ai' && kr[0]?.is_error !== true && kr[0]?.content.includes('Manforce Chocolate 10s') === true, JSON.stringify(kr).slice(0, 300));
   await root.put('/admin/ai/chat', chatOn({ model: 'claude-haiku-5-5' }));
   fake.queue.push({ say: 'Theek hai.' });
   await askAs(owner, 'meri dukaan ka margin kaise sudhrega');

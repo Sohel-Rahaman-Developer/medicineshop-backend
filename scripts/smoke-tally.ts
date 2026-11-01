@@ -92,7 +92,9 @@ async function main() {
   const pur = data<{ id: string; grandTotal: number; invoiceNumber?: string }>(await ok('purchase', owner.post('/purchases', { clientRequestId: randomUUID(), supplierId: sup, invoiceNumber: 'SS/26/77', invoiceDate: isoDay(), lines: [{ productId: dolo, batchNumber: 'DL9', expiry: '2028-08', quantity: 10, freeQuantity: 0, unit: 'STRIP', rate: 2000, discountPercent: 0, mrp: 3000, gstRate: 12, rack: '' }] })));
   const dl9 = await BatchModel.findOne({ shopId: shop1, batchNumber: 'DL9' }).lean();
   await ok('return to supplier', owner.post('/purchase-returns', { clientRequestId: randomUUID(), supplierId: sup, reason: 'DAMAGED', lines: [{ batchId: String(dl9?._id), quantity: 15 }] }));
+  await ok('expired back, supplier gives ₹10 only', owner.post('/purchase-returns', { clientRequestId: randomUUID(), supplierId: sup, reason: 'EXPIRY', lines: [{ batchId: String(dl9?._id), quantity: 15 }], credit: 1000 }));
   await ok('supplier paid', owner.post(`/suppliers/${sup}/payments`, { clientRequestId: randomUUID(), amount: 50_000, mode: 'UPI', reference: 'UTR778', fromDrawer: false }));
+  await ok('supplier hands ₹50 back in cash', owner.post(`/suppliers/${sup}/money-back`, { clientRequestId: randomUUID(), amount: 5000, mode: 'CASH' }));
   await ok('rent', owner.post('/expenses', { clientRequestId: randomUUID(), date: isoDay(), category: 'Rent', description: 'Shop rent', amount: 1_500_000, paymentMode: 'BANK', fromDrawer: false, vendor: '', referenceNumber: '' }));
   // Cancelled the same month: in neither file. Billed last month, cancelled now: last month keeps it, this month reverses it.
   const y = data<Saved>(await bill([{ productId: dolo, quantity: 1, unit: 'STRIP' }], [{ mode: 'CASH', amount: 3000 }]));
@@ -107,7 +109,7 @@ async function main() {
   const sum = data<Summary>(sr);
   const n = (what: string) => sum.counts.find((x) => x.what === what)?.n ?? 0;
   check('5 bills (the two cancelled ones left out)', sr.status === 200 && n('Bills') === 5, code(sr) + JSON.stringify(sum.counts));
-  check('1 bill from last month cancelled now · 3 customer returns · 1 purchase · 1 return to supplier', n('Bills cancelled from earlier months') === 1 && n('Customer returns') === 3 && n('Purchases') === 1 && n('Returns to suppliers') === 1, JSON.stringify(sum.counts));
+  check('1 bill from last month cancelled now · 3 customer returns · 1 purchase · 2 returns to supplier · 1 money back', n('Bills cancelled from earlier months') === 1 && n('Customer returns') === 3 && n('Purchases') === 1 && n('Returns to suppliers') === 2 && n('Money back from suppliers') === 1, JSON.stringify(sum.counts));
   check('1 supplier payment · 1 udhaar received · 1 expense · 3 advance entries (2 taken, 1 refunded)', n('Supplier payments') === 1 && n('Udhaar received') === 1 && n('Expenses') === 1 && n('Order advances') === 3, JSON.stringify(sum.counts));
   check('the ledgers list names Tally’s own groups', sum.ledgers.some((l) => l.name === 'Ratna Sen (2345)' && l.group === 'Sundry Debtors') && sum.ledgers.some((l) => l.name === 'Sharma & Sons' && l.group === 'Sundry Creditors') && sum.ledgers.some((l) => l.name === 'Sales GST 18%' && l.group === 'Sales Accounts'), JSON.stringify(sum.ledgers));
 
@@ -147,6 +149,8 @@ async function main() {
   const vP = vs.find((v) => v.type === 'Purchase');
   check(`purchase: Sharma & Sons Cr ₹${(pur.grandTotal / 100).toFixed(2)} · Input CGST + SGST Dr`, on(vP, 'Sharma & Sons') === pur.grandTotal && on(vP, 'Input CGST') < 0 && on(vP, 'Input SGST') < 0 && vP?.number === 'SS/26/77');
   check('return to supplier: a Debit Note, the supplier Dr', vs.some((v) => v.type === 'Debit Note' && on(v, 'Sharma & Sons') < 0));
+  check('supplier gives less: supplier Dr ₹10, the rest Dr to short credit', vs.some((v) => v.type === 'Debit Note' && on(v, 'Sharma & Sons') === -1000 && on(v, 'Short credit on supplier returns') < 0));
+  check('money back in cash: Receipt — Cash Dr ₹50, supplier Cr', vs.some((v) => v.type === 'Receipt' && on(v, 'Cash') === -5000 && on(v, 'Sharma & Sons') === 5000));
   check('supplier paid by UPI: supplier Dr ₹500, Bank Cr', vs.some((v) => v.type === 'Payment' && on(v, 'Sharma & Sons') === -50_000 && on(v, 'Bank') === 50_000));
   check('udhaar collected: Receipt — Cash Dr ₹5, Ratna Cr', vs.some((v) => v.type === 'Receipt' && on(v, 'Cash') === -500 && on(v, 'Ratna Sen (2345)') === 500));
   check('rent ₹15,000 by bank: Rent Dr, Bank Cr', vs.some((v) => v.type === 'Payment' && on(v, 'Rent') === -1_500_000 && on(v, 'Bank') === 1_500_000));

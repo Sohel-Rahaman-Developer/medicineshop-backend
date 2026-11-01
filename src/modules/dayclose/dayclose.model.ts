@@ -20,6 +20,8 @@ const dayCloseSchema = new Schema(
     advanceBack: { type: Number, required: true },
     cancelled: { type: Number, required: true },
     suppliers: { type: Number, required: true },
+    /** Cash a supplier gave back into the drawer; closes before it have none. */
+    supplierBack: { type: Number },
     /** Drawer cash spent on expenses (B7a); closes before it have none. */
     expenses: { type: Number },
     /** D90: doctors' fees taken in cash, and fees given back or paid to doctors from the drawer. */

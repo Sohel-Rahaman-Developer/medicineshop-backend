@@ -89,6 +89,8 @@ export const returnSchema = z
       .min(1, 'Pick at least one batch')
       .max(200)
       .refine((ls) => new Set(ls.map((l) => l.batchId)).size === ls.length, 'A batch is listed twice'),
+    /** What the supplier gives; left out = the cost of the goods. */
+    credit: paise('Supplier gives').optional(),
     notes: z.string().trim().max(300).default(''),
   })
   .strict();

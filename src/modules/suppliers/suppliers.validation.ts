@@ -42,7 +42,19 @@ export const paymentSchema = z
   })
   .strict();
 
+export const moneyBackSchema = z
+  .object({
+    clientRequestId,
+    amount: paise('Amount', 1_000_000_000).min(1, 'Enter an amount'),
+    mode: z.enum(PAY_MODES, 'Choose how it came back'),
+    toDrawer: z.boolean().default(true),
+    reference: z.string().trim().max(60).default(''),
+    notes: z.string().trim().max(300).default(''),
+  })
+  .strict();
+
 export type SupplierInput = z.infer<typeof supplierSchema>;
 export type SupplierListQuery = z.infer<typeof supplierListSchema>;
 export type PaymentInput = z.infer<typeof paymentSchema>;
+export type MoneyBackInput = z.infer<typeof moneyBackSchema>;
 export const supplierIdQuery = z.object({ supplierId: objectId }).strict();

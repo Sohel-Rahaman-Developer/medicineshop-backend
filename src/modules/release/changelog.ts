@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.49.0',
+    date: '2026-11-01',
+    title: 'Supplier gives more or less on a return, money back from a supplier, AI looks up brands',
+    shop: [
+      'Return to supplier: a new box “Supplier gives ₹”. Blank means the cost of the goods; type less (or more) if the supplier gives that for expired stock. The difference shows in Profit & Loss with the write-offs, and Tally gets it on its own ledger.',
+      'Supplier page: when a supplier holds your money (a return or an extra payment) and hands it back in cash or UPI, tap Money back. Cash into the drawer counts in the day close; the ledger shows a Money back row.',
+      'Ask AI: a kind of product like condom, diaper or sanitary pad is looked up by its brands too (Manforce, Durex, Kamasutra…), not only by the word.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.48.3',
     date: '2026-11-01',
     title: 'Expiry centre says what Return and Write off do',

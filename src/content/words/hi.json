@@ -1030,5 +1030,10 @@
   "Could not find the salt: {why}": "साल्ट नहीं मिल सका: {why}",
   "Prices saved": "दाम सेव हो गए",
   "The lowest price can’t be above the sell price": "सबसे कम दाम बिक्री दाम से ज़्यादा नहीं हो सकता",
-  "Could not read the prescription: {why}": "पर्चा नहीं पढ़ा जा सका: {why}"
+  "Could not read the prescription: {why}": "पर्चा नहीं पढ़ा जा सका: {why}",
+  "That is more than twice what it cost — check the amount": "यह इसकी लागत के दोगुने से ज़्यादा है — रकम जाँचें",
+  "{refundNumber} saved": "{refundNumber} सेव हो गया",
+  "{name} holds only {advance} of your money": "{name} के पास आपके सिर्फ़ {advance} हैं",
+  "{name} holds none of your money — a return or extra payment first": "{name} के पास आपका कोई पैसा नहीं है — पहले कोई return या ज़्यादा payment हो",
+  "Choose how it came back": "चुनें कि पैसा कैसे वापस आया"
 }

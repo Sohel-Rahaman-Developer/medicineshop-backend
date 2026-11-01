@@ -3,15 +3,18 @@ import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
+import { fyOf } from '../../utils/fy';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
+import { nextNumber } from '../counters/counter.model';
 import { photoUrl } from '../products/photo';
 import { ProductModel } from '../products/product.model';
-import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel } from '../purchases/purchase.model';
+import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel, SupplierRefundModel } from '../purchases/purchase.model';
 import { recordPayment } from '../purchases/purchases.service';
 import type { Actor } from '../user/actor';
+import { takeBack } from './supplier.ledger';
 import { SupplierModel, type Supplier } from './supplier.model';
-import type { PaymentInput, SupplierInput, SupplierListQuery } from './suppliers.validation';
+import type { MoneyBackInput, PaymentInput, SupplierInput, SupplierListQuery } from './suppliers.validation';
 
 const DAY = 24 * 60 * 60 * 1000;
 const IST = 5.5 * 60 * 60 * 1000;
@@ -115,7 +118,8 @@ export async function get(t: TenantContext, id: string) {
     { $group: { _id: null, all: { $sum: '$grandTotal' }, fy: { $sum: { $cond: [{ $gte: ['$invoiceDate', fy] }, '$grandTotal', 0] } }, count: { $sum: 1 } } },
   ]);
   const [paid] = await SupplierPaymentModel.aggregate<{ total: number }>([{ $match: { shopId: t.shopId, supplierId: s._id } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
-  const [ret] = await PurchaseReturnModel.aggregate<{ total: number; count: number }>([{ $match: { shopId: t.shopId, supplierId: s._id } }, { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }]);
+  const [ret] = await PurchaseReturnModel.aggregate<{ total: number; count: number }>([{ $match: { shopId: t.shopId, supplierId: s._id } }, { $group: { _id: null, total: { $sum: { $ifNull: ['$credit', '$total'] } }, count: { $sum: 1 } } }]);
+  const [back] = await SupplierRefundModel.aggregate<{ total: number }>([{ $match: { shopId: t.shopId, supplierId: s._id } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
   const [lag] = await PurchaseModel.aggregate<{ days: number; count: number }>([
     { $match: { shopId: t.shopId, supplierId: s._id, status: 'active', paymentStatus: 'paid', paidAt: { $type: 'date' } } },
     { $group: { _id: null, days: { $avg: { $divide: [{ $subtract: ['$paidAt', '$invoiceDate'] }, DAY] } }, count: { $sum: 1 } } },
@@ -128,6 +132,7 @@ export async function get(t: TenantContext, id: string) {
       payments: paid?.total ?? 0,
       returns: ret?.total ?? 0,
       returnCount: ret?.count ?? 0,
+      moneyBack: back?.total ?? 0,
       purchasesThisFy: inv?.fy ?? 0,
       avgPaymentDays: lag ? Math.round(lag.days) : null,
       paidInvoices: lag?.count ?? 0,
@@ -160,7 +165,7 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
 
 export interface LedgerRow {
   at: Date;
-  kind: 'Invoice' | 'Cancelled' | 'Payment' | 'Return';
+  kind: 'Invoice' | 'Cancelled' | 'Payment' | 'Return' | 'Money back';
   ref: string;
   debit: number;
   credit: number;
@@ -168,15 +173,16 @@ export interface LedgerRow {
   link: string | null;
 }
 
-const ORDER = { Invoice: 0, Return: 1, Payment: 2, Cancelled: 3 } as const;
+const ORDER = { Invoice: 0, Return: 1, Payment: 2, 'Money back': 3, Cancelled: 4 } as const;
 
-/** Debit = invoice, credit = payment / return / cancellation; the running balance must end at payableBalance. */
+/** Debit = invoice / money back, credit = payment / return / cancellation; the running balance must end at payableBalance. */
 export async function ledger(t: TenantContext, id: string, from?: Date, to?: Date) {
   const s = await load(t, id);
-  const [purchases, payments, returns] = await Promise.all([
+  const [purchases, payments, returns, backs] = await Promise.all([
     PurchaseModel.find({ shopId: t.shopId, supplierId: s._id }).select('purchaseNumber invoiceNumber invoiceDate grandTotal status cancelledAt cancelReason createdAt').lean(),
     SupplierPaymentModel.find({ shopId: t.shopId, supplierId: s._id }).select('paymentNumber paymentMode referenceNumber paymentDate amount createdAt').lean(),
-    PurchaseReturnModel.find({ shopId: t.shopId, supplierId: s._id }).select('returnNumber creditNoteNumber returnDate total createdAt').lean(),
+    PurchaseReturnModel.find({ shopId: t.shopId, supplierId: s._id }).select('returnNumber creditNoteNumber returnDate total credit createdAt').lean(),
+    SupplierRefundModel.find({ shopId: t.shopId, supplierId: s._id }).select('refundNumber paymentMode referenceNumber refundDate amount createdAt').lean(),
   ]);
   const rows: (Omit<LedgerRow, 'balance'> & { seq: Date })[] = [];
   for (const p of purchases) {
@@ -184,7 +190,8 @@ export async function ledger(t: TenantContext, id: string, from?: Date, to?: Dat
     if (p.status === 'cancelled' && p.cancelledAt) rows.push({ at: p.cancelledAt, seq: p.cancelledAt, kind: 'Cancelled', ref: `${p.purchaseNumber} · ${p.cancelReason ?? ''}`, debit: 0, credit: p.grandTotal, link: `/purchases/${String(p._id)}` });
   }
   for (const x of payments) rows.push({ at: x.paymentDate, seq: x.createdAt, kind: 'Payment', ref: [x.paymentNumber, x.paymentMode, x.referenceNumber].filter(Boolean).join(' · '), debit: 0, credit: x.amount, link: null });
-  for (const r of returns) rows.push({ at: r.returnDate, seq: r.createdAt, kind: 'Return', ref: [r.returnNumber, r.creditNoteNumber].filter(Boolean).join(' · '), debit: 0, credit: r.total, link: null });
+  for (const r of returns) rows.push({ at: r.returnDate, seq: r.createdAt, kind: 'Return', ref: [r.returnNumber, r.creditNoteNumber].filter(Boolean).join(' · '), debit: 0, credit: r.credit ?? r.total, link: null });
+  for (const x of backs) rows.push({ at: x.refundDate, seq: x.createdAt, kind: 'Money back', ref: [x.refundNumber, x.paymentMode, x.referenceNumber].filter(Boolean).join(' · '), debit: x.amount, credit: 0, link: null });
   rows.sort((a, b) => a.at.getTime() - b.at.getTime() || a.seq.getTime() - b.seq.getTime() || ORDER[a.kind] - ORDER[b.kind]);
 
   const start = from ?? fyStart(new Date());
@@ -248,6 +255,46 @@ export async function pay(t: TenantContext, actor: Actor, id: string, input: Pay
       session,
     );
     return out;
+  });
+}
+
+/** The supplier hands back advance they hold (an expiry credit with nothing to set it against) in cash or to the bank. */
+export async function moneyBack(t: TenantContext, actor: Actor, id: string, input: MoneyBackInput, ip?: string) {
+  return once(t.shopId, 'supplier-refund', input.clientRequestId, async (session) => {
+    const s = await SupplierModel.findOne({ shopId: t.shopId, _id: oid(id) }).session(session).lean();
+    if (!s) throw AppError.notFound('Supplier not found');
+    if (input.amount > s.advance) {
+      const m = s.advance > 0 ? `${s.name} holds only ${inr(s.advance)} of your money` : `${s.name} holds none of your money — a return or extra payment first`;
+      throw AppError.validation(m, [{ field: 'body.amount', message: m }]);
+    }
+    const now = new Date();
+    const id2 = new Types.ObjectId();
+    const refundNumber = await nextNumber(t.shopId, 'supplierRefund', now, session);
+    await takeBack(t.shopId, s._id, input.amount, session);
+    await SupplierRefundModel.create(
+      [
+        {
+          _id: id2,
+          shopId: t.shopId,
+          fy: fyOf(now),
+          clientRequestId: input.clientRequestId,
+          refundNumber,
+          supplierId: s._id,
+          supplierName: s.name,
+          amount: input.amount,
+          paymentMode: input.mode,
+          toDrawer: input.mode === 'CASH' ? input.toDrawer : false,
+          referenceNumber: input.reference,
+          refundDate: now,
+          notes: input.notes,
+          createdBy: oid(actor.id),
+          createdByName: actor.name,
+        },
+      ],
+      { session },
+    );
+    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'suppliers', entityId: id, entityName: s.name, text: `${actor.name} recorded ${inr(input.amount)} back from ${s.name} · ${input.mode}`, ip }, session);
+    return { id: String(id2), refundNumber, amount: input.amount, advanceLeft: s.advance - input.amount };
   });
 }
 

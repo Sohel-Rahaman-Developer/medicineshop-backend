@@ -90,7 +90,9 @@ export async function create(t: TenantContext, actor: Actor, input: ReturnInput,
       lines.push({ productId: p._id, productName: p.name, batchId: b._id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, quantity: l.quantity, costPerBaseUnit: b.costPerBaseUnit, gstRate: p.gstRate, amount, tax: g.tax });
     }
     const total = subtotal + tax;
-    const { applied, advanceAdded } = await credit(t.shopId, sup._id, total, { kind: 'return', refId: id, refNumber: number, at: now }, session, pur?._id);
+    const gives = input.credit ?? total;
+    if (gives > total * 2) throw AppError.validation('That is more than twice what it cost — check the amount', [{ field: 'body.credit', message: 'That is more than twice what it cost — check the amount' }]);
+    const { applied, advanceAdded } = gives > 0 ? await credit(t.shopId, sup._id, gives, { kind: 'return', refId: id, refNumber: number, at: now }, session, pur?._id) : { applied: [], advanceAdded: 0 };
     await PurchaseReturnModel.create(
       [
         {
@@ -109,6 +111,7 @@ export async function create(t: TenantContext, actor: Actor, input: ReturnInput,
           subtotal,
           tax,
           total,
+          credit: gives,
           applied,
           advanceAdded,
           notes: input.notes,
@@ -120,10 +123,10 @@ export async function create(t: TenantContext, actor: Actor, input: ReturnInput,
     );
     await refreshRollups(t.shopId, [...new Set(lines.map((l) => String(l.productId)))].map(oid), session, now);
     await audit(
-      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'purchases', entityId: String(id), entityName: number, text: `${actor.name} returned ${String(lines.length)} ${lines.length === 1 ? 'batch' : 'batches'} to ${sup.name} · ${inr(total)} · ${REASON[input.reason] ?? ''}`, ip },
+      { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'purchases', entityId: String(id), entityName: number, text: `${actor.name} returned ${String(lines.length)} ${lines.length === 1 ? 'batch' : 'batches'} to ${sup.name} · ${inr(total)}${gives === total ? '' : ` · supplier gives ${inr(gives)}`} · ${REASON[input.reason] ?? ''}`, ip },
       session,
     );
-    return { id: String(id), returnNumber: number, total, advanceAdded };
+    return { id: String(id), returnNumber: number, total, credit: gives, advanceAdded };
   });
 }
 
@@ -139,6 +142,7 @@ type ReturnDoc = {
   subtotal: number;
   tax: number;
   total: number;
+  credit?: number | null;
   status: string;
   creditNoteNumber?: string | null;
   lines: unknown[];
@@ -157,6 +161,7 @@ const brief = (r: ReturnDoc) => ({
   subtotal: r.subtotal,
   tax: r.tax,
   total: r.total,
+  credit: r.credit ?? r.total,
   status: r.status,
   creditNoteNumber: r.creditNoteNumber ?? null,
 });

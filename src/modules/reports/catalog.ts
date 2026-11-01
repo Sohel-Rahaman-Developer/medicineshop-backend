@@ -7,7 +7,7 @@ import { CustomerModel } from '../customers/customer.model';
 import { ExpenseModel } from '../expenses/expense.model';
 import { LoyaltyModel } from '../loyalty/loyalty.model';
 import { ProductModel } from '../products/product.model';
-import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel } from '../purchases/purchase.model';
+import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel, SupplierRefundModel } from '../purchases/purchase.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import { ShopModel } from '../shops/shop.model';
@@ -260,17 +260,18 @@ const REPORTS: Report[] = [
     group: 'Purchase',
     name: 'Supplier ledger',
     range: 'none',
-    note: 'Balance = purchases − payments − returns, per supplier (all time).',
-    cols: [c('supplier', 'Supplier'), c('purchases', 'Purchases', 'money'), c('paid', 'Paid', 'money'), c('returns', 'Returns', 'money'), c('balance', 'Balance', 'money')],
+    note: 'Balance = purchases − payments − returns + money back, per supplier (all time).',
+    cols: [c('supplier', 'Supplier'), c('purchases', 'Purchases', 'money'), c('paid', 'Paid', 'money'), c('returns', 'Returns', 'money'), c('back', 'Money back', 'money'), c('balance', 'Balance', 'money')],
     rows: async (t) => {
-      const [s, pur, pay, ret] = await Promise.all([
+      const [s, pur, pay, ret, back] = await Promise.all([
         SupplierModel.find({ shopId: t.shopId }).sort({ name: 1 }).select('name payableBalance').lean(),
         PurchaseModel.aggregate<{ _id: Types.ObjectId; v: number }>([{ $match: { shopId: t.shopId, status: 'active' } }, { $group: { _id: '$supplierId', v: { $sum: '$grandTotal' } } }]),
         SupplierPaymentModel.aggregate<{ _id: Types.ObjectId; v: number }>([{ $match: { shopId: t.shopId } }, { $group: { _id: '$supplierId', v: { $sum: '$amount' } } }]),
-        PurchaseReturnModel.aggregate<{ _id: Types.ObjectId; v: number }>([{ $match: { shopId: t.shopId } }, { $group: { _id: '$supplierId', v: { $sum: '$total' } } }]),
+        PurchaseReturnModel.aggregate<{ _id: Types.ObjectId; v: number }>([{ $match: { shopId: t.shopId } }, { $group: { _id: '$supplierId', v: { $sum: { $ifNull: ['$credit', '$total'] } } } }]),
+        SupplierRefundModel.aggregate<{ _id: Types.ObjectId; v: number }>([{ $match: { shopId: t.shopId } }, { $group: { _id: '$supplierId', v: { $sum: '$amount' } } }]),
       ]);
       const get = (rows: { _id: Types.ObjectId; v: number }[], id: Types.ObjectId) => rows.find((r) => String(r._id) === String(id))?.v ?? 0;
-      return totalRow(s.map((x) => ({ supplier: x.name, purchases: get(pur, x._id), paid: get(pay, x._id), returns: get(ret, x._id), balance: x.payableBalance })), { supplier: 'Total' }, ['purchases', 'paid', 'returns', 'balance']);
+      return totalRow(s.map((x) => ({ supplier: x.name, purchases: get(pur, x._id), paid: get(pay, x._id), returns: get(ret, x._id), back: get(back, x._id), balance: x.payableBalance })), { supplier: 'Total' }, ['purchases', 'paid', 'returns', 'back', 'balance']);
     },
   },
   {
@@ -422,7 +423,7 @@ const REPORTS: Report[] = [
         { line: '− Cost of goods sold', amount: x.cogs },
         { line: '= Gross profit', amount: x.gross, __total: 1 },
         { line: '− Expenses', amount: x.expenses },
-        { line: '− Expiry / damage write-offs', amount: x.writeOff },
+        { line: '− Expiry / damage write-offs (and supplier credit short of cost)', amount: x.writeOff },
         { line: '− Points used by customers', amount: x.points },
         { line: '= Net profit', amount: x.net, __total: 1 },
       ];

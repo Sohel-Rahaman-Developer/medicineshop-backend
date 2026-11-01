@@ -8,7 +8,7 @@ import { sendFile } from '../../core/export';
 import { ledgerPdf } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
 import * as svc from './suppliers.service';
-import { ledgerQuerySchema, paymentSchema, supplierListSchema, supplierSchema, type PaymentInput, type SupplierInput, type SupplierListQuery } from './suppliers.validation';
+import { ledgerQuerySchema, moneyBackSchema, paymentSchema, supplierListSchema, supplierSchema, type MoneyBackInput, type PaymentInput, type SupplierInput, type SupplierListQuery } from './suppliers.validation';
 
 export const suppliersRouter = Router();
 suppliersRouter.use(shopAuth);
@@ -120,5 +120,17 @@ suppliersRouter.post(
     const msg = `${result.paymentNumber} saved`;
     if (replayed) sent(res, result, msg);
     else created(res, result, msg);
+  }),
+);
+
+suppliersRouter.post(
+  '/:id/money-back',
+  requirePermission('suppliers', 'edit'),
+  validate({ params: idParams, body: moneyBackSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { result, replayed } = await svc.moneyBack(tenantOf(req), await actorOf(req), idOf(req), req.body as MoneyBackInput, req.ip);
+    const done = `${result.refundNumber} saved`;
+    if (replayed) sent(res, result, done);
+    else created(res, result, done);
   }),
 );

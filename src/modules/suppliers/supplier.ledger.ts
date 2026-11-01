@@ -74,6 +74,12 @@ export async function credit(shopId: Types.ObjectId, supplierId: Types.ObjectId,
   return { applied, advanceAdded: left };
 }
 
+/** Advance the supplier held comes back to the shop; never more than they hold. */
+export async function takeBack(shopId: Types.ObjectId, supplierId: Types.ObjectId, amount: number, session: ClientSession) {
+  const res = await SupplierModel.updateOne({ shopId, _id: supplierId, advance: { $gte: amount } }, { $inc: { payableBalance: amount, advance: -amount } }, { session });
+  if (res.modifiedCount !== 1) throw AppError.conflict('This supplier’s account changed just now. Try again.');
+}
+
 /** A cancelled invoice leaves the account; what was paid on it turns into advance for the other invoices. */
 export async function reverseInvoice(shopId: Types.ObjectId, supplierId: Types.ObjectId, total: number, paid: number, at: Date, session: ClientSession) {
   await SupplierModel.updateOne({ shopId, _id: supplierId }, { $inc: { payableBalance: -total, totalPurchases: -total, advance: paid } }, { session });

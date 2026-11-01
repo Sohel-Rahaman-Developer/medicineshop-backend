@@ -234,6 +234,54 @@ async function main() {
   await books('after returns');
   await ledgerEqualsStock('after returns');
 
+  section('6b. Supplier gives more or less, money back');
+  const one = cand.find((c) => c.batchNumber !== 'AM5512');
+  const oneRet = (over: Record<string, unknown>) => owner.post('/purchase-returns', { clientRequestId: randomUUID(), supplierId: sharma, reason: 'EXPIRY', lines: [{ batchId: one?.id, quantity: 1 }], ...over });
+  const today = isoDay(0);
+  type Pnl = { writeOff: number };
+  const pnl0 = await owner.get(`/reports/pnl?from=${today}&to=${today}`);
+  const s0 = data<Supplier>(await owner.get(`/suppliers/${sharma}`));
+  check('supplier gives more than twice the cost → 422', (await oneRet({ credit: 999_999_999 })).status === 422);
+  const short = await oneRet({ credit: 100 });
+  const sd = data<{ id: string; total: number; credit: number; advanceAdded: number }>(short);
+  check('supplier gives ₹1 for 1 unit → saved with credit ₹1, cost kept', short.status === 201 && sd.credit === 100 && sd.total > 100, code(short));
+  const sAfter = data<Supplier>(await owner.get(`/suppliers/${sharma}`));
+  check('only what the supplier gives lowers the balance', sAfter.payableBalance === s0.payableBalance - 100, `${String(s0.payableBalance)} → ${String(sAfter.payableBalance)}`);
+  const det = data<{ total: number; credit: number }>(await owner.get(`/purchase-returns/${sd.id}`));
+  check('return detail shows cost and what the supplier gives', det.total === sd.total && det.credit === 100);
+  const pnl1 = await owner.get(`/reports/pnl?from=${today}&to=${today}`);
+  check('P&L: the short credit counts as a write-off', pnl0.status === 200 && data<Pnl>(pnl1).writeOff - data<Pnl>(pnl0).writeOff === sd.total - 100, `${String(pnl0.status)} ${JSON.stringify(pnl1.json.data)}`);
+  const zero = await oneRet({ credit: 0 });
+  check('supplier gives nothing → saved, balance unchanged', zero.status === 201 && data<Supplier>(await owner.get(`/suppliers/${sharma}`)).payableBalance === sAfter.payableBalance, code(zero));
+  const more = await oneRet({ credit: sd.total + 1 });
+  check('supplier gives 1 paisa more than cost → saved', more.status === 201 && data<{ credit: number }>(more).credit === sd.total + 1, code(more));
+  const rlist = data<{ id: string; credit: number }[]>(await owner.get('/purchase-returns'));
+  check('returns list carries the credit', rlist.find((r) => r.id === sd.id)?.credit === 100);
+  await books('after short and extra credit');
+
+  const adv = data<Supplier>(await owner.get(`/suppliers/${sharma}`)).advance;
+  const back = (amount: number, over: Record<string, unknown> = {}) => owner.post(`/suppliers/${sharma}/money-back`, { clientRequestId: randomUUID(), amount, mode: 'CASH', toDrawer: true, ...over });
+  const dc0 = data<{ cash: { supplierBack: number; cashIn: number } | null }>(await owner.get(`/day-close?day=${today}`)).cash;
+  check('Sharma holds advance to give back', adv > 10_000, String(adv));
+  check('money back more than the advance → 422', (await back(adv + 1)).status === 422);
+  check('money back 0 → 422', (await back(0)).status === 422);
+  const mb = await back(10_000);
+  check(`₹100 cash back → BACK-${fy}-0001`, mb.status === 201 && data<{ refundNumber: string; advanceLeft: number }>(mb).refundNumber === `BACK-${fy}-0001` && data<{ advanceLeft: number }>(mb).advanceLeft === adv - 10_000, code(mb));
+  const s2b = data<Supplier>(await owner.get(`/suppliers/${sharma}`));
+  check('advance down ₹100, balance up ₹100', s2b.advance === adv - 10_000 && s2b.payableBalance === sAfter.payableBalance + 10_000 - (sd.total + 1), `${String(s2b.advance)} ${String(s2b.payableBalance)}`);
+  const ml = data<Ledger>(await owner.get(`/suppliers/${sharma}/ledger?from=2000-01-01`));
+  check('ledger: a “Money back” debit row', ml.rows.some((r) => r.kind === 'Money back' && r.debit === 10_000));
+  const dc1 = data<{ cash: { supplierBack: number; cashIn: number } | null }>(await owner.get(`/day-close?day=${today}`)).cash;
+  check('day close: cash back goes into the drawer', dc0 !== null && dc1 !== null && dc1.supplierBack - dc0.supplierBack === 10_000 && dc1.cashIn - dc0.cashIn === 10_000, JSON.stringify([dc0, dc1]));
+  const upi = await back(5_000, { mode: 'UPI', reference: 'UTR1' });
+  const dc2 = data<{ cash: { supplierBack: number } | null }>(await owner.get(`/day-close?day=${today}`)).cash;
+  check('UPI back is saved but not drawer cash', upi.status === 201 && dc2?.supplierBack === dc1?.supplierBack, code(upi));
+  const sup = data<{ tiles: { moneyBack: number } }>(await owner.get(`/suppliers/${sharma}`));
+  check('supplier tiles: money back ₹150', sup.tiles.moneyBack === 15_000);
+  const twice = await Promise.all([0, 1].map(() => back(s2b.advance - 5_000)));
+  check('two money backs of the whole advance at once → one saved', twice.filter((r) => r.status === 201).length === 1, twice.map(code).join(' | '));
+  await books('after money back');
+
   section('7. Cancel a purchase');
   const r7 = await owner.post('/purchases', purchase({ supplierId: gupta, invoiceNumber: 'GP/77', invoiceDate: isoDay(-3), lines: [line({ productId: pan, batchNumber: 'PNC1', expiry: '2027-10', quantity: 4, freeQuantity: 0, rate: 10_000, mrp: 15_540 })], payment: { mode: 'CASH', amount: 20_000, fromDrawer: true } }));
   const p7 = data<Saved>(r7);
@@ -303,6 +351,7 @@ async function main() {
   check('cashier can’t settle → 403', (await cashier.post(`/purchase-returns/${rd.id}/settle`, { creditNoteNumber: 'X' })).status === 403);
   check('accountant can read purchases and ledgers', (await accountant.get('/purchases')).status === 200 && (await accountant.get(`/suppliers/${sharma}/ledger`)).status === 200);
   check('accountant → new purchase 403', (await accountant.post('/purchases', purchase({ invoiceNumber: 'A1' }))).status === 403);
+  check('cashier → money back 403', (await cashier.post(`/suppliers/${sharma}/money-back`, { clientRequestId: randomUUID(), amount: 100, mode: 'CASH' })).status === 403);
   check('accountant → payment 403 (suppliers: edit, sandbox rule — open question)', (await accountant.post(`/suppliers/${sharma}/payments`, { clientRequestId: randomUUID(), amount: 100, mode: 'CASH' })).status === 403);
 
   section('10. Another shop sees nothing');
@@ -314,6 +363,7 @@ async function main() {
   check('shop 2: shop 1 purchase → 404', (await other.get(`/purchases/${p1.id}`)).status === 404);
   check('shop 2: shop 1 purchase PDF → 404', (await other.get(`/purchases/${p1.id}/pdf`)).status === 404);
   check('shop 2: pay shop 1 supplier → 404', (await other.post(`/suppliers/${sharma}/payments`, { clientRequestId: randomUUID(), amount: 100, mode: 'CASH' })).status === 404);
+  check('shop 2: money back from shop 1 supplier → 404', (await other.post(`/suppliers/${sharma}/money-back`, { clientRequestId: randomUUID(), amount: 100, mode: 'CASH' })).status === 404);
   check('shop 2: purchase against shop 1 supplier → 404', (await other.post('/purchases', purchase({ invoiceNumber: 'X' }))).status === 404);
   check('shop 2: cancel shop 1 purchase → 404', (await other.post(`/purchases/${p1.id}/cancel`, { reason: 'steal it' })).status === 404);
   check('shop 2: settle shop 1 return → 404', (await other.post(`/purchase-returns/${rd.id}/settle`, { creditNoteNumber: 'X' })).status === 404);

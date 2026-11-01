@@ -4,7 +4,7 @@ import { istIsoDay } from '../../utils/date';
 import { CustomerModel, CustomerPaymentModel } from '../customers/customer.model';
 import { ExpenseModel } from '../expenses/expense.model';
 import { OrderModel } from '../orders/order.model';
-import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel } from '../purchases/purchase.model';
+import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel, SupplierRefundModel } from '../purchases/purchase.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
 import { SaleModel } from '../sales/sale.model';
 import { SupplierModel } from '../suppliers/supplier.model';
@@ -19,7 +19,7 @@ export type Group = 'Cash-in-Hand' | 'Bank Accounts' | 'Sales Accounts' | 'Purch
 type Head = 'Central Tax' | 'State Tax' | 'Integrated Tax';
 interface Ledger { name: string; group: Group; head?: Head; gstin?: string }
 type Kind = 'Sales' | 'Credit Note' | 'Purchase' | 'Debit Note' | 'Payment' | 'Receipt' | 'Journal';
-export const WHAT = ['Bills', 'Bills cancelled from earlier months', 'Customer returns', 'Purchases', 'Purchases cancelled from earlier months', 'Returns to suppliers', 'Supplier payments', 'Udhaar received', 'Expenses', 'Order advances'] as const;
+export const WHAT = ['Bills', 'Bills cancelled from earlier months', 'Customer returns', 'Purchases', 'Purchases cancelled from earlier months', 'Returns to suppliers', 'Supplier payments', 'Money back from suppliers', 'Udhaar received', 'Expenses', 'Order advances'] as const;
 type What = (typeof WHAT)[number];
 /** Amount in paise: more than 0 is a debit, less than 0 a credit. */
 type Entry = { ledger: string; amount: number };
@@ -86,7 +86,7 @@ export async function tallyMonth(t: TenantContext, month: string) {
   const shopId = t.shopId;
   const inMonth = { $gte: from, $lt: next };
   const live = { $or: [{ status: { $ne: 'cancelled' as const } }, { cancelledAt: { $gte: next } }] };
-  const [sales, cancelledSales, returns, purchases, cancelledPurchases, purReturns, supPays, custPays, expenses, orders] = await Promise.all([
+  const [sales, cancelledSales, returns, purchases, cancelledPurchases, purReturns, supPays, custPays, expenses, orders, supBacks] = await Promise.all([
     SaleModel.find({ shopId, billDate: inMonth, ...live }).sort({ billDate: 1, _id: 1 }).lean(),
     SaleModel.find({ shopId, status: 'cancelled', cancelledAt: inMonth, billDate: { $lt: from } }).sort({ cancelledAt: 1 }).lean(),
     SaleReturnModel.find({ shopId, returnDate: inMonth }).sort({ returnDate: 1, _id: 1 }).lean(),
@@ -97,13 +97,14 @@ export async function tallyMonth(t: TenantContext, month: string) {
     CustomerPaymentModel.find({ shopId, paymentDate: inMonth }).sort({ paymentDate: 1, _id: 1 }).lean(),
     ExpenseModel.find({ shopId, status: 'active', date: inMonth }).sort({ date: 1, _id: 1 }).lean(),
     OrderModel.find({ shopId, $or: [{ createdAt: inMonth }, { completedAt: inMonth }, { 'refund.at': inMonth }, { 'kept.at': inMonth }] }).sort({ createdAt: 1 }).lean(),
+    SupplierRefundModel.find({ shopId, refundDate: inMonth }).sort({ refundDate: 1, _id: 1 }).lean(),
   ]);
 
   const custIds = new Set<string>();
   for (const s of [...sales, ...cancelledSales]) if (s.customerId && s.payments.some((p) => p.mode === 'CREDIT')) custIds.add(String(s.customerId));
   for (const r of returns) if (r.customerId && r.adjusted) custIds.add(String(r.customerId));
   for (const p of custPays) custIds.add(String(p.customerId));
-  const supIds = new Set([...purchases, ...cancelledPurchases, ...purReturns, ...supPays].map((x) => String(x.supplierId)));
+  const supIds = new Set([...purchases, ...cancelledPurchases, ...purReturns, ...supPays, ...supBacks].map((x) => String(x.supplierId)));
   const retPurIds = purReturns.flatMap((r) => (r.purchaseId ? [r.purchaseId] : []));
   const [customers, suppliers, retPurchases] = await Promise.all([
     CustomerModel.find({ shopId, _id: { $in: [...custIds].map((id) => new Types.ObjectId(id)) } }).select('name phone').lean(),
@@ -196,8 +197,11 @@ export async function tallyMonth(t: TenantContext, month: string) {
   }
   for (const r of purReturns) {
     const tax = splitTax(r.tax, !(r.purchaseId && interstate.has(String(r.purchaseId))));
+    // The supplier may give more or less than the goods cost; the gap is a loss (or gain) on the return.
+    const gives = r.credit ?? r.total;
     b.add({ id: `purreturn-${String(r._id)}`, kind: 'Debit Note', what: 'Returns to suppliers', date: r.returnDate, number: r.creditNoteNumber ?? r.returnNumber, party: supplier(r.supplierId, r.supplierName), narration: `Return ${r.returnNumber}${r.purchaseNumber ? ` of ${r.purchaseNumber}` : ''} · ${r.supplierName} · ${r.reason}` }, [
-      { ledger: supplier(r.supplierId, r.supplierName), amount: r.total },
+      { ledger: supplier(r.supplierId, r.supplierName), amount: gives },
+      ...(gives === r.total ? [] : [{ ledger: b.use({ name: 'Short credit on supplier returns', group: 'Indirect Expenses' }), amount: r.total - gives }]),
       ...byRate(r.lines.map((l) => ({ gstRate: l.gstRate, taxable: l.amount }))).map(([rate, taxable]) => ({ ledger: b.use({ name: `Purchase GST ${String(rate)}%`, group: 'Purchase Accounts' }), amount: -taxable })),
       { ledger: b.use(FIXED.inC), amount: -tax.cgst },
       { ledger: b.use(FIXED.inS), amount: -tax.sgst },
@@ -208,6 +212,12 @@ export async function tallyMonth(t: TenantContext, month: string) {
     b.add({ id: `suppay-${String(p._id)}`, kind: 'Payment', what: 'Supplier payments', date: p.paymentDate, number: p.paymentNumber, party: b.money(p.paymentMode), narration: `${p.paymentNumber} · ${p.supplierName} · ${p.paymentMode}${p.referenceNumber ? ` ${p.referenceNumber}` : ''}` }, [
       { ledger: supplier(p.supplierId, p.supplierName), amount: p.amount },
       { ledger: b.money(p.paymentMode), amount: -p.amount },
+    ]);
+  }
+  for (const p of supBacks) {
+    b.add({ id: `supback-${String(p._id)}`, kind: 'Receipt', what: 'Money back from suppliers', date: p.refundDate, number: p.refundNumber, party: b.money(p.paymentMode), narration: `${p.refundNumber} · advance back from ${p.supplierName} · ${p.paymentMode}${p.referenceNumber ? ` ${p.referenceNumber}` : ''}` }, [
+      { ledger: b.money(p.paymentMode), amount: p.amount },
+      { ledger: supplier(p.supplierId, p.supplierName), amount: -p.amount },
     ]);
   }
   for (const p of custPays) {
