@@ -129,6 +129,8 @@ async function main() {
   const stock = card((await askAs(owner, 'Dolo ka stock')).a);
   check(`“Dolo ka stock” → ${strips}, batches with rack, link to the product`, stock?.title === 'Stock — Dolo 650 Tablet' && row(stock, 'Stock mein') === strips && stock.items.some((i) => i.name === 'Batch DL1' && i.sub?.includes('Rack A1') === true) && stock.href === `/products/${dolo}`, JSON.stringify(stock));
   check('a bare name (“Dolo 650”) is a stock question too', card((await askAs(owner, 'Dolo 650')).a)?.title === 'Stock — Dolo 650 Tablet');
+  check('“how much dolo 650 i have” / “kitna dolo hai” → the same free stock card', card((await askAs(owner, 'How much dolo 650 i have')).a)?.title === 'Stock — Dolo 650 Tablet' && card((await askAs(owner, 'kitna dolo 650 hai')).a)?.title === 'Stock — Dolo 650 Tablet');
+  check('…a name the shop doesn’t have isn’t guessed: “how much condom i have” is not a free card', (await askAs(owner, 'How much condom i have', { confirm: false })).a.route !== 'free');
   const salt = card((await askAs(owner, 'same salt as Dolo')).a);
   check('same salt → Pacimol 650 (Paracetamol 650mg, in stock)', salt?.items.length === 1 && salt.items[0]?.name === 'Pacimol 650' && salt.items[0].href === `/products/${pacimol}`, JSON.stringify(salt));
   const low = card((await askAs(owner, 'Running low on stock')).a);
@@ -392,6 +394,13 @@ async function main() {
   fake.queue.push({ tools: [{ name: 'low_stock', input: {} }], input: 200, cacheRead: 3800 }, { say: 'Shelcal mangaiye.' });
   const warm = await askAs(owner, 'stock ke baare mein salah do');
   check('a cached prompt counts at its price: 200 + 3,800 read at a tenth → (200 × $1 + 3,800 × $0.10) / $1.25 = 464 of the 8,000 cap, so the second round goes (counted in full it was 4,000 + 4,000+ → over)', warm.a.route === 'ai' && warm.a.text === 'Shelcal mangaiye.', JSON.stringify(warm.a));
+  const look = { tools: [{ name: 'product_stock', input: { name: 'condom' } }], input: 300 };
+  fake.queue.push(look, look, look, { say: 'Dukaan mein condom naam ka kuch nahi hai.' });
+  const seenAt = fake.seen.length;
+  const hunt = await askAs(owner, 'condom ke baare mein batao salah do');
+  const rounds = fake.seen.slice(seenAt);
+  check('a name found nowhere: tools for 3 rounds, the 4th has tools off, so it still answers (not “too many steps”)', hunt.a.route === 'ai' && hunt.a.text === 'Dukaan mein condom naam ka kuch nahi hai.' && rounds.length === 4 && rounds.slice(0, 3).every((r) => r.toolChoice === null) && rounds[3]?.toolChoice === 'none', JSON.stringify({ a: hunt.a, c: rounds.map((r) => r.toolChoice) }));
+  check('the AI is told to stop after one other spelling and say the shop has nothing by that name', rounds[0]?.system.includes('try at most one other spelling') === true);
   await root.put('/admin/ai/chat', chatOn({ model: 'claude-haiku-5-5' }));
   fake.queue.push({ say: 'Theek hai.' });
   await askAs(owner, 'meri dukaan ka margin kaise sudhrega');

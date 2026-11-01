@@ -167,6 +167,17 @@ export function matchIntent(text: string): Intent | null {
   return null;
 }
 
+const QTY = words('much', 'many', 'kitna', 'kitni', 'kitne', 'koto', 'koyta', 'koita', 'कितना', 'कितनी', 'कितने', 'কত', 'কতটা', 'কয়টা');
+
+/** "How much condom do I have": a quantity word and, past the small words, only a name — a stock question when the shop has it. */
+export const quantityName = (text: string) => {
+  const tokens = normalize(text).split(' ').filter(Boolean);
+  if (!tokens.some((t) => QTY.includes(t))) return null;
+  const left = tokens.filter((t) => !QTY.includes(t) && !G.stop.includes(t) && !G.goods.some((g) => hits(t, g)));
+  const n = left.join(' ');
+  return left.length && left.length <= 3 && /^[a-z0-9 ]+$/.test(n) && /[a-z]{3}/.test(n) ? n : null;
+};
+
 /** A bare product name ("Dolo 650") is a stock question, when the shop has it. */
 export const bareName = (text: string) => {
   const n = normalize(text);

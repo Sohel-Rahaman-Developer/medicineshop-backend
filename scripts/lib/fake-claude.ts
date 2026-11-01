@@ -23,6 +23,7 @@ export interface Seen {
   cached: boolean;
   messages: { role: string; content: unknown }[];
   maxTokens: number;
+  toolChoice: string | null;
 }
 
 export interface FakeClaude {
@@ -70,7 +71,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
         fail(res, 404, 'not_found_error');
         return;
       }
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; max_tokens: number; stream?: boolean; system?: string | { text: string; cache_control?: unknown }[]; tools?: { name: string }[]; output_config?: { effort?: string; format?: unknown }; messages: { role: string; content: string | { type: string }[] }[] };
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; max_tokens: number; stream?: boolean; system?: string | { text: string; cache_control?: unknown }[]; tools?: { name: string }[]; tool_choice?: { type: string }; output_config?: { effort?: string; format?: unknown }; messages: { role: string; content: string | { type: string }[] }[] };
       const system = typeof body.system === 'string' ? body.system : (body.system ?? []).map((b) => b.text).join(' ');
       fake.seen.push({
         key: fake.key,
@@ -84,6 +85,7 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
         cached: Array.isArray(body.system) && body.system.some((b) => Boolean(b.cache_control)),
         messages: body.messages,
         maxTokens: body.max_tokens,
+        toolChoice: body.tool_choice?.type ?? null,
       });
       const reply = fake.queue.shift() ?? (body.tools?.length && fake.chat ? fake.chat : fake.answer);
       if ('status' in reply) {

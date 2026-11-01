@@ -12,6 +12,7 @@ import { runTool, toolDefs, type Ctx } from './tools';
 const SYSTEM = `You are the assistant inside MedBox24, the software of a pharmacy shop in India. The shop's own staff ask you questions.
 Answer about this shop (its sales, profit and margins, stock, expiry, customers and udhaar, suppliers and their prices, purchases, expenses, GST, staff, cash, branches), about medicines (what a medicine or salt is for, substitutes with the same salt), and about running and growing a pharmacy in India: more sales, stock and expiry control, buying and margins, pricing, customers and loyalty, staff, cash and udhaar, the shop's layout and marketing. For anything else (films, sport, politics, homework, coding, other trades), reply with exactly OFF_TOPIC and nothing else.
 Call every tool you need together in one turn. For "why", "vs" or "up or down", start with compare. For advice, first look up the shop's own figures (compare, item_margins, not_selling, buy_prices, busy_hours, low_stock, customer_dues — whichever fit), say what they show, then give two or three concrete steps for this shop, each tied to a figure.
+If a product or name is not found, try at most one other spelling, then say plainly the shop has nothing by that name.
 Take every figure from the tools and copy it as given; never invent a number or a name, and never work one out yourself. If a tool says the person's role cannot see something, say so plainly.
 Medicines: general information only. Never give a dose for a patient — say to ask a doctor. GST and licences: general guidance only — for a filing, say to ask their CA.
 Reply in at most 8 short lines of plain text, no tables and no markdown.`;
@@ -78,6 +79,8 @@ export async function askClaude(c: Ctx, key: string, s: Caps, voice: Voice, ques
       // The system prompt and tool list are the same for every shop: cached once, read at a tenth of the price.
       system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       tools,
+      // The last round answers from what was looked up, so a question never ends without a reply.
+      ...(round === ROUNDS - 1 ? { tool_choice: { type: 'none' as const } } : {}),
       messages,
       // Short answers from looked-up figures: little thinking, so the output cap goes to the answer.
       ...(AI_MODELS[s.model].effort ? { output_config: { effort: 'low' as const } } : {}),
@@ -117,7 +120,7 @@ export async function askGemini(c: Ctx, key: string, s: Caps, voice: Voice, ques
   for (let round = 0; round < ROUNDS; round++) {
     const room = s.capOut - used.output;
     if (room < 64) return { kind: 'too_big', tools: called };
-    const r = await generate(key, s.model, { systemInstruction: { parts: [{ text: SYSTEM }] }, contents, tools, generationConfig: { maxOutputTokens: room, thinkingConfig: { thinkingLevel: 'low' } } }, { timeoutMs: 45_000, retries: 1 });
+    const r = await generate(key, s.model, { systemInstruction: { parts: [{ text: SYSTEM }] }, contents, tools, ...(round === ROUNDS - 1 ? { toolConfig: { functionCallingConfig: { mode: 'NONE' as const } } } : {}), generationConfig: { maxOutputTokens: room, thinkingConfig: { thinkingLevel: 'low' } } }, { timeoutMs: 45_000, retries: 1 });
     const u = usageOf(r);
     used.input += u.input;
     used.cacheRead += u.cacheRead;

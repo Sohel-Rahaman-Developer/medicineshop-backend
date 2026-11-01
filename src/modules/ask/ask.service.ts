@@ -22,7 +22,7 @@ import { askClaude, askGemini, costOf, type Turn, type Usage } from './ask-ai';
 import { AskQuestionModel } from './ask.model';
 import * as C from './cards';
 import * as F from './facts';
-import { bareName, matchIntent, type Intent } from './intents';
+import { bareName, matchIntent, quantityName, type Intent } from './intents';
 import { LANGS, langOf, voiceOf, type Voice } from './lang';
 import { AI_GROUP, CHIPS, CHIP_GROUPS, TEXT, say } from './texts';
 
@@ -105,9 +105,9 @@ async function cardOf(t: TenantContext, userId: string, intent: Intent, v: Voice
   }
 }
 
-/** "Dolo 650" on its own is a stock question — when the shop has such a product. */
+/** "Dolo 650" on its own, or "how much condom do I have", is a stock question — when the shop has such a product. */
 async function bareStock(t: TenantContext, text: string): Promise<Intent | null> {
-  const name = bareName(text);
+  const name = bareName(text) ?? quantityName(text);
   if (!name || !(can(t.permissions, 'products', 'view') || can(t.permissions, 'stock', 'view'))) return null;
   return (await F.stockOf(t, name)).found ? { kind: 'stock', name } : null;
 }

@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.46.2',
+    date: '2026-11-01',
+    title: 'Ask AI: stock questions free, every AI question gets an answer, the top bar fits',
+    shop: [
+      '“How much Dolo 650 do I have” / “kitna dolo hai” is now a free stock card, like the name alone — no AI, no tokens.',
+      'When the AI can’t find a name it says the shop has nothing by that name, instead of “needs more steps”.',
+      'On a phone the Ask AI top bar fits the language, the token meter and alerts (Ask’s own token tag is gone; it now only says when AI is off).',
+    ],
+    admin: [],
+    api: ['The AI’s last round runs with tools off (Claude tool_choice none, Gemini functionCallingConfig NONE), so a question ends with a reply; the prompt says to try one other spelling at most.'],
+  },
+  {
     version: '1.46.1',
     date: '2026-11-01',
     title: 'AI tokens and this month’s free AI, always in the top bar',

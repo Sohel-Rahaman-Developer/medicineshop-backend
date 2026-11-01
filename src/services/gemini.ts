@@ -19,6 +19,7 @@ export interface GeminiRequest {
   systemInstruction?: { parts: { text: string }[] };
   contents: GeminiContent[];
   tools?: { functionDeclarations: { name: string; description: string; parametersJsonSchema: unknown }[] }[];
+  toolConfig?: { functionCallingConfig: { mode: 'AUTO' | 'NONE' } };
   generationConfig?: { maxOutputTokens?: number; responseMimeType?: string; responseJsonSchema?: unknown; thinkingConfig?: { thinkingLevel: 'low' | 'medium' | 'high' } };
 }
 export interface GeminiResponse {
