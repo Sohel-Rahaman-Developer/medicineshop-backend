@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.45.3',
+    date: '2026-11-01',
+    title: 'Admin: the AI page in five plain steps',
+    shop: [],
+    admin: [
+      'The AI reading page is now five numbered steps, each with one line on what it is and whether anything needs doing: 1 Is AI working (the switch and an At a glance card), 2 What shops pay, 3 AI keys, 4 Reports, 5 Optional.',
+      'At a glance: what a shop pays for a prescription or bill page and for an Ask AI question, what each costs MedBox24 at most, what a token sells for, the free tokens for a new shop, and this month’s AI bill.',
+      'Prices and free tokens: Tokens a page shows what it means in rupees, free tokens and the token packs sit beside it, and the rarely changed settings fold under Advanced.',
+    ],
+    api: [],
+  },
+  {
     version: '1.45.2',
     date: '2026-11-01',
     title: 'Admin: one switch for all AI',
