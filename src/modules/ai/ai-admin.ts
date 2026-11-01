@@ -8,7 +8,8 @@ import type { AdminActor } from '../admin/admin-auth';
 import { log } from '../admin/admin.service';
 import { ShopModel } from '../shops/shop.model';
 import { GeminiError, modelInfo } from '../../services/gemini';
-import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, saveAiSettings, setApiKey, setGeminiPaid, type AiSettingsInput } from './ai-settings';
+import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, readyFor, saveAiSettings, setApiKey, setGeminiPaid, type AiSettingsInput } from './ai-settings';
+import { coinValue, worstPage, worstQuestion } from './guard';
 import type { AiModelId, AiProvider } from './ai.model';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
 import { moveCoins } from './coins';
@@ -93,6 +94,39 @@ export async function switchAi(a: AdminActor, b: { feature: Feature; on: boolean
   const s = await aiSettings();
   if (b.feature === 'read') await updateAiSettings(a, { enabled: b.on, model: b.model ?? s.model, effort: s.effort, coinsPerPage: b.coins ?? s.coinsPerPage, maxPages: s.maxPages, welcomeCoins: s.welcomeCoins, targetMargin: s.targetMargin, usdInr: s.usdInr, packs: s.packs }, reason, ip);
   else await updateChat(a, { ...s.chat, enabled: b.on, model: b.model ?? s.chat.model, coinsPerQuestion: b.coins ?? s.chat.coinsPerQuestion }, reason, ip);
+  return aiOverview();
+}
+
+/** Stand-ins when a feature's own key is missing — good enough for the job, cheap. */
+const STAND_IN: Record<Feature, Record<AiProvider, AiModelId>> = { read: { anthropic: 'claude-sonnet-5-5', google: 'gemini-3.6-flash' }, chat: { anthropic: 'claude-haiku-5-5', google: 'gemini-3.5-flash-lite' } };
+const MOST_COINS: Record<Feature, number> = { read: 100, chat: 20 };
+
+/** One feature on: a model whose key is set (`prefer` first), enough tokens that it can't lose money. */
+async function fixAi(a: AdminActor, f: Feature, reason: string, ip?: string, prefer?: AiModelId) {
+  const s = await aiSettings();
+  const current = f === 'read' ? s.model : s.chat.model;
+  const usable = (m: AiModelId | undefined): m is AiModelId => m !== undefined && readyFor(s, m) && !(f === 'chat' && providerOf(m) === 'google' && !s.gemini.paid);
+  const model = [prefer, current, STAND_IN[f][providerOf(current) === 'google' ? 'anthropic' : 'google']].find(usable);
+  if (!model) throw AppError.validation(f === 'read' ? 'Add a Claude or Gemini API key first' : 'Add a Claude API key, or a Gemini key with billing on, first');
+  const worst = f === 'read' ? worstPage(s, model) : worstQuestion(s, { ...s.chat, model });
+  const coins = Math.max(f === 'read' ? s.coinsPerPage : s.chat.coinsPerQuestion, Math.ceil(worst / Math.max(1, coinValue(s))));
+  if (coins > MOST_COINS[f]) throw AppError.validation('Even the most tokens allowed would not cover this model — pick a cheaper one in Settings');
+  return switchAi(a, { feature: f, on: true, model, coins }, reason, ip);
+}
+
+/** The one AI switch: on starts the chat, then reading on the chat's own model (same key, same tokens); off stops both. */
+export async function powerAi(a: AdminActor, on: boolean, reason: string, ip?: string) {
+  if (!on) {
+    await switchAi(a, { feature: 'read', on: false }, reason, ip);
+    return switchAi(a, { feature: 'chat', on: false }, reason, ip);
+  }
+  const failed: Error[] = [];
+  const keep = (err: unknown) => {
+    failed.push(err instanceof Error ? err : AppError.internal());
+  };
+  await fixAi(a, 'chat', reason, ip).catch(keep);
+  await fixAi(a, 'read', reason, ip, (await aiSettings()).chat.model).catch(keep);
+  if (failed.length === 2 && failed[0]) throw failed[0];
   return aiOverview();
 }
 

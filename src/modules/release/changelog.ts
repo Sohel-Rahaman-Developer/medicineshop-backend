@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.45.2',
+    date: '2026-11-01',
+    title: 'Admin: one switch for all AI',
+    shop: [],
+    admin: [
+      'One switch for all AI on the status card. Turn on starts Ask AI and then bill and prescription reading on the same model and key as the chat; it charges enough tokens that nothing loses money. Shops pay from the same AI tokens. Turn off stops both.',
+      'The AI page is now “AI reading”: the same reading serves supplier bills and prescriptions at the counter, and the page says so. Each feature still shows whether it reaches the shops and why not.',
+    ],
+    api: ['POST /admin/ai/power {on, reason} (super admin). On: the chat on a model whose key is set, then reading on the chat’s model, each with enough tokens for its worst case; 422 only when neither can run. Off: both off.'],
+  },
+  {
     version: '1.45.1',
     date: '2026-11-01',
     title: 'Demo shop: AI prescription reading on, sell and lowest prices in its data',

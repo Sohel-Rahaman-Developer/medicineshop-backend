@@ -144,6 +144,16 @@ async function main() {
   check('“Charge 7 coins” (₹70.91) → saved, running', seven.status === 200 && data<{ status: Status; settings: Settings }>(seven).status.read.blocks.length === 0 && data<{ settings: { coinsPerPage: number } }>(seven).settings.coinsPerPage === 7, code(seven));
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { usdInr: 88, coinsPerPage: 2 } });
   check('a chat question costs 20 coins at most → 422', (await flip({ feature: 'chat', on: true, coins: 21 })).status === 422);
+  // Live on 1 Nov: reading on Claude Opus 5.5 with no Claude key, 1 token a page, switched off — three reasons, one tap fixes all.
+  const readModel = (await statusOf()).read.model;
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: 'claude-opus-5-5', coinsPerPage: 1, enabled: false } });
+  check('reading on Claude Opus 5.5, no Claude key, 1 token, off → “key”, “loss”, “off”', (await statusOf()).read.blocks.join() === 'key,loss,off', (await statusOf()).read.blocks.join());
+  check('the one switch: accounts → 403', (await acc.post('/admin/ai/power', { on: true, reason: 'from the status card' })).status === 403);
+  const fixed = await root.post('/admin/ai/power', { on: true, reason: 'one tap from the status card' });
+  const fx = data<{ status: Status; settings: { model: string; coinsPerPage: number; enabled: boolean } }>(fixed);
+  check('Turn on → reading on Gemini 3.6 Flash (its key is set), 1 token covers its worst page (₹2.91); the shop sees it on', fixed.status === 200 && fx.settings.model === 'gemini-3.6-flash' && fx.settings.coinsPerPage === 1 && fx.settings.enabled && fx.status.read.blocks.length === 0 && data<{ enabled: boolean }>(await owner.get('/ai/offer')).enabled, code(fixed));
+  check('…the chat can’t run (no Claude key, Gemini on the free tier): it stays off and the card says why', fx.status.chat.blocks.join() === 'key,off', fx.status.chat.blocks.join());
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: readModel, coinsPerPage: 2 } });
 
   section('4. The shop chat on Gemini, with the shop’s tools');
   const chatOn = { chat: { enabled: true, model: 'gemini-3.5-flash-lite', coinsPerQuestion: 1, capIn: 8000, capOut: 500, perShopDay: 100, budgetUsd: 50 }, reason: 'chat on Gemini Flash-Lite' };
@@ -162,6 +172,15 @@ async function main() {
   const chatUp = await flip({ feature: 'chat', on: true });
   check('one tap → the chat runs on Gemini 3.5 Flash-Lite', chatUp.status === 200 && data<{ status: Status }>(chatUp).status.chat.blocks.length === 0 && data<{ status: Status }>(chatUp).status.chat.model === 'gemini-3.5-flash-lite', code(chatUp));
   check('chat on Gemini 3.5 Flash-Lite', (await root.put('/admin/ai/chat', chatOn)).status === 200);
+  // One switch for all AI: reading runs on whatever the chat runs on — the same key and the same shop tokens.
+  const readBefore = (await statusOf()).read.model;
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: 'claude-opus-5-5', coinsPerPage: 1, enabled: false } });
+  const allOn = data<{ status: Status; settings: { model: string; enabled: boolean; chat: { enabled: boolean } } }>(await root.post('/admin/ai/power', { on: true, reason: 'one switch for all AI' }));
+  check('Turn on → reading moves to the chat’s Gemini 3.5 Flash-Lite; both run', allOn.settings.model === 'gemini-3.5-flash-lite' && allOn.status.read.blocks.length === 0 && allOn.status.chat.blocks.length === 0, JSON.stringify(allOn.status));
+  const allOff = data<{ status: Status }>(await root.post('/admin/ai/power', { on: false, reason: 'one switch for all AI' }));
+  check('Turn off → both off', allOff.status.read.blocks.join() === 'off' && allOff.status.chat.blocks.join() === 'off', JSON.stringify(allOff.status));
+  check('…audited with the reason', (await AdminAuditModel.countDocuments({ reason: 'one switch for all AI' })) >= 4);
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { model: readBefore, coinsPerPage: 2, enabled: true, 'chat.enabled': true } });
   await owner.put('/ask/ai', { on: true });
   check('the card counts the shops that turned AI answers on: 1', (await statusOf()).chat.shopsOn === 1);
   fake.queue.push({ tools: [{ name: 'product_stock', args: { name: 'dolo' } }] }, { say: 'Dolo 650 mein paracetamol hai — bukhar aur dard ke liye. Stock mein hai.' });
