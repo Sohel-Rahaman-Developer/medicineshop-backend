@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.48.1',
+    date: '2026-11-01',
+    title: 'Add product: every price in one place',
+    shop: [
+      'Adding a product with its stock: MRP, sell price, lowest price and purchase rate now sit together under “Price per strip”, right below the stock — nothing under More details.',
+      'A line under them says what the customer pays and when the bill warns, on the numbers you type.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.48.0',
     date: '2026-11-01',
     title: 'Stock and price in one place on the product page',
