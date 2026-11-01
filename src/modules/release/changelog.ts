@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.49.3',
+    date: '2026-11-02',
+    title: 'The website says plainly that MedBox24 is software, not a medicine seller',
+    shop: [
+      'Website: a new About page (medbox24.in/about) — what MedBox24 is, that it does not sell or deliver medicines, and that medbox24.in is its only website. The footer line "Software only" links to it.',
+      'Search engines and AI assistants read the same in the site’s structured data and in medbox24.in/llms.txt.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.49.2',
     date: '2026-11-01',
     title: 'Ask AI answers in the script of the language you picked',
