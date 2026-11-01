@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.48.2',
+    date: '2026-11-01',
+    title: 'New bill search says why a medicine came up',
+    shop: [
+      'Search finds a medicine by its name, its salt or its company. A row found by salt now says so — “By salt: Pantoprazole 40mg” — so “pantop” bringing Pan 40 is no longer a puzzle.',
+      'When nothing has the name you typed, a line says “No medicine named … in your shop — check it is the same medicine and strength”, and “Find its salt with AI” is offered too.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.48.1',
     date: '2026-11-01',
     title: 'Add product: every price in one place',
