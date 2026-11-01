@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.48.0',
+    date: '2026-11-01',
+    title: 'Stock and price in one place on the product page',
+    shop: [
+      'Every product page now has three big buttons: Stock came in (a new batch), Stock less or wrong (counted, broken, expired, given back) and Price.',
+      'Price shows MRP, sell price and lowest price at a glance. Its dialog sets the sell price and the lowest price together and says what each does on the numbers you type — “Customer pays ₹30 a strip”, “Below ₹28 the bill warns, it never stops the sale”.',
+      'Adding a product with its stock now asks the lowest price too (optional).',
+      'A lowest price above the sell price can’t be saved.',
+    ],
+    admin: [],
+    api: ['PUT /products/:id/prices {sellPrice, minPrice?}: the sell price (null = MRP) and the lowest price on every batch in stock (null = none), audited. POST /products stock.minPrice.'],
+  },
+  {
     version: '1.47.0',
     date: '2026-11-01',
     title: 'Same salt at the counter: free from your stock, the AI only for a medicine you never kept',

@@ -1028,5 +1028,7 @@
   "MedBox24’s AI for this month is used up — try again next month. No tokens were taken.": "इस महीने MedBox24 का AI खत्म हो गया — अगले महीने फिर कोशिश कीजिए। कोई टोकन नहीं कटा।",
   "AI is paused for your shop — MedBox24 has been told and will sort it out. No tokens were taken.": "आपकी दुकान के लिए AI रुका है — MedBox24 को बता दिया गया है, वह ठीक करेगा। कोई टोकन नहीं कटा।",
   "Could not find the salt: {why}": "साल्ट नहीं मिल सका: {why}",
+  "Prices saved": "दाम सेव हो गए",
+  "The lowest price can’t be above the sell price": "सबसे कम दाम बिक्री दाम से ज़्यादा नहीं हो सकता",
   "Could not read the prescription: {why}": "पर्चा नहीं पढ़ा जा सका: {why}"
 }

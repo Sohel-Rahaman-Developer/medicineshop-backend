@@ -240,13 +240,15 @@ async function main() {
     await owner.post('/products', product({ name: 'Benadryl Syrup 100ml', salt: 'Diphenhydramine', barcode: '', categoryId: cats.find((c) => c.name === 'Syrup')?.id, units: { type: 'COUNT', base: 'BOTTLE', sale: 'BOTTLE', salePack: 1, purchase: 'BOX', purchasePack: 24, allowLooseSale: false }, reorderLevel: 5, reorderQuantity: 24, defaultRack: 'C-2-1' })),
   ).id;
   await owner.post('/stock/opening', { clientRequestId: randomUUID(), productId: syrup, batchNumber: 'BD8812', expiry: '2026-08', quantity: 9, mrp: 14300, purchaseRate: 10100, rack: '' });
-  await owner.post('/stock/opening', { clientRequestId: randomUUID(), productId: syrup, batchNumber: 'BD9001', expiry: '2026-10', quantity: 4, mrp: 14300, purchaseRate: 10100, rack: '' });
+  // This IST month: expires at its end, so 0–30 days on any day it runs.
+  const thisMonth = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 7);
+  await owner.post('/stock/opening', { clientRequestId: randomUUID(), productId: syrup, batchNumber: 'BD9001', expiry: thisMonth, quantity: 4, mrp: 14300, purchaseRate: 10100, rack: '' });
   const ex = data<{ summary: { bucket: string; count: number; value?: number }[]; items: { batchNumber: string; daysLeft: number }[] }>(await owner.get('/stock/expiry?bucket=expired'));
   check('expired batch shows in the Expired tab', ex.items.some((i) => i.batchNumber === 'BD8812'));
-  check('Oct 2026 batch is in 0–30 days', ex.summary.find((s) => s.bucket === 'd30')?.count === 1);
+  check('this month’s batch is in 0–30 days', ex.summary.find((s) => s.bucket === 'd30')?.count === 1);
   const sy = data<Product>(await owner.get(`/products/${syrup}`));
   check('syrup: 4 sellable, 9 expired → low', sy.stock.sellable === 4 && sy.stock.expired === 9 && sy.stock.status === 'low', JSON.stringify(sy.stock));
-  // Month end passes: the Oct batch expires; the stored rollup must not keep calling it sellable.
+  // Month end passes: the batch expires; the stored rollup must not keep calling it sellable.
   await BatchModel.updateOne({ shopId: shop1, batchNumber: 'BD9001' }, { $set: { expiryDate: monthEndIST(2026, 9) } });
   await ProductModel.updateOne({ shopId: shop1, _id: syrup }, { $set: { 'stock.validUntil': monthEndIST(2026, 9) } });
   const listAfter = data<{ id: string; stock: Stock }[]>(await owner.get('/products?q=benadryl'));

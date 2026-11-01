@@ -12,7 +12,7 @@ import { actorOf } from '../user/actor';
 import { importProgress, importRows, importSchema, importTemplate, type ImportInput } from './products.import';
 import { addWithStock } from './products.add';
 import * as svc from './products.service';
-import { activeSchema, createProductSchema, listQuerySchema, updateProductSchema, type CreateProductInput, type ListQuery, type UpdateProductInput } from './products.validation';
+import { activeSchema, createProductSchema, listQuerySchema, pricesSchema, updateProductSchema, type CreateProductInput, type ListQuery, type PricesInput, type UpdateProductInput } from './products.validation';
 
 export const productsRouter = Router();
 productsRouter.use(shopAuth);
@@ -148,6 +148,16 @@ productsRouter.put(
     const body = req.body as UpdateProductInput;
     await svc.update(tenantOf(req), await actorOf(req), idOf(req), body, req.ip);
     sent(res, null, `${body.name} saved`);
+  }),
+);
+
+// D111: sell price and lowest price from one dialog on the product page.
+productsRouter.put(
+  '/:id/prices',
+  requirePermission('products', 'edit'),
+  validate({ params: idParams, body: pricesSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    sent(res, await svc.setPrices(tenantOf(req), await actorOf(req), idOf(req), req.body as PricesInput, req.ip), 'Prices saved');
   }),
 );
 

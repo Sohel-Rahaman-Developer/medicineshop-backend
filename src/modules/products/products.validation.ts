@@ -70,11 +70,15 @@ export const firstStockSchema = z
     /** Paise per sale unit, before GST; 0 when the shop doesn't know it yet. */
     purchaseRate: paise('Purchase rate').default(0),
     rack: rackCode.default(''),
+    /** D111: the lowest price per sale unit, asked with the first stock; null or left out = none. */
+    minPrice: paise('Lowest price').nullable().optional(),
   })
   .strict();
 
 export const createProductSchema = z.object({ ...fields, stock: firstStockSchema.optional() }).strict();
 export const updateProductSchema = z.object({ ...fields, version: z.number().int().nonnegative() }).strict();
+/** D111: the product's sell price (null = MRP) and, when sent, the lowest price on every batch in stock (null = none). */
+export const pricesSchema = z.object({ sellPrice: paise('Sell price').min(1, 'Sell price must be more than ₹0').nullable(), minPrice: paise('Lowest price').nullable().optional() }).strict();
 export const activeSchema = z.object({ isActive: z.boolean(), version: z.number().int().nonnegative() }).strict();
 
 const flag = z.enum(['true', 'false']).transform((v) => v === 'true');
@@ -98,5 +102,6 @@ export const listQuerySchema = z
 export type UnitsBody = z.infer<typeof unitsSchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type FirstStockInput = z.infer<typeof firstStockSchema>;
+export type PricesInput = z.infer<typeof pricesSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type ListQuery = z.infer<typeof listQuerySchema>;

@@ -9,7 +9,7 @@ import { lotOf } from '../stock/stock.domain';
 import { refreshRollups } from '../stock/stock.ledger';
 import { receiveOpening } from '../stock/stock.service';
 import type { Actor } from '../user/actor';
-import { insertProduct, prepareProduct } from './products.service';
+import { assertFloor, insertProduct, prepareProduct } from './products.service';
 import type { CreateProductInput, FirstStockInput } from './products.validation';
 
 /** Add product with its first batch: both or neither. A retry with the same request id returns the first result. */
@@ -18,11 +18,12 @@ export async function addWithStock(t: TenantContext, actor: Actor, input: Create
   const now = new Date();
   const lot = lotOf({ noExpiry: input.noExpiry, scheduleType: input.scheduleType }, input.stock.batchNumber, input.stock.expiry, istYmd(now));
   if ('field' in lot) throw AppError.validation(lot.message, [{ field: `body.stock.${lot.field}`, message: lot.message }]);
+  assertFloor(input.sellPrice, input.stock.minPrice, 'body.stock.minPrice');
   const photo = await prepareProduct(t, input);
   const { result } = await once(t.shopId, 'product-add', input.stock.clientRequestId, async (session) => {
     const p = await insertProduct(t, actor, input, photo, session, ip);
     const stock = input.stock;
-    const out = await receiveOpening(t.shopId, p, { ...lot, quantity: stock.quantity, mrp: stock.mrp, purchaseRate: stock.purchaseRate, rack: stock.rack }, actor, session, now);
+    const out = await receiveOpening(t.shopId, p, { ...lot, quantity: stock.quantity, mrp: stock.mrp, purchaseRate: stock.purchaseRate, rack: stock.rack, minPrice: stock.minPrice ?? null }, actor, session, now);
     await refreshRollups(t.shopId, [p._id], session, now);
     await audit(
       { shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'stock', entityId: out.batchId, entityName: `${p.name} · ${out.batchNumber}`, text: `${actor.name} added opening stock: ${fromBase(stock.quantity, p.units as Units)} of ${p.name}, batch ${out.batchNumber}`, ip },

@@ -18,7 +18,7 @@ import { ensureRack, freshRead, refreshRollups } from '../stock/stock.ledger';
 import type { Actor } from '../user/actor';
 import { photoUrl, processPhoto } from './photo';
 import { ProductModel, type Product } from './product.model';
-import type { CreateProductInput, ListQuery, UpdateProductInput } from './products.validation';
+import type { CreateProductInput, ListQuery, PricesInput, UpdateProductInput } from './products.validation';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -434,6 +434,33 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
     const gst = oldGst === input.gstRate ? null : { before: { gstRate: oldGst }, after: { gstRate: input.gstRate } };
     const text = `${actor.name} updated product ${input.name}${gst ? ` · GST ${String(oldGst)}% → ${String(input.gstRate)}%` : ''}${sell ? ` · ${sell}` : ''}`;
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: input.name, text, ...(gst ? { changes: gst } : {}), ip }, session);
+  });
+}
+
+/** The lowest price above the sell price would flag every sale — refused, field by field. */
+export function assertFloor(sellPrice: number | null | undefined, minPrice: number | null | undefined, field: string) {
+  if (sellPrice && minPrice && minPrice > sellPrice) throw AppError.validation('The lowest price can’t be above the sell price', [{ field, message: 'The lowest price can’t be above the sell price' }]);
+}
+
+/** D111: one place for prices — the product's sell price, and the lowest price on every batch still in stock. */
+export async function setPrices(t: TenantContext, actor: Actor, id: string, input: PricesInput, ip?: string) {
+  const doc = await ProductModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id) });
+  if (!doc) throw AppError.notFound('Product not found');
+  assertFloor(input.sellPrice, input.minPrice, 'body.minPrice');
+  return inTransaction(async (session) => {
+    const sell = sellChange(doc.sellPrice, input.sellPrice);
+    if (sell) {
+      doc.set({ sellPrice: input.sellPrice ?? undefined, sellPriceAt: new Date() });
+      await doc.save({ session });
+    }
+    let batches = 0;
+    if (input.minPrice !== undefined) {
+      const inStock = { shopId: t.shopId, productId: doc._id, quantity: { $gt: 0 }, status: { $ne: 'returned' as const } };
+      batches = (await BatchModel.updateMany(inStock, input.minPrice === null ? { $unset: { minPrice: 1 } } : { $set: { minPrice: input.minPrice } }, { session })).modifiedCount;
+    }
+    const floor = input.minPrice === undefined || !batches ? '' : ` · lowest price ${input.minPrice === null ? 'none' : inr(input.minPrice)} on ${String(batches)} batch${batches === 1 ? '' : 'es'}`;
+    if (sell || floor) await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: id, entityName: doc.name, text: `${actor.name} set the prices of ${doc.name}${sell ? ` · ${sell}` : ''}${floor}`, ip }, session);
+    return { sellPrice: doc.sellPrice ?? null, minPrice: input.minPrice ?? null, batches };
   });
 }
 
