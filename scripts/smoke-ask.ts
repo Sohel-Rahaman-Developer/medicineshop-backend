@@ -122,6 +122,11 @@ async function main() {
   check('Hinglish in Roman letters → a Roman Hindi answer', hinglish.a.voice === 'hi_latn' && card(hinglish.a)?.title === 'Sale — Aaj', JSON.stringify(hinglish.a));
   const banglish = await askAs(owner, 'ajker bikri koto');
   check('Banglish → a Roman Bengali answer', banglish.a.voice === 'bn_latn' && card(banglish.a)?.title === 'Bikri — Aaj', JSON.stringify(banglish.a));
+  const banglishBn = await askAs(owner, 'ajker bikri koto', { lang: 'bn' });
+  check('Banglish with বাং picked in the app → the answer in Bengali script', banglishBn.a.voice === 'bn' && card(banglishBn.a)?.title === 'বিক্রি — আজ', JSON.stringify(banglishBn.a));
+  const hinglishHi = await askAs(owner, 'aaj ki sale kitni hui', { lang: 'hi' });
+  check('Hinglish with हिं picked → the answer in Devanagari', hinglishHi.a.voice === 'hi' && card(hinglishHi.a)?.title === 'बिक्री — आज', JSON.stringify(hinglishHi.a));
+  check('Banglish with EN picked stays Roman', (await askAs(owner, 'ajker bikri koto', { lang: 'en' })).a.voice === 'bn_latn');
 
   const p = await ProductModel.findOne({ shopId: shop, _id: new Types.ObjectId(dolo) }).lean();
   const left = p?.stock.sellable ?? 0;
@@ -269,6 +274,7 @@ async function main() {
   check(`the question carries this shop’s figures: ${String(ownCount)} products by category, today’s and this month’s sale, profit for the owner`, sent.startsWith('Shop figures now:') && sent.includes(`Stock: ${String(ownCount)} products`) && sent.includes('Products by category: Tablet') && sent.includes('Net sale today ₹') && sent.includes('Gross profit this month so far') && sent.includes('Question: Dolo kis kaam aati hai'), sent.slice(0, 400));
   const otherCount = await ProductModel.countDocuments({ shopId: new Types.ObjectId(other.shopId), isActive: true });
   check('…and nothing of the other shop: its products are not counted, its names not sent', otherCount >= 3 && !sent.includes(`Stock: ${String(ownCount + otherCount)} products`) && !sent.includes('Mina'), `${String(otherCount)} ${madeOther.map(code).join(' | ')}`);
+  check('the reply language comes with the shop words kept in English (stock, batch, expiry, MRP…)', sent.includes('(Reply in Hindi written in Roman letters (Hinglish); keep in English letters the words a shop says in English') && sent.includes('stock, batch, expiry, MRP, GST, UPI, bill'), sent.slice(-300));
   check('the AI is told to start from those figures', first?.system.includes("The question starts with the shop's figures right now") === true);
   check('v1.27: the AI calls its tools together and starts “why / vs” from compare', first?.system.includes('Call every tool you need together in one turn') === true && first.system.includes('start with compare'));
   const lastUser = JSON.stringify(first?.messages.at(-1));

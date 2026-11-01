@@ -19,12 +19,15 @@ Take every figure from the tools and copy it as given; never invent a number or 
 Medicines: general information only. Never give a dose for a patient — say to ask a doctor. GST and licences: general guidance only — for a filing, say to ask their CA.
 Reply in at most 8 short lines of plain text, no tables and no markdown.`;
 
+// Indian shop staff say these in English; a translated word (মজুত, भंडार) reads strange.
+const SHOP_WORDS = '; keep in English letters the words a shop says in English — medicine, brand, product and salt names, stock, batch, expiry, MRP, GST, UPI, bill, rack, supplier, and the app’s screen and button names';
+
 const LANGUAGE: Record<Voice, string> = {
   en: 'English',
-  hi: 'Hindi in Devanagari script',
-  hi_latn: 'Hindi written in Roman letters (Hinglish)',
-  bn: 'Bengali in Bengali script',
-  bn_latn: 'Bengali written in Roman letters',
+  hi: `Hindi in Devanagari script${SHOP_WORDS}`,
+  hi_latn: `Hindi written in Roman letters (Hinglish)${SHOP_WORDS}`,
+  bn: `Bengali in Bengali script${SHOP_WORDS}`,
+  bn_latn: `Bengali written in Roman letters${SHOP_WORDS}`,
 };
 
 const ROUNDS = 4;

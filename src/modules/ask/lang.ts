@@ -1,7 +1,7 @@
 // D81: the language a question is asked in, so the answer comes back in it.
 export const LANGS = ['en', 'hi', 'bn'] as const;
 export type Lang = (typeof LANGS)[number];
-/** A language and its script: Hinglish or Banglish typed in Roman letters gets a Roman answer. */
+/** A language and its script: Hinglish or Banglish in Roman letters gets a Roman answer unless that language is picked in the app. */
 export const VOICES = ['en', 'hi', 'hi_latn', 'bn', 'bn_latn'] as const;
 export type Voice = (typeof VOICES)[number];
 
@@ -16,10 +16,11 @@ export function voiceOf(text: string, hint?: Lang): Voice {
   const words = text.toLowerCase().split(/[^a-z]+/).filter(Boolean);
   const hi = words.filter((w) => HI_WORDS.has(w)).length;
   const bn = words.filter((w) => BN_WORDS.has(w)).length;
-  if (hi > bn) return 'hi_latn';
-  if (bn > hi) return 'bn_latn';
-  if (hint === 'hi') return 'hi_latn';
-  if (hint === 'bn') return 'bn_latn';
+  // The language picked in the app sets the script: Banglish with বাং picked gets a Bengali-script answer.
+  if (hi > bn) return hint === 'hi' ? 'hi' : 'hi_latn';
+  if (bn > hi) return hint === 'bn' ? 'bn' : 'bn_latn';
+  if (hint === 'hi') return 'hi';
+  if (hint === 'bn') return 'bn';
   return 'en';
 }
 

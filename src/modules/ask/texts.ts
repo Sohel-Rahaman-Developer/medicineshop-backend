@@ -62,8 +62,8 @@ export const TITLE = {
   stockOf: w('Stock — {name}', 'स्टॉक — {name}', 'স্টক — {name}', 'Stock — {name}', 'Stock — {name}'),
   stock: w('Stock', 'स्टॉक', 'স্টক', 'Stock', 'Stock'),
   low: w('Running low', 'कम स्टॉक', 'কম স্টক', 'Kam stock', 'Kom stock'),
-  expiring: w('Expiring in {n} days', '{n} दिन में एक्सपायरी', '{n} দিনে মেয়াদ শেষ', '{n} din mein expiry', '{n} dine meyad shesh'),
-  expired: w('Expired stock', 'एक्सपायर्ड स्टॉक', 'মেয়াদ শেষ স্টক', 'Expired stock', 'Meyad shesh stock'),
+  expiring: w('Expiring in {n} days', '{n} दिन में एक्सपायरी', '{n} দিনে এক্সপায়ারি', '{n} din mein expiry', '{n} dine expiry'),
+  expired: w('Expired stock', 'एक्सपायर्ड स्टॉक', 'এক্সপায়ার হওয়া স্টক', 'Expired stock', 'Expire howa stock'),
   udhaar: w('Udhaar to collect', 'वसूलने वाला उधार', 'আদায়ের বাকি', 'Udhaar vasoolna', 'Baki aday'),
   udhaarOf: w('Udhaar — {name}', 'उधार — {name}', 'বাকি — {name}', 'Udhaar — {name}', 'Baki — {name}'),
   suppliers: w('To pay suppliers', 'सप्लायर को देना', 'সাপ্লায়ারকে দেওয়া', 'Supplier ko dena', 'Supplier ke deoa'),
@@ -103,7 +103,7 @@ export const LABEL = {
   cost: w('Cost of goods', 'माल की लागत', 'মালের খরচ', 'Maal ki laagat', 'Maler khoroch'),
   margin: w('Margin', 'मार्जिन', 'মার্জিন', 'Margin', 'Margin'),
   inStock: w('In stock', 'स्टॉक में', 'স্টকে আছে', 'Stock mein', 'Stock-e'),
-  nextExpiry: w('Next expiry', 'अगली एक्सपायरी', 'পরের মেয়াদ', 'Agli expiry', 'Porer meyad'),
+  nextExpiry: w('Next expiry', 'अगली एक्सपायरी', 'পরের এক্সপায়ারি', 'Agli expiry', 'Porer expiry'),
   rack: w('Rack', 'रैक', 'র‍্যাক', 'Rack', 'Rack'),
   out: w('Out of stock', 'स्टॉक ख़त्म', 'স্টক শেষ', 'Stock khatam', 'Stock shesh'),
   low: w('Running low', 'कम', 'কম', 'Kam', 'Kom'),
@@ -177,7 +177,7 @@ export const CHIP_GROUPS: Record<Lang, ChipGroup[]> = {
   bn: [
     { key: 'sales', title: 'বিক্রি', qs: ['আজকের বিক্রি', 'গতকালের বিক্রি', 'এই সপ্তাহের বিক্রি', 'এই মাসে সবচেয়ে বেশি কী বিক্রি হলো', 'আজ UPI আর কার্ডে কত এল', 'এই মাস বনাম গত মাস', 'কোন সময়ে সবচেয়ে বেশি খদ্দের আসে'] },
     { key: 'money', title: 'টাকা', qs: ['এই মাসের লাভ', 'এই মাসের খরচ', 'এই মাসের কেনাকাটা', 'এই মাসের GST', 'আজ ক্যাশে কত নগদ', 'সবচেয়ে কম লাভের ওষুধ', 'কোন সাপ্লায়ার সস্তা'] },
-    { key: 'stock', title: 'স্টক', qs: ['কম স্টক', '30 দিনে মেয়াদ শেষ', 'মেয়াদ শেষ স্টক', '60 দিন ধরে বিক্রি হয়নি', 'স্টকের দাম'] },
+    { key: 'stock', title: 'স্টক', qs: ['কম স্টক', '30 দিনে এক্সপায়ারি', 'এক্সপায়ার হওয়া স্টক', '60 দিন ধরে বিক্রি হয়নি', 'স্টকের দাম'] },
     { key: 'people', title: 'মানুষ', qs: ['মোট বাকি কত', 'এই মাসে সবচেয়ে বেশি কেনা গ্রাহক', 'সাপ্লায়ারকে কত দিতে হবে', 'এই মাসে কোন স্টাফ সবচেয়ে বেশি বিক্রি করল', 'পেন্ডিং অর্ডার'] },
   ],
 };

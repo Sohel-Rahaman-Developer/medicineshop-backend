@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.49.2',
+    date: '2026-11-01',
+    title: 'Ask AI answers in the script of the language you picked',
+    shop: [
+      'Ask AI: with বাংলা or हिंदी picked, a question typed in Roman letters (Banglish, Hinglish) is answered in Bengali or Devanagari script. With English picked, a Roman question still gets a Roman answer.',
+      'Words a shop says in English stay English in Hindi and Bengali: the AI keeps medicine and brand names, stock, batch, expiry, MRP, GST, UPI, bill, rack and supplier as they are, and the app’s Bengali now says এক্সপায়ারি instead of মেয়াদ, its Hindi लाइन instead of पंक्ति.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.49.1',
     date: '2026-11-01',
     title: 'The website says plainly: software only, no medicines sold',

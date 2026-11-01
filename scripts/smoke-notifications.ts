@@ -77,7 +77,7 @@ async function main() {
   const hiList = await get(owner);
   check('hi: the bell in Hindi — “1 batch expire हो गया”, its body too; the batch line keeps its number', hiList.items[0]?.title === '1 batch expire हो गया — इसे शेल्फ़ से हटाइए' && (hiList.items[0] as { body?: string } | undefined)?.body === 'Expire हुआ stock बेचा नहीं जा सकता। Supplier को वापस कीजिए या write off कीजिए।', hiList.items[0]?.title ?? '');
   owner.lang = 'bn';
-  check('bn: the same alert in Bengali', (await get(owner)).items[0]?.title === '1টা batch-এর মেয়াদ শেষ — তাক থেকে সরান');
+  check('bn: the same alert in Bengali', (await get(owner)).items[0]?.title === '1টা batch এক্সপায়ার হয়ে গেছে — তাক থেকে সরান');
   owner.lang = undefined;
   const c1 = await get(cashier);
   check('cashier (stock: view) gets stock alerts but no expiry — D22', types(c1).includes('STOCK_LOW') && !types(c1).some((x) => x.startsWith('EXP')), types(c1).join(','));
