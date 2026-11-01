@@ -87,6 +87,8 @@ async function main() {
   const r3 = await read();
   const a3 = data<{ ai: { coins: number; freePaise: number; balance: number } }>(r3).ai;
   check('given 12 → read: ₹7.32 free + 12 tokens held, its ₹2.68 came from the free AI, the 12 back', r3.status === 200 && a3.coins === 0 && a3.freePaise === 268 && a3.balance === 12 && (await wallet())?.freeUsedPaise === 536 && (await wallet())?.held === 0, code(r3));
+  const m = data<{ on: boolean; balance: number; free: { usedPaise: number; leftPaise: number; monthPaise: number } }>(await owner.get('/ai/meter'));
+  check('the header: 12 tokens, free ₹5.36 of ₹10 used, ₹4.64 left', m.on && m.balance === 12 && m.free.usedPaise === 536 && m.free.leftPaise === 464 && m.free.monthPaise === 1000, JSON.stringify(m));
   check('the guard counts the free AI used: given ₹0.96 + free ₹5.36 ≥ the AI cost ₹5.36', (await roomOf(shop, await aiSettings())).leftPaise >= 0 && (await roomOf(shop, await aiSettings())).giftedPaise === 12 * 8 + 536);
 
   section('3. A new month starts the free AI again — never added up');

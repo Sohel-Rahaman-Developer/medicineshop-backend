@@ -9,7 +9,7 @@ import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import { aiOffer } from './ai-settings';
 import { coinInvoicePdf, orderCoins, testPayCoins, verifyCoins, wallet } from './coins';
-import { shopAi } from './meter';
+import { meterOf, shopAi } from './meter';
 
 const orderSchema = z.object({ packCode: z.string().trim().min(1).max(20) }).strict();
 const verifySchema = z.object({ orderId: z.string().trim().min(6).max(60), paymentId: z.string().trim().min(6).max(60), signature: z.string().trim().regex(/^[a-f0-9]{64}$/, 'Invalid signature') }).strict();
@@ -28,6 +28,8 @@ aiRouter.get(
     fetched(res, { ...(await aiOffer()), coinsPerPage: mine.page.need, mostPerPage: mine.page.most, usualPerPage: mine.page.usual, free: mine.free, balance: mine.balance });
   }),
 );
+// The header's tokens and free AI: anyone in the shop sees them, like the Yes before a job.
+aiRouter.get('/meter', asyncHandler(async (req: Request, res: Response) => { fetched(res, await meterOf(tenantOf(req).shopId)); }));
 aiRouter.get('/wallet', view, asyncHandler(async (req: Request, res: Response) => { fetched(res, await wallet(tenantOf(req))); }));
 aiRouter.post('/coins/order', edit, notInDemo, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await orderCoins(tenantOf(req), await actorOf(req), (req.body as { packCode: string }).packCode), 'Order created'); }));
 aiRouter.post(

@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.46.1',
+    date: '2026-11-01',
+    title: 'AI tokens and this month’s free AI, always in the top bar',
+    shop: [
+      'While AI is on, the top bar shows the tokens you have and how much of this month’s free AI is used — for example “0 tokens · free ₹3.20/₹10 used”. Tap it for the AI tokens page.',
+      'It updates after every bill read, prescription read and Ask AI answer, and every minute.',
+      'On a phone a task screen such as New bill keeps its title: the bar’s search icon is left out there (the screen has its own search).',
+    ],
+    admin: [],
+    api: ['GET /ai/meter: on, balance and free {usedPaise, leftPaise, monthPaise, resetsOn} for anyone in the shop.'],
+  },
+  {
     version: '1.46.0',
     date: '2026-11-01',
     title: 'AI tokens: pay for what the AI really uses, ₹10 of AI free every month',

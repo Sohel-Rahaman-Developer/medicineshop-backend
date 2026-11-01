@@ -4,7 +4,7 @@ import { part } from '../../core/lang';
 import { inTransaction } from '../../core/transaction';
 import { logger } from '../../config/logger';
 import { istMonth } from '../../utils/date';
-import { aiSettings, type AiSettings } from './ai-settings';
+import { aiSettings, readyFor, type AiSettings } from './ai-settings';
 import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinWalletModel, TOKEN_PRICE_PAISE, type CoinKind } from './ai.model';
 import { checks, coinValue, tokensFor } from './guard';
 
@@ -36,6 +36,23 @@ export function quote(s: Pricing & Pick<AiSettings, 'freeMonthPaise'>, w: FreeSt
 
 const DAY = 86_400_000;
 
+/** When this IST month's free AI comes back: midnight IST on the 1st. */
+const resetsOn = (now: Date) => {
+  const [y = 0, m = 1] = istMonth(now).split('-').map(Number);
+  return new Date(Date.UTC(y, m, 1) - 5.5 * 3_600_000);
+};
+
+/** The header's AI line for anyone in the shop: is any AI on, tokens left, this month's free AI used and left. */
+export async function meterOf(shopId: Types.ObjectId, now = new Date()) {
+  const [s, w] = await Promise.all([aiSettings(now), CoinWalletModel.findOne({ shopId }).select('balance freeMonth freeUsedPaise').lean()]);
+  const left = freeLeft(s, w, now);
+  return {
+    on: (s.enabled && readyFor(s, s.model)) || (s.chat.enabled && readyFor(s, s.chat.model)),
+    balance: w?.balance ?? 0,
+    free: { usedPaise: s.freeMonthPaise - left, leftPaise: left, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now) },
+  };
+}
+
 /**
  * What a shop is told before AI runs: its tokens, this month's free AI left, and what one page or one question takes —
  * `need` after the free AI, `most` without it, `usual` from the real cost of the last 30 days' reads (null before any).
@@ -48,11 +65,10 @@ export async function shopAi(shopId: Types.ObjectId, now = new Date()) {
   ]);
   const [read, chat] = checks(s);
   const free = freeLeft(s, w, now);
-  const [y = 0, m = 1] = istMonth(now).split('-').map(Number);
   const per = avg[0]?.pages ? Math.ceil(avg[0].cost / avg[0].pages) : null;
   return {
     balance: w?.balance ?? 0,
-    free: { leftPaise: free, monthPaise: s.freeMonthPaise, resetsOn: new Date(Date.UTC(y, m, 1) - 5.5 * 3_600_000) },
+    free: { leftPaise: free, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now) },
     page: { need: quote(s, w, read.worstPaise, now).coins, most: read.coins, usual: per === null ? null : tokensFor(s, per) },
     question: { need: quote(s, w, chat.worstPaise, now).coins, most: chat.coins },
   };
