@@ -3,6 +3,7 @@
 import { createHmac } from 'node:crypto';
 import { Types } from 'mongoose';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
+import { fillFreeForLife } from './lib/basic-plans';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -13,7 +14,7 @@ const sign = (body: string) => createHmac('sha256', 'smoke-razorpay-webhook-secr
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 
@@ -28,6 +29,8 @@ async function main() {
   const { WebAddressModel } = await import('../src/modules/webaddress/web-address.model.js');
   const { NotificationModel } = await import('../src/modules/notifications/notification.model.js');
   const { totpAt } = await import('../src/utils/totp.js');
+  // Sections 1–8 test the paid add-on; the free-for-life places are taken until section 9.
+  await fillFreeForLife();
 
   const shop = async (email: string, name: string) => {
     const c = await h.signIn(email);
@@ -237,6 +240,35 @@ async function main() {
   await root.post(`/admin/web-addresses/${(await rowOf('durga'))?.id ?? ''}/decide`, { action: 'stop', reason: 'Owner asked to stop' });
   check('address stopped → me has none, Durga works on the main site', (await shopsOf(d))[0]?.address === null && (await d.get('/shop/context')).status === 200);
 
+
+  section('9. The first 50 shops: the add-on free for life');
+  const { FreeForLifeModel } = await import('../src/modules/webaddress/web-address.model.js');
+  await FreeForLifeModel.deleteMany({});
+  await FreeForLifeModel.insertMany(Array.from({ length: 48 }, (_, i) => ({ _id: new Types.ObjectId(), rank: i + 1, at: new Date() })));
+  const plat = async () => data<{ webAddress: { price: number | null; freeForLife: number; freeLeft: number } }>(await h.client().get('/platform')).webAddress;
+  check('the website hears 2 of 50 places left, and the add-on price', (await plat()).freeLeft === 2 && (await plat()).freeForLife === 50 && (await plat()).price === (await mine(a)).price);
+  const f1 = await shop('gita@web9.test', 'Gita Medical');
+  await f1.post('/web-address', { name: 'gita' });
+  const lifeOf = async (c: Client) => data<{ address: { freeForLife: boolean } | null; freeForLife: { places: number; left: number } }>(await c.get('/web-address'));
+  check('asked, not yet approved → no place taken', (await lifeOf(f1)).address?.freeForLife === false && (await lifeOf(f1)).freeForLife.left === 2);
+  const g1 = await root.post(`/admin/web-addresses/${(await rowOf('gita'))?.id ?? ''}/decide`, { action: 'approve', reason });
+  check('approved → free for life, 1 place left; the admin row says so', g1.status === 200 && (data<Row & { freeForLife: boolean }>(g1)).freeForLife && (await lifeOf(f1)).address?.freeForLife === true && (await lifeOf(f1)).freeForLife.left === 1, code(g1));
+  const told = await NotificationModel.findOne({ shopId: f1.shopId, type: 'WEB_ADDRESS' }).sort({ createdAt: -1 }).lean();
+  check('the owner’s bell says free for life', told?.body.includes('free for life') === true, told?.body ?? '');
+  await SubscriptionModel.updateOne({ shopId: f1.shopId }, { $set: { planCode: 'monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
+  check('after the trial, on a paid plan, never paid for the add-on → still live', (await pub('gita')).live);
+  check('nothing to pay: an order → 409', (await f1.post('/web-address/order', { period: 'month' })).status === 409);
+  await root.post(`/admin/web-addresses/${(await rowOf('gita'))?.id ?? ''}/decide`, { action: 'stop', reason: 'Owner asked to stop' });
+  const again9 = await root.post(`/admin/web-addresses/${(await rowOf('gita'))?.id ?? ''}/decide`, { action: 'restart', reason });
+  check('stopped and started again → still free, no second place taken', again9.status === 200 && (await pub('gita')).live && (await lifeOf(f1)).freeForLife.left === 1);
+  await SubscriptionModel.updateOne({ shopId: f1.shopId }, { $set: { endDate: new Date(Date.now() - 30 * DAY) } });
+  check('free for life still needs a running plan → plan expired, the address stops', !(await pub('gita')).live);
+  const [f2, f3] = await Promise.all([shop('hari@web9.test', 'Hari Medical'), shop('ira@web9.test', 'Ira Pharmacy')]);
+  await f2.post('/web-address', { name: 'hari' });
+  await f3.post('/web-address', { name: 'ira' });
+  const [r2, r3] = await Promise.all(['hari', 'ira'].map(async (n) => root.post(`/admin/web-addresses/${(await rowOf(n))?.id ?? ''}/decide`, { action: 'approve', reason })));
+  const won = [r2, r3].filter((r) => r && (data<Row & { freeForLife: boolean }>(r)).freeForLife).length;
+  check('one place left, two approved at the same moment → exactly one free, 0 left', r2?.status === 200 && r3?.status === 200 && won === 1 && (await plat()).freeLeft === 0 && (await FreeForLifeModel.countDocuments({})) === 50);
   await h.close();
   finish();
 }

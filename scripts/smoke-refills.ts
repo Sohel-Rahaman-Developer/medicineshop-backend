@@ -10,7 +10,7 @@ const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const units15 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };

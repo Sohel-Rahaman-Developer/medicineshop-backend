@@ -1,5 +1,6 @@
 // D90 checks: a doctor's chamber at the shop — sittings, tokens, free follow-ups, fees held for the doctor less the
 // shop's commission, payouts, the doctor not coming, the day close, the Pro lock and another shop's walls.
+import { seedBasic } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -10,7 +11,7 @@ const reason = (r: Res) => (r.json.error as { details?: { reason?: string } } | 
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const DAY = 86_400_000;
@@ -136,6 +137,7 @@ async function main() {
   const other = await h.signIn('kakoli@clinic2.test');
   other.shopId = data<{ id: string }>(await other.post('/shops', shopBody('Kakoli Pharmacy'))).id;
   check('another shop: its board is empty, our visit is not found, our doctor’s chamber is not theirs', data<{ doctors: unknown[] }>(await other.get(`/clinic/day?day=${today}`)).doctors.length === 0 && (await other.post(`/clinic/visits/${v2.id}/status`, { status: 'arrived' })).status === 404 && (await other.put(`/clinic/doctors/${doc.id}/chamber`, chamber)).status === 404);
+  await seedBasic();
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'basic-monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
   forgetPlanFeatures();
   const lock = await owner.get(`/clinic/day?day=${today}`);

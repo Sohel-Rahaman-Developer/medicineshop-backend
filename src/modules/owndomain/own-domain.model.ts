@@ -22,6 +22,8 @@ const ownDomainSchema = new Schema(
     // The add-on, as for the web address: free in the trial, then given free or paid.
     freeUntil: { type: Date },
     paidUntil: { type: Date },
+    /** One of the first 50 shops: the add-on never costs anything; a bought name is still paid. */
+    freeForLife: { type: Boolean },
     /** "buy": the yearly price of the name, set by the team after the call (paise, GST inside); always paid. */
     buyPrice: { type: Number },
     /** "buy": the name is paid for till this day. */

@@ -19,6 +19,8 @@ const webAddressSchema = new Schema(
     // Free after the trial until this day (admin's gift); paid time comes with the add-on payment (v1.24.1).
     freeUntil: { type: Date },
     paidUntil: { type: Date },
+    /** One of the first 50 shops: the add-on never costs anything (see free-for-life.ts). */
+    freeForLife: { type: Boolean },
     notes: { type: [new Schema({ text: { type: String, required: true }, byName: { type: String, required: true }, at: { type: Date, required: true } }, { _id: false })], default: [] },
   },
   { timestamps: true, versionKey: false },
@@ -75,3 +77,8 @@ const paymentSchema = new Schema(
 paymentSchema.index({ shopId: 1, createdAt: -1 });
 paymentSchema.index({ razorpayPaymentId: 1 }, { unique: true, partialFilterExpression: { razorpayPaymentId: { $type: 'string' } } });
 export const WebAddressPaymentModel = model('WebAddressPayment', paymentSchema);
+
+/** Nov 2026: the first 50 shops to get a web address or own domain keep the add-on free for life — one row per shop. */
+const freeForLifeSchema = new Schema({ _id: { type: Schema.Types.ObjectId, required: true }, rank: { type: Number, required: true }, at: { type: Date, required: true } }, { versionKey: false });
+freeForLifeSchema.index({ rank: 1 }, { unique: true });
+export const FreeForLifeModel = model('WebFreeForLife', freeForLifeSchema);

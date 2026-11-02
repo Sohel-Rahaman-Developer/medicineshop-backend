@@ -11,7 +11,7 @@ const units = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, purc
 const shopBody = (name: string, gstin?: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE', ...(gstin ? { gstin } : {}) },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const branch = (name: string, state: string, city: string, pincode: string, billPrefix: string, gst: Record<string, string>) => ({ name, address: { line1: 'Main Road', city, state, pincode }, phone: '033 2321 5566', drugLicenseNumber: 'DL/2025/1102', drugLicenseExpiry: '2030-08', billPrefix, ...gst });

@@ -1035,5 +1035,9 @@
   "{refundNumber} saved": "{refundNumber} সেভ হয়েছে",
   "{name} holds only {advance} of your money": "{name}-এর কাছে আপনার শুধু {advance} আছে",
   "{name} holds none of your money — a return or extra payment first": "{name}-এর কাছে আপনার কোনো টাকা নেই — আগে একটা return বা বেশি payment হতে হবে",
-  "Choose how it came back": "টাকা কীভাবে ফেরত এল বেছে নিন"
+  "Choose how it came back": "টাকা কীভাবে ফেরত এল বেছে নিন",
+  "Your team can open the app at this address. You are one of the first 50 shops: the monthly add-on is free for life.": "আপনার টিম এই ঠিকানায় অ্যাপ খুলতে পারবে। আপনি প্রথম ৫০টি দোকানের একটি: মাসিক অ্যাড-অন চিরকাল ফ্রি।",
+  "Your add-on is free for life — there is nothing to pay": "আপনার অ্যাড-অন চিরকাল ফ্রি — কিছুই দিতে হবে না",
+  "Your web address is free for life — there is nothing to pay": "আপনার ওয়েব ঠিকানা চিরকাল ফ্রি — কিছুই দিতে হবে না",
+  "Your team can open the app at this address. You are one of the first 50 shops: it is free for life.": "আপনার টিম এই ঠিকানায় অ্যাপ খুলতে পারবে। আপনি প্রথম ৫০টি দোকানের একটি: এটা চিরকাল ফ্রি।"
 }

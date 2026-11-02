@@ -16,7 +16,7 @@ const reason = (r: Res) => (r.json.error as { details?: { reason?: string } } | 
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const PHOTO = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(4000, 7)]);

@@ -11,7 +11,7 @@ process.env.RATE_FILES_PER_USER_PER_MIN = '3';
 const data = <T>(r: Res) => r.json.data as T;
 const code = (r: Res) => `${String(r.status)} ${r.json.error?.code ?? ''} ${r.json.error?.message ?? ''}`;
 const shop = (name: string) => ({ name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' });
-const signup = (name: string) => ({ owner: { name: 'Rohit Agarwal', phone: '98300 41122' }, shop: shop(name), termsVersion: '2026-10', agree: true });
+const signup = (name: string) => ({ owner: { name: 'Rohit Agarwal', phone: '98300 41122' }, shop: shop(name), termsVersion: '2026-11', agree: true });
 const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 async function main() {

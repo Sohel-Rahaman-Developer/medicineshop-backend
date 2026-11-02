@@ -33,7 +33,7 @@ async function main() {
   const shopId = (await must<{ id: string }>('shop', owner.post('/shops', {
     owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
     shop: { name: 'Bench Pharmacy', address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-    termsVersion: '2026-10',
+    termsVersion: '2026-11',
     agree: true,
   }))).id;
   owner.shopId = shopId;

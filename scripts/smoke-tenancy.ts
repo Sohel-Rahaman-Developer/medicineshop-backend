@@ -13,7 +13,7 @@ const shopBody = (over: Record<string, unknown> = {}) => ({
     pricingMode: 'MRP_INCLUSIVE',
     ...over,
   },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 
@@ -40,7 +40,7 @@ async function main() {
 
   section('1. Onboarding');
   const meta = data<{ terms: { version: string; points: unknown[] }; states: string[] }>(await owner.get('/shops/onboarding'));
-  check('terms version and points come from the API', meta.terms.version === '2026-10' && meta.terms.points.length === 7);
+  check('terms version and points come from the API', meta.terms.version === '2026-11' && meta.terms.points.length === 7);
   check('states list for the address', meta.states.includes('West Bengal'));
   check('no agree → 422', (await owner.post('/shops', { ...shopBody(), agree: false })).status === 422);
   check('old Terms version → 409', (await owner.post('/shops', { ...shopBody(), termsVersion: '2025-03' })).status === 409);
@@ -57,7 +57,7 @@ async function main() {
   check('me lists the shop, as owner', me1.shops.length === 1 && me1.shops[0]?.isOwner === true);
   check('5 system roles seeded', (await RoleModel.countDocuments({ shopId: shop1, isSystem: true })) === 5);
   check('14-day trial for 3 users', (await SubscriptionModel.countDocuments({ shopId: shop1, status: 'trial', maxUsers: 3 })) === 1);
-  check('Terms acceptance recorded', (await TermsAcceptanceModel.countDocuments({ shopId: shop1, version: '2026-10' })) === 1);
+  check('Terms acceptance recorded', (await TermsAcceptanceModel.countDocuments({ shopId: shop1, version: '2026-11' })) === 1);
   check('audit entry written', (await AuditLogModel.countDocuments({ shopId: shop1 })) >= 1);
 
   section('2. Tenant middleware');

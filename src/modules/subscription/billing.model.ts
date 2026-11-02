@@ -25,12 +25,10 @@ const planSchema = new Schema(
 export const PlanModel = model('Plan', planSchema);
 export type Plan = InferSchemaType<typeof planSchema>;
 
-/** Placeholder list prices (PLAN §8) — the admin app changes them later (B9). Basic = the daily work (D87). */
+/** List prices for a fresh database (Nov 2026: ₹499 a month, ₹3,600 a year); the admin changes them any time. */
 export const DEFAULT_PLANS = [
-  { code: 'basic-monthly', name: 'Basic Monthly', tier: 'basic', features: [], price: 49_900, durationDays: 30, maxUsers: 2, sortOrder: 1 },
-  { code: 'basic-yearly', name: 'Basic Yearly', tier: 'basic', features: [], price: 499_000, durationDays: 365, maxUsers: 2, sortOrder: 2 },
-  { code: 'monthly', name: 'Pro Monthly', tier: 'pro', features: [...FEATURES], price: 79_900, durationDays: 30, maxUsers: 5, sortOrder: 3 },
-  { code: 'yearly', name: 'Pro Yearly', tier: 'pro', features: [...FEATURES], price: 799_000, durationDays: 365, maxUsers: 10, sortOrder: 4 },
+  { code: 'monthly', name: 'Pro Monthly', tier: 'pro', features: [...FEATURES], price: 49_900, durationDays: 30, maxUsers: 5, sortOrder: 3 },
+  { code: 'yearly', name: 'Pro Yearly', tier: 'pro', features: [...FEATURES], price: 360_000, durationDays: 365, maxUsers: 10, sortOrder: 4 },
 ];
 
 /** B8c: money back through Razorpay (or recorded, for a manual payment) — each one with its own GST credit note. */

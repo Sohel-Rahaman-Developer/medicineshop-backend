@@ -15,6 +15,7 @@ import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
 import type { AddressStatus } from '../webaddress/web-address.model';
 import { WebAddressPaymentModel } from '../webaddress/web-address.model';
+import { markFreeForLife } from '../webaddress/free-for-life';
 import { OwnDomainModel, type DomainKind } from './own-domain.model';
 
 const DAY = 86_400_000;
@@ -40,17 +41,17 @@ export function domainProblem(domain: string): string | null {
   return null;
 }
 
-type Rec = { _id: Types.ObjectId; shopId: Types.ObjectId; domain: string; kind: DomainKind; status: AddressStatus; freeUntil?: Date | null; paidUntil?: Date | null; buyPrice?: number | null; domainPaidUntil?: Date | null; dnsOk?: boolean; dnsCheckedAt?: Date | null; decidedAt?: Date | null; reason?: string; requestedAt: Date; requestedByName: string };
+type Rec = { _id: Types.ObjectId; shopId: Types.ObjectId; domain: string; kind: DomainKind; status: AddressStatus; freeUntil?: Date | null; paidUntil?: Date | null; freeForLife?: boolean | null; buyPrice?: number | null; domainPaidUntil?: Date | null; dnsOk?: boolean; dnsCheckedAt?: Date | null; decidedAt?: Date | null; reason?: string; requestedAt: Date; requestedByName: string };
 type Sub = { status: SubscriptionStatus; planCode: string; endDate: Date } | null;
 const after = (a?: Date | null, now = new Date()) => Boolean(a && a > now);
 
-/** Live: switched on, the shop open, its plan running, the add-on in its trial / free / paid time, and a bought name paid. */
+/** Live: switched on, the shop open, its plan running, the add-on in its trial / free / paid time (or free for life), and a bought name paid. */
 function liveAt(r: Rec, shopStatus: string, sub: Sub, now: Date) {
   if (r.status !== 'active' || shopStatus !== 'active' || !sub) return false;
   const plan = statusAt(sub, now);
   if (plan === 'expired' || plan === 'cancelled') return false;
   if (r.kind === 'buy' && !after(r.domainPaidUntil, now)) return false;
-  return plan === 'trial' || after(r.freeUntil, now) || after(r.paidUntil, now);
+  return plan === 'trial' || r.freeForLife === true || after(r.freeUntil, now) || after(r.paidUntil, now);
 }
 
 function lastLiveOf(r: Rec, sub: Sub): Date | null {
@@ -87,6 +88,7 @@ async function shape(r: Rec, now: Date) {
     requestedAt: r.requestedAt,
     freeUntil: r.freeUntil ?? null,
     paidUntil: r.paidUntil ?? null,
+    freeForLife: r.freeForLife === true,
     trialEnds: s.sub?.planCode === 'trial' ? s.sub.endDate : null,
     buyPrice: r.buyPrice ?? null,
     domainPaidUntil: r.domainPaidUntil ?? null,
@@ -221,6 +223,7 @@ export async function adminDomains(now = new Date()) {
       trialEnds: sub?.planCode === 'trial' ? sub.endDate : null,
       freeUntil: r.freeUntil ?? null,
       paidUntil: r.paidUntil ?? null,
+      freeForLife: r.freeForLife === true,
       buyPrice: r.buyPrice ?? null,
       domainPaidUntil: r.domainPaidUntil ?? null,
       dnsOk: r.dnsOk === true,
@@ -263,10 +266,11 @@ export async function decideDomain(a: AdminActor, id: string, action: keyof type
   }
   const done = await OwnDomainModel.updateOne({ _id: r._id, shopId: r.shopId, status: step.from }, { $set: { status: step.to, decidedAt: now, decidedByName: a.name, reason: action === 'reject' || action === 'stop' ? reason : '' } });
   if (!done.modifiedCount) throw AppError.conflict('It changed meanwhile — reload');
+  const life = action === 'approve' || action === 'restart' ? await markFreeForLife('domain', r._id, r.shopId, now) : false;
   forgetLiveDomains();
-  await log(a, `own_domain_${action}`, reason, `${step.done} the own domain ${r.domain}`, shop, undefined, ip);
+  await log(a, `own_domain_${action}`, reason, `${step.done} the own domain ${r.domain}${life ? ' — add-on free for life (first 50)' : ''}`, shop, undefined, ip);
   const key = `OWN_DOMAIN:${String(r._id)}:${action}:${String(now.getTime())}`;
-  if (action === 'approve' || action === 'restart') await emit(r.shopId, { key, type: 'WEB_ADDRESS', priority: 'medium', title: `Your domain ${r.domain} is ready`, body: 'Your team can open the app at this address. Share it with them.', route: '/settings/web-address', roles: ['owner'] });
+  if (action === 'approve' || action === 'restart') await emit(r.shopId, { key, type: 'WEB_ADDRESS', priority: 'medium', title: `Your domain ${r.domain} is ready`, body: life ? 'Your team can open the app at this address. You are one of the first 50 shops: the monthly add-on is free for life.' : 'Your team can open the app at this address. Share it with them.', route: '/settings/web-address', roles: ['owner'] });
   else await emit(r.shopId, { key, type: 'WEB_ADDRESS', priority: 'medium', title: action === 'reject' ? `MedBox24 did not set up ${r.domain}` : `Your domain ${r.domain} is stopped`, body: reason, route: '/settings/web-address', roles: ['owner'] });
   return rowOf(id);
 }

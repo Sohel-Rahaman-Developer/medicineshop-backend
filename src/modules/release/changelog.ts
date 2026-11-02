@@ -10,6 +10,27 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.50.0',
+    date: '2026-11-02',
+    title: 'One Pro plan at ₹499 a month, and your own web address free for the first 50 shops',
+    shop: [
+      'New prices: Pro is ₹499 a month, or ₹3,600 a year (₹300 a month, 40% less). Basic is gone — every shop gets everything. An auto-debit you already started keeps its old price until you stop it.',
+      'Web address (yourshop.medbox24.in or your own domain): the first 50 shops to get one keep it free for life, as long as their plan runs. After that it is ₹99 a month. The website and the Web address page show how many free places are left.',
+      'Terms updated: MedBox24 may raise its prices in future (for example with inflation) or lower them; a new price starts from your next payment, never in a period you already paid. You are asked to accept the new Terms once.',
+      'The product guide PDF is new: 30-day trial, the new prices and the web address offer.',
+      'Website: the About page and what search engines read name Sohel Rahaman as MedBox24’s founder and owner; medbox24.in/llms.txt gives AI assistants the live prices, the web address offer and Ask AI.',
+    ],
+    admin: [
+      'Web addresses and Own domains: a “Free for life” tag on the first 50, and how many of the 50 places are taken. Record payment is hidden for them.',
+      'Prices stay yours to change any time in Plans & pricing and Web addresses → Set price.',
+    ],
+    api: [
+      'GET /platform has webAddress { price, freeForLife, freeLeft }.',
+      'Web address and own domain records carry freeForLife; GET /web-address returns freeForLife { places, left }. Paying for a free-for-life add-on answers 409.',
+      'Terms version 2026-11.',
+    ],
+  },
+  {
     version: '1.49.3',
     date: '2026-11-02',
     title: 'The website says plainly that MedBox24 is software, not a medicine seller',

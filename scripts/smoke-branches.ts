@@ -13,7 +13,7 @@ const MAIN_GSTIN = '19ABCDE1234F1Z5';
 const shopBody = (name: string, gstin?: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE', ...(gstin ? { gstin } : {}) },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const branch = (over: Record<string, unknown>) => ({

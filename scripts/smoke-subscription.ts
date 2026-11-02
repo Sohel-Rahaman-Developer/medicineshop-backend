@@ -10,7 +10,7 @@ const reason = (r: Res) => (r.json.error?.details as { reason?: string } | undef
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 
@@ -55,16 +55,16 @@ async function main() {
   check('trial, 30 days left, test payments on', s0.status === 'trial' && s0.daysLeft === 30 && s0.payments === 'test', JSON.stringify(s0));
   const plans = data<{ code: string; price: number; maxUsers: number }[]>(await h.client().get('/plans'));
   const pro = plans.find((p) => p.code === 'monthly');
-  check('plans without signing in: Basic ×2, then Pro Monthly ₹799 (5 users), Pro Yearly ₹7,990', plans.length === 4 && pro?.price === 79_900 && pro.maxUsers === 5 && plans.find((p) => p.code === 'yearly')?.price === 799_000);
+  check('plans without signing in: Pro Monthly ₹499 (5 users), Pro Yearly ₹3,600', plans.length === 2 && pro?.price === 49_900 && pro.maxUsers === 5 && plans.find((p) => p.code === 'yearly')?.price === 360_000);
   check('manager sees the plan, can’t buy → 403; cashier → 403', (await manager.get('/subscription')).status === 200 && (await manager.post('/subscription/order', { planCode: 'monthly' })).status === 403 && (await cashier.get('/subscription')).status === 403);
 
   section('2. Order → Checkout signature → verify');
   const o1r = await owner.post('/subscription/order', { planCode: 'monthly' });
   const o1 = data<Order>(o1r);
-  check('order: ₹799, a test order id', o1r.status === 201 && o1.amount === 79_900 && o1.orderId.startsWith('order_test_'), code(o1r));
+  check('order: ₹499, a test order id', o1r.status === 201 && o1.amount === 49_900 && o1.orderId.startsWith('order_test_'), code(o1r));
   const p1 = await SubscriptionPaymentModel.findOne({ razorpayOrderId: o1.orderId }).lean();
-  // ₹799 incl. 18% → taxable 677.12, GST 121.88.
-  check('payment row snapshots ₹799 with ₹121.88 GST inside, status created', p1?.amount === 79_900 && p1.gst === 12_188 && p1.status === 'created');
+  // ₹499 incl. 18% → taxable 422.88, GST 76.12.
+  check('payment row snapshots ₹499 with ₹76.12 GST inside, status created', p1?.amount === 49_900 && p1.gst === 7_612 && p1.status === 'created');
   check('unknown plan → 422', (await owner.post('/subscription/order', { planCode: 'gold' })).status === 422);
   const bad = await owner.post('/subscription/verify', { orderId: o1.orderId, paymentId: 'pay_ABC123', signature: 'a'.repeat(64) });
   check('a made-up signature → 400 BAD_SIGNATURE, nothing changes', bad.status === 400 && reason(bad) === 'BAD_SIGNATURE' && (await sub()).status === 'trial', code(bad));
@@ -83,7 +83,7 @@ async function main() {
   const hook = h.client({ origin: null });
   const event = (o: string, p: string, amount: number, type = 'payment.captured') => JSON.stringify({ event: type, payload: { payment: { entity: { id: p, order_id: o, amount, method: 'upi' } } } });
   const send = (raw: string, sig: string, id: string) => hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sig, 'x-razorpay-event-id': id });
-  const raw2 = event(o2.orderId, 'pay_YEAR01', 799_000);
+  const raw2 = event(o2.orderId, 'pay_YEAR01', 360_000);
   const forged = await send(raw2, sign('wrong-secret', raw2), 'evt_1');
   check('forged signature → 400, logged as invalid, nothing paid', forged.status === 400 && (await WebhookEventModel.findOne({ eventId: 'evt_1' }).lean())?.signatureValid === false && (await sub()).planCode === 'monthly');
   const w2 = await send(raw2, sign(HOOK, raw2), 'evt_2');
@@ -95,12 +95,12 @@ async function main() {
   const o3 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
   const raw3 = event(o3.orderId, 'pay_SHORT1', 100);
   const w3 = await send(raw3, sign(HOOK, raw3), 'evt_3');
-  check('₹1 paid on a ₹799 order → not extended, payment failed', w3.status === 200 && (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await sub()).endDate === s2.endDate);
+  check('₹1 paid on a ₹499 order → not extended, payment failed', w3.status === 200 && (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await sub()).endDate === s2.endDate);
   const o4 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
-  const raw4 = event(o4.orderId, 'pay_FAIL01', 79_900, 'payment.failed');
+  const raw4 = event(o4.orderId, 'pay_FAIL01', 49_900, 'payment.failed');
   await send(raw4, sign(HOOK, raw4), 'evt_4');
   check('payment.failed → marked failed', (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o4.orderId }).lean())?.status === 'failed');
-  const raw4b = event(o4.orderId, 'pay_RETRY1', 79_900);
+  const raw4b = event(o4.orderId, 'pay_RETRY1', 49_900);
   const before4 = (await sub()).endDate;
   await send(raw4b, sign(HOOK, raw4b), 'evt_5');
   check('a retry on the same order that captures → paid, a month added', (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o4.orderId }).lean())?.status === 'paid' && near((await sub()).endDate, new Date(before4).getTime() + 30 * DAY));

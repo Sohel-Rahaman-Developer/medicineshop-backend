@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { startFakeClaude } from './lib/fake-claude';
 import { crash, startHarness } from './lib/harness';
 import { MA_AI } from './lib/ma-bill';
+import { fillFreeForLife, offBasic, seedBasic } from './lib/basic-plans';
 
 const API_PORT = Number(process.env.E2E_API_PORT ?? 5000);
 const HELPER_PORT = Number(process.env.E2E_HELPER_PORT ?? 5099);
@@ -31,7 +32,7 @@ async function main() {
     await h.seedOtp(b.email, b.code, 'admin');
     if (b.shopName) {
       const owner = await h.signIn(`owner.${b.email}`);
-      const r = await owner.post('/shops', { owner: { name: 'Shop Owner', phone: '98300 41122' }, shop: { name: b.shopName, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' }, termsVersion: '2026-10', agree: true });
+      const r = await owner.post('/shops', { owner: { name: 'Shop Owner', phone: '98300 41122' }, shop: { name: b.shopName, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' }, termsVersion: '2026-11', agree: true });
       if (r.status !== 201) throw new Error(`shop: ${String(r.status)} ${r.text}`);
     }
   };
@@ -111,10 +112,12 @@ async function main() {
 
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
-  /** Plans suite (D87): the named shop moves to a paid plan, e.g. Basic Monthly. */
-  const seedPlan = async (b: { shopName?: string; planCode?: string }) => {
+  /** Plans suite (D87): the named shop moves to a paid plan, e.g. Basic Monthly (made here: it left the list prices); { basic: 'off' } takes Basic off sale again. */
+  const seedPlan = async (b: { shopName?: string; planCode?: string; basic?: 'off' }) => {
+    if (b.basic === 'off') return offBasic();
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();
     if (!shop || !b.planCode) throw new Error('shop or plan missing');
+    if (b.planCode.startsWith('basic')) await seedBasic();
     await SubscriptionModel.updateOne({ shopId: shop._id }, { $set: { planCode: b.planCode, status: 'active', endDate: new Date(Date.now() + 30 * 86_400_000) } });
     forgetPlanFeatures();
   };
@@ -142,6 +145,8 @@ async function main() {
   };
   const { WebAddressModel } = await import('../src/modules/webaddress/web-address.model.js');
   const { PlatformSettingsModel } = await import('../src/modules/admin/admin.model.js');
+  // The web address suites test the paid add-on, so the 50 free-for-life places start taken.
+  await fillFreeForLife();
   /** Web address suite (D94): the named shop asks for a name; approve: MedBox24 already said yes; price / yearPrice: the add-on's. */
   const seedWeb = async (b: { shopName?: string; name?: string; approve?: boolean; price?: number; yearPrice?: number }) => {
     const shop = await ShopModel.findOne({ name: b.shopName }).lean();

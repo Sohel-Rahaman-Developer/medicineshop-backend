@@ -1,6 +1,7 @@
 // v1.26 checks: a shop's own domain — one it has (DNS points here, the team switches it on) or one MedBox24 buys (price
 // after the call, paid in the app every year). It opens that shop only; from the main site a one-time code signs you in there.
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
+import { fillFreeForLife } from './lib/basic-plans';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
 const data = <T>(r: Res) => r.json.data as T;
@@ -10,7 +11,7 @@ const DAY = 86_400_000;
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 
@@ -29,6 +30,8 @@ async function main() {
   const { UserModel } = await import('../src/modules/user/user.model.js');
   const { setDnsLookup, domainEndingOf, forgetLiveDomains } = await import('../src/modules/owndomain/own-domain.service.js');
   const { totpAt } = await import('../src/utils/totp.js');
+  // These checks test the paid add-on; the free-for-life places are taken (smoke-webaddress checks the offer).
+  await fillFreeForLife();
 
   // DNS stand-in: this server is 10.0.0.1; a name points here once it is in the map.
   const dns = new Map<string, string[]>([['localhost', ['10.0.0.1']]]);

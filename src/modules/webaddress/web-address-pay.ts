@@ -55,6 +55,7 @@ async function quoteDomain(shopId: Types.ObjectId, period: AddressPeriod, what: 
     return { id: r._id, name: r.domain, days: DAYS.year, amount: r.buyPrice, gst: r.buyPrice - rhu(r.buyPrice * 100, 118) };
   }
   if (r.status === 'requested') throw AppError.conflict('Your domain is not switched on yet');
+  if (r.freeForLife === true) throw AppError.conflict('Your add-on is free for life — there is nothing to pay');
   const amount = (await prices())[period];
   if (!amount) throw AppError.validation('Choose a period', [{ field: 'body.period', message: 'Choose a period' }]);
   return { id: r._id, name: r.domain, days: DAYS[period], amount, gst: amount - rhu(amount * 100, 118) };
@@ -71,6 +72,7 @@ async function quote(shopId: Types.ObjectId, period: AddressPeriod) {
   const r = await WebAddressModel.findOne({ shopId, status: { $in: ['requested', 'active', 'stopped'] } }).lean();
   if (!r || r.status === 'requested') throw AppError.conflict('Your web address is not approved yet');
   if (r.status === 'stopped') throw AppError.conflict('MedBox24 stopped this address — call MedBox24');
+  if (r.freeForLife === true) throw AppError.conflict('Your web address is free for life — there is nothing to pay');
   const s = await stateOf(r);
   if (!s.sub || ['expired', 'cancelled'].includes(statusAt(s.sub, new Date()))) throw AppError.conflict('Renew your plan first — the web address works with a running plan');
   const amount = (await prices())[period];

@@ -10,7 +10,7 @@ const fieldOf = (r: Res) => ((r.json.error?.details as { field: string; message:
 const shopBody = (name: string, referralCode?: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
   ...(referralCode === undefined ? {} : { referralCode }),
 });
@@ -78,15 +78,15 @@ async function main() {
   section('2. The new shop’s welcome: off its first payment only');
   const sb = await sub(b);
   const monthly = sb.plans.find((p) => p.code === 'monthly');
-  check('Plan shows the welcome 10%: Monthly ₹799 → pay ₹719 (whole rupees)', sb.offer?.kind === 'welcome' && sb.offer.pct === 10 && monthly?.price === 79_900 && monthly.pay === 71_900, JSON.stringify(sb.offer));
+  check('Plan shows the welcome 10%: Monthly ₹499 → pay ₹449 (whole rupees)', sb.offer?.kind === 'welcome' && sb.offer.pct === 10 && monthly?.price === 49_900 && monthly.pay === 44_900, JSON.stringify(sb.offer));
   check('Shri Ram itself has nothing to take yet', (await sub(a)).offer === null);
   const p1 = await payPlan(b, 'monthly');
-  check('the order and the payment are ₹719; GST is worked out on ₹719', p1.order.amount === 71_900 && p1.pay.amount === 71_900 && p1.pay.gst === 71_900 - Math.round((71_900 * 100) / 118), JSON.stringify(p1.pay));
-  check('the payment says what came off: welcome 10% = ₹80 of ₹799', p1.pay.discount?.kind === 'welcome' && p1.pay.discount.pct === 10 && p1.pay.discount.off === 8_000 && p1.pay.discount.listAmount === 79_900);
+  check('the order and the payment are ₹449; GST is worked out on ₹449', p1.order.amount === 44_900 && p1.pay.amount === 44_900 && p1.pay.gst === 44_900 - Math.round((44_900 * 100) / 118), JSON.stringify(p1.pay));
+  check('the payment says what came off: welcome 10% = ₹50 of ₹499', p1.pay.discount?.kind === 'welcome' && p1.pay.discount.pct === 10 && p1.pay.discount.off === 5_000 && p1.pay.discount.listAmount === 49_900);
   const inv = await b.get(`/subscription/payments/${p1.pay.id}/invoice`);
   check('its tax invoice downloads', inv.status === 200 && inv.headers.get('content-type') === 'application/pdf', code(inv));
   const sb2 = await sub(b);
-  check('after the first payment the welcome is gone: full price again', sb2.offer === null && sb2.plans.find((p) => p.code === 'monthly')?.pay === 79_900);
+  check('after the first payment the welcome is gone: full price again', sb2.offer === null && sb2.plans.find((p) => p.code === 'monthly')?.pay === 49_900);
   const rb2 = await refOf(b.id);
   check('referral: welcome used, 30 days paid of 90, still waiting', Boolean(rb2?.welcomePaymentId) && rb2?.streakDays === 30 && rb2.status === 'pending' && rb2.reward === 'none');
 
@@ -105,16 +105,16 @@ async function main() {
   check('Shri Ram sees Bina Medicos as qualified, 1 reward ready', ma2.rewardsReady === 1 && ma2.referred[0]?.referee.name === 'Bina Medicos' && ma2.referred[0].status === 'qualified');
   check('Bina sees who referred it', (await mine(b)).referredBy?.referrer.name === 'Shri Ram Medical Store');
   const sa = await sub(a);
-  check('Shri Ram’s plan screen: reward 10% → Yearly ₹7,990 → pay ₹7,191', sa.offer?.kind === 'reward' && sa.offer.pct === 10 && sa.plans.find((p) => p.code === 'yearly')?.pay === 719_100, JSON.stringify(sa.offer));
+  check('Shri Ram’s plan screen: reward 10% → Yearly ₹3,600 → pay ₹3,240', sa.offer?.kind === 'reward' && sa.offer.pct === 10 && sa.plans.find((p) => p.code === 'yearly')?.pay === 324_000, JSON.stringify(sa.offer));
   const pa = await payPlan(a, 'monthly');
-  check('Shri Ram pays Monthly with the reward → ₹719, reward used on that payment', pa.pay.amount === 71_900 && pa.pay.discount?.kind === 'reward' && (await refOf(b.id))?.reward === 'used' && String((await refOf(b.id))?.rewardPaymentId) === pa.pay.id);
+  check('Shri Ram pays Monthly with the reward → ₹449, reward used on that payment', pa.pay.amount === 44_900 && pa.pay.discount?.kind === 'reward' && (await refOf(b.id))?.reward === 'used' && String((await refOf(b.id))?.rewardPaymentId) === pa.pay.id);
   check('the next payment is full price again (one reward, one payment)', (await sub(a)).offer === null);
 
   section('4. Yearly qualifies at once; two rewards are two payments');
   const d = await ownerOf('dev@ref1.test', 'Dev Pharmacy', ma.code);
   const e = await ownerOf('esha@ref1.test', 'Esha Medicals', ma.code);
   const pd = await payPlan(d, 'yearly');
-  check('Dev pays Yearly with the welcome → ₹7,191, and qualifies with one payment (365 ≥ 90)', pd.pay.amount === 719_100 && (await refOf(d.id))?.status === 'qualified');
+  check('Dev pays Yearly with the welcome → ₹3,240, and qualifies with one payment (365 ≥ 90)', pd.pay.amount === 324_000 && (await refOf(d.id))?.status === 'qualified');
   await payPlan(e, 'yearly');
   check('Esha too → Shri Ram has 2 rewards ready', (await mine(a)).rewardsReady === 2);
   const pa2 = await payPlan(a, 'monthly');
@@ -129,7 +129,7 @@ async function main() {
   check('3 months paid but the first was refunded in full → 60 days, not qualified', (await refOf(f.id))?.streakDays === 60 && (await refOf(f.id))?.status === 'pending', String((await refOf(f.id))?.streakDays));
   const late = await ownerOf('gita@ref1.test', 'Gita Medical Hall', ma.code);
   await ReferralModel.updateOne({ refereeShopId: late.id }, { $set: { newShopUntil: new Date(Date.now() - DAY) } });
-  check('a new shop that pays after its 30 days → no welcome', (await sub(late)).offer === null && (await sub(late)).plans.find((p) => p.code === 'monthly')?.pay === 79_900);
+  check('a new shop that pays after its 30 days → no welcome', (await sub(late)).offer === null && (await sub(late)).plans.find((p) => p.code === 'monthly')?.pay === 49_900);
 
   section('6. Admin: the terms, and the referrer an owner forgot to type');
   await AdminUserModel.create({ email: 'boss@medshop.test', name: 'Boss', role: 'super' });
@@ -167,7 +167,7 @@ async function main() {
   const rg = await refOf(g.id);
   check('support sets Shri Ram as Hari’s referrer → saved with today’s terms (5%, 30 days to qualify)', set.status === 200 && rg?.source === 'admin' && rg.newShopPct === 5 && rg.qualifyDays === 30 && rg.rewardPct === 15 && data<{ referral: { referredBy: Ref | null } }>(set).referral.referredBy?.referrer.name === 'Shri Ram Medical Store', code(set));
   const sg = await sub(g);
-  check('Hari now gets 5% off its first payment: ₹799 → ₹759', sg.offer?.kind === 'welcome' && sg.offer.pct === 5 && sg.plans.find((p) => p.code === 'monthly')?.pay === 75_900, JSON.stringify(sg.offer));
+  check('Hari now gets 5% off its first payment: ₹499 → ₹474', sg.offer?.kind === 'welcome' && sg.offer.pct === 5 && sg.plans.find((p) => p.code === 'monthly')?.pay === 47_400, JSON.stringify(sg.offer));
   const moved = await help.put(`/admin/shops/${g.id}/referrer`, { referrerShopId: b.id, reason: 'Wrong shop, it was Bina' });
   check('changed to Bina → saved; the shop’s own log says who it was before', moved.status === 200 && String((await refOf(g.id))?.referrerShopId) === b.id && Boolean(await AdminAuditModel.exists({ shopId: g.id, action: 'referral_set', text: { $regex: 'was Shri Ram' } })));
   await payPlan(g, 'monthly');
@@ -179,7 +179,7 @@ async function main() {
     return login('acc@medshop.test');
   })();
   const man = await acc.post('/admin/payments/manual', { shopId: b.id, planCode: 'monthly', reference: 'UTR 4455', reason: 'Paid by bank transfer' });
-  check('a payment the accounts desk records takes the reward too: ₹799 − 15% = ₹679', man.status === 200 && data<Pay>(man).amount === 67_900 && data<Pay>(man).discount?.kind === 'reward', code(man));
+  check('a payment the accounts desk records takes the reward too: ₹499 − 15% = ₹424', man.status === 200 && data<Pay>(man).amount === 42_400 && data<Pay>(man).discount?.kind === 'reward', code(man));
   const removeFrom = await ownerOf('isha@ref1.test', 'Isha Pharma');
   await help.put(`/admin/shops/${removeFrom.id}/referrer`, { referrerShopId: a.id, reason: 'Owner called us' });
   const rm = await help.put(`/admin/shops/${removeFrom.id}/referrer`, { referrerShopId: null, reason: 'Owner was wrong' });

@@ -1,6 +1,7 @@
 // D87 checks: Basic and Pro — each plan opens its own modules, the server refuses the rest, trial and the demo see
 // everything, old plans become Pro, and the admin's ticks take effect at once.
 import { startFakeClaude } from './lib/fake-claude';
+import { seedBasic } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -11,7 +12,7 @@ const upgrade = (r: Res) => r.status === 403 && r.json.error?.code === 'PLAN_UPG
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const DAY = 86_400_000;
@@ -30,9 +31,12 @@ async function main() {
   const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
   const { totpAt } = await import('../src/utils/totp.js');
 
-  section('1. A new platform: Basic and Pro, monthly and yearly');
+  section('1. A new platform: Pro monthly and yearly; a Basic plan the admin adds');
+  const fresh = data<(Plan & { price: number })[]>(await h.client().get('/plans'));
+  check('2 plans on sale: Pro Monthly ₹499, Pro Yearly ₹3,600 — no Basic', fresh.map((p) => `${p.name} ${String(p.price)}`).join() === 'Pro Monthly 49900,Pro Yearly 360000', JSON.stringify(fresh.map((p) => p.name)));
+  await seedBasic();
   const plans = data<Plan[]>(await h.client().get('/plans'));
-  check('4 plans on sale: Basic Monthly, Basic Yearly, Pro Monthly, Pro Yearly', plans.map((p) => p.name).join() === 'Basic Monthly,Basic Yearly,Pro Monthly,Pro Yearly', JSON.stringify(plans.map((p) => p.name)));
+  check('with Basic added: 4 plans on sale, Basic first', plans.map((p) => p.name).join() === 'Basic Monthly,Basic Yearly,Pro Monthly,Pro Yearly', JSON.stringify(plans.map((p) => p.name)));
   check('Basic opens no extra module, 2 users; Pro opens all 10', plans.filter((p) => p.tier === 'basic').every((p) => p.features.length === 0 && p.maxUsers === 2) && plans.filter((p) => p.tier === 'pro').every((p) => p.features.join() === ALL.join()));
 
   const owner = await h.signIn('rohit@plans1.test');
@@ -114,7 +118,7 @@ async function main() {
   forgetPlanFeatures();
   check('a plan code the admin deleted keeps everything (a paying shop never loses work)', (await ctx()).features.length === ALL.length);
 
-  section('5. Before D87: Monthly / Yearly become Pro, Basic waits off sale');
+  section('5. Before D87: Monthly / Yearly become Pro; no Basic is added');
   await PlanModel.deleteMany({ tier: 'basic' });
   await PlanModel.updateMany({}, { $unset: { tier: 1, features: 1 } });
   await PlanModel.updateOne({ code: 'monthly' }, { $set: { name: 'Monthly' } });
@@ -123,19 +127,20 @@ async function main() {
   const after = data<Plan[]>(await h.client().get('/plans'));
   check('shops see only Pro Monthly and Pro Yearly — Basic is not on sale until priced', after.map((p) => p.name).join() === 'Pro Monthly,Pro Yearly' && after.every((p) => p.tier === 'pro' && p.features.length === ALL.length), JSON.stringify(after.map((p) => p.name)));
   const listed = data<Plan[]>(await root.get('/admin/plans'));
-  check('the admin sees Basic Monthly and Basic Yearly, off sale, no extra modules', listed.filter((p) => p.tier === 'basic' && !p.isActive && p.features.length === 0).length === 2, JSON.stringify(listed.map((p) => `${p.name}:${String(p.isActive)}`)));
+  check('the admin list has no Basic plan either', !listed.some((p) => p.tier === 'basic'), JSON.stringify(listed.map((p) => `${p.name}:${String(p.isActive)}`)));
   forgetTiers();
   await h.client().get('/plans');
-  check('running it again changes nothing', (await PlanModel.countDocuments({})) === 4);
+  check('running it again changes nothing', (await PlanModel.countDocuments({})) === 2);
 
   section('6. A module added later (D90 clinic) joins Pro by itself, never Basic');
+  await seedBasic();
   const d87 = ALL.filter((f) => !['clinic', 'brief', 'refills'].includes(f));
   await PlanModel.updateMany({ tier: 'pro' }, { $set: { features: d87 }, $unset: { knows: 1 } });
   await PlanModel.updateMany({ tier: 'basic' }, { $set: { features: ['loyalty'] }, $unset: { knows: 1 } });
   forgetTiers();
   forgetPlanFeatures();
   const grown = data<Plan[]>(await root.get('/admin/plans'));
-  check('Pro plans now open the doctor chamber too; Basic keeps exactly what the admin ticked', grown.filter((p) => p.tier === 'pro').every((p) => p.features.includes('clinic') && p.features.length === ALL.length) && grown.filter((p) => p.tier === 'basic').every((p) => p.features.join() === 'loyalty'), JSON.stringify(grown.map((p) => `${p.code}:${p.features.join('+')}`)));
+  check('Pro plans now open the doctor chamber too; Basic keeps exactly what the admin ticked', grown.some((p) => p.tier === 'basic') && grown.filter((p) => p.tier === 'pro').every((p) => p.features.includes('clinic') && p.features.length === ALL.length) && grown.filter((p) => p.tier === 'basic').every((p) => p.features.join() === 'loyalty'), JSON.stringify(grown.map((p) => `${p.code}:${p.features.join('+')}`)));
   await PlanModel.updateMany({ tier: 'pro' }, { $pull: { features: 'clinic' } });
   forgetTiers();
   await h.client().get('/plans');
@@ -143,8 +148,8 @@ async function main() {
   await PlanModel.deleteMany({});
   forgetTiers();
   forgetPlanFeatures();
-  await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'basic-monthly' } });
-  check('a fresh database: a Basic shop is Basic before anyone opens the plan list', (await ctx()).features.length === 0 && upgrade(await owner.get('/reports/catalog')));
+  await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'monthly' } });
+  check('a fresh database: the list prices are there before anyone opens the plan list', (await ctx()).features.length === ALL.length && (await PlanModel.find({}).sort({ sortOrder: 1 }).lean()).map((p) => p.price).join() === '49900,360000');
 
   await fake.close();
   await h.close();

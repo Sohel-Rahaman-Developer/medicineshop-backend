@@ -40,6 +40,8 @@ import * as dom from '../owndomain/own-domain.service';
 import * as web from '../webaddress/web-address.service';
 import * as webPay from '../webaddress/web-address-pay';
 import { ADDRESS_PERIODS, type AddressPeriod } from '../webaddress/web-address.model';
+import { FREE_FOR_LIFE, freeForLifeLeft } from '../webaddress/free-for-life';
+import { prices as webPrices } from '../webaddress/web-address.service';
 
 const email = z.email('Enter a valid email').max(160);
 /** SECURITY §6 (B9): an admin action without a reason is refused. */
@@ -275,7 +277,7 @@ adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(40
 
 /** Public: the maintenance banner, support contacts and the trial, for the shop app and the public site. */
 export const platformRouter = Router();
-platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const p = await platform(); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers, graceDays: p.graceDays, legalName: p.legalName, address: p.address, grievanceOfficer: p.grievanceOfficer }); }));
+platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const [p, web, left] = await Promise.all([platform(), webPrices(), freeForLifeLeft()]); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers, graceDays: p.graceDays, legalName: p.legalName, address: p.address, grievanceOfficer: p.grievanceOfficer, webAddress: { price: web.month, freeForLife: FREE_FOR_LIFE, freeLeft: left } }); }));
 
 /** Shop side (owner): see MedBox24's requests, approve / deny / stop. */
 export const supportAccessRouter = Router();

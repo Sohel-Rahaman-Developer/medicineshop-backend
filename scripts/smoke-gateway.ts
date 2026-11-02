@@ -14,7 +14,7 @@ const basic = (id: string, secret: string) => `Basic ${Buffer.from(`${id}:${secr
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 
@@ -140,7 +140,7 @@ async function main() {
   check('keys in use can’t be removed → 409', (await root.del('/admin/gateway/keys/test', { reason: 'clean up old keys' })).status === 409);
 
   section('5. Another account’s order id skips, never stops the hourly check');
-  await SubscriptionPaymentModel.create({ shopId: new Types.ObjectId(owner.shopId), planCode: 'monthly', planName: 'Pro Monthly', durationDays: 30, maxUsers: 5, amount: 79_900, gst: 12_188, razorpayOrderId: 'order_FromOtherAcct', status: 'created', source: 'razorpay', createdBy: new Types.ObjectId(), createdByName: 'Rohit' });
+  await SubscriptionPaymentModel.create({ shopId: new Types.ObjectId(owner.shopId), planCode: 'monthly', planName: 'Pro Monthly', durationDays: 30, maxUsers: 5, amount: 49_900, gst: 7_612, razorpayOrderId: 'order_FromOtherAcct', status: 'created', source: 'razorpay', createdBy: new Types.ObjectId(), createdByName: 'Rohit' });
   await SubscriptionPaymentModel.updateOne({ razorpayOrderId: 'order_FromOtherAcct' }, { $set: { createdAt: new Date(Date.now() - 30 * 60_000) } }, { timestamps: false });
   const rec = await reconcile().then((r) => ({ r, threw: false }), () => ({ r: null, threw: true }));
   check('Razorpay refuses that id → reconcile carries on', !rec.threw && rec.r?.orders === 0, JSON.stringify(rec));

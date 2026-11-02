@@ -17,7 +17,7 @@ const shopBody = (name: string) => ({
     drugLicenseExpiry: '2031-03',
     pricingMode: 'MRP_INCLUSIVE',
   },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 

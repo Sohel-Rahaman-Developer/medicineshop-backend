@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { seedBasic } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -12,7 +13,7 @@ const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/LBL20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const units15 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };
@@ -142,6 +143,7 @@ async function main() {
   check("another shop: someone else's products are not there", data<Row[]>(await other.get(`/labels/items?ids=${dolo}`)).length === 0);
   check('…their PDF → 404', (await other.post('/labels/pdf', { layout: 'a4-65', skip: 0, show: { mrp: true, batch: false, shop: false }, items: [{ productId: dolo, copies: 1 }] })).status === 404);
   check('…and no barcode given to it', data<unknown[]>(await other.post('/labels/barcodes', { productIds: [typed] })).length === 0);
+  await seedBasic();
   await SubscriptionModel.updateOne({ shopId }, { $set: { planCode: 'basic-monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
   const basic = await owner.get(`/labels/items?ids=${dolo}`);
   check('Basic plan → 403 PLAN_UPGRADE', basic.status === 403 && basic.json.error?.code === 'PLAN_UPGRADE', code(basic));

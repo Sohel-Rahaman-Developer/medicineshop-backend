@@ -3,9 +3,11 @@ import { connectDb, disconnectDb } from './config/db';
 import { env, isProd } from './config/env';
 import { logger } from './config/logger';
 import { startScheduler, stopScheduler } from './modules/notifications/jobs';
+import { backfillFreeForLife } from './modules/webaddress/free-for-life';
 
 async function main() {
   await connectDb();
+  await backfillFreeForLife().then((n) => { if (n) logger.info(`Free for life: ${String(n)} live web addresses took their places`); }, (err: unknown) => { logger.error({ err }, 'Free-for-life backfill failed'); });
 
   const app = createApp();
   const ready = () => {

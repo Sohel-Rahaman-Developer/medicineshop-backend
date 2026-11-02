@@ -1,6 +1,7 @@
 // D103 checks: the morning brief — yesterday against a usual day like it, today's jobs most urgent first, only for those
 // who see the shop's money, the morning mail in each person's language, and the AI reading the same figures.
 import { randomUUID } from 'node:crypto';
+import { seedBasic } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -10,7 +11,7 @@ const code = (r: Res) => `${r.status} ${r.json.error?.code ?? ''} ${r.json.error
 const shopBody = (name: string) => ({
   owner: { name: 'Rohit Agarwal', phone: '98300 41122' },
   shop: { name, address: { line1: '14B Park Street', city: 'Kolkata', state: 'West Bengal', pincode: '700016' }, phone: '033 2229 4410', drugLicenseNumber: 'WB/KOL/RLF20B/2021/0418', drugLicenseExpiry: '2031-03', pricingMode: 'MRP_INCLUSIVE' },
-  termsVersion: '2026-10',
+  termsVersion: '2026-11',
   agree: true,
 });
 const units15 = { type: 'COUNT', base: 'TABLET', sale: 'STRIP', salePack: 15, purchase: 'BOX', purchasePack: 10, allowLooseSale: true };
@@ -149,6 +150,7 @@ async function main() {
   check('…next morning only the owner gets it', sent === 1 && (await EmailJobModel.find({ kind: 'brief' }).lean()).map((m) => m.to).join() === 'rohit@brief1.test');
 
   section('6. Pro only: the trial has it, Basic does not');
+  await seedBasic();
   await SubscriptionModel.updateOne({ shopId: shop }, { $set: { planCode: 'basic-monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
   await JobRunModel.deleteMany({ key: /^brief:/ });
   await EmailJobModel.deleteMany({ kind: 'brief' });

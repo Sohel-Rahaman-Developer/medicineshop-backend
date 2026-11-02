@@ -1,6 +1,6 @@
 // Key points shown before signup (PLAN §36.4); the lawyer's full text replaces these later (Q27).
 export const TERMS_POINTS = [
-  { icon: 'indian-rupee', title: 'Price', body: 'Your price is on the Subscription page and includes 18% GST. A shop can have its own price. A lower price applies from your next payment; a higher one only from 30 days after we tell you. The period you already paid never changes.' },
+  { icon: 'indian-rupee', title: 'Price', body: 'Your price is on the Subscription page and includes 18% GST. MedBox24 may change its prices — raise them in future, for example with inflation, or lower them. A new price applies from your next payment; an auto-debit you already started keeps its price. A shop’s own price goes up only 30 days after we tell you. The period you already paid never changes.' },
   { icon: 'sparkles', title: 'Free trial', body: 'Every feature for the trial days, no card needed. When it ends the shop becomes read-only until you choose a plan.' },
   { icon: 'calendar-x', title: 'If the plan ends', body: 'Grace days with full use, then read-only: you can see and download everything, but not bill. Nothing is deleted because a plan ended.' },
   { icon: 'archive', title: 'How long bills stay in full', body: 'By default each financial year stays in full for as long as GST law asks — 72 months after its annual return is due. Your plan can keep it for 10 years instead. After that we keep one line per day (sales, GST by rate, payment modes, returns, purchases, expenses) and delete the bill lines.' },

@@ -14,6 +14,7 @@ import { SubscriptionModel, statusAt, type SubscriptionStatus } from '../subscri
 import { UserModel } from '../user/user.model';
 import type { Actor } from '../user/actor';
 import { WebAddressModel, WebAddressPaymentModel, type AddressStatus } from './web-address.model';
+import { FREE_FOR_LIFE, freeForLifeLeft, markFreeForLife } from './free-for-life';
 
 const DAY = 86_400_000;
 const ALL = { crossTenant: true } as const;
@@ -40,17 +41,17 @@ export function nameProblem(slug: string): string | null {
   return null;
 }
 
-type Rec = { _id: Types.ObjectId; shopId: Types.ObjectId; slug: string; status: AddressStatus; freeUntil?: Date | null; paidUntil?: Date | null; decidedAt?: Date | null };
+type Rec = { _id: Types.ObjectId; shopId: Types.ObjectId; slug: string; status: AddressStatus; freeUntil?: Date | null; paidUntil?: Date | null; freeForLife?: boolean | null; decidedAt?: Date | null };
 type Sub = { status: SubscriptionStatus; planCode: string; endDate: Date } | null;
 
 const after = (a?: Date | null, now = new Date()) => Boolean(a && a > now);
 
-/** Live: approved, the shop open, its plan running, and either still in the trial or the add-on paid or given free. */
+/** Live: approved, the shop open, its plan running, and either still in the trial or the add-on paid, given free or free for life. */
 function liveAt(r: Rec, shopStatus: string, sub: Sub, now: Date) {
   if (r.status !== 'active' || shopStatus !== 'active' || !sub) return false;
   const plan = statusAt(sub, now);
   if (plan === 'expired' || plan === 'cancelled') return false;
-  return plan === 'trial' || after(r.freeUntil, now) || after(r.paidUntil, now);
+  return plan === 'trial' || r.freeForLife === true || after(r.freeUntil, now) || after(r.paidUntil, now);
 }
 
 /** When the address last worked (or will stop): the end of the trial, the free time or the paid time. */
@@ -82,14 +83,14 @@ export async function prices(): Promise<{ month: number | null; year: number | n
 
 async function shapeMine(r: Rec & { reason?: string; requestedAt: Date }, now: Date) {
   const s = await stateOf(r, now);
-  return { id: String(r._id), name: r.slug, url: addressUrl(r.slug), status: r.status, live: s.live, reason: r.reason ?? '', requestedAt: r.requestedAt, freeUntil: r.freeUntil ?? null, paidUntil: r.paidUntil ?? null, trialEnds: s.sub?.planCode === 'trial' ? s.sub.endDate : null };
+  return { id: String(r._id), name: r.slug, url: addressUrl(r.slug), status: r.status, live: s.live, reason: r.reason ?? '', requestedAt: r.requestedAt, freeUntil: r.freeUntil ?? null, paidUntil: r.paidUntil ?? null, freeForLife: r.freeForLife === true, trialEnds: s.sub?.planCode === 'trial' ? s.sub.endDate : null };
 }
 
 /** Settings → Web address: the shop's address (or its last answer), the price and the domain it sits under. */
 export async function mine(t: TenantContext, now = new Date()) {
   const r = await WebAddressModel.findOne({ shopId: t.shopId, status: { $ne: 'released' } }).sort({ requestedAt: -1 }).lean<Rec & { reason?: string; requestedAt: Date }>();
-  const p = await prices();
-  return { address: r ? await shapeMine(r, now) : null, price: p.month, yearPrice: p.year, domain: base.host };
+  const [p, freeLeft] = await Promise.all([prices(), freeForLifeLeft()]);
+  return { address: r ? await shapeMine(r, now) : null, price: p.month, yearPrice: p.year, domain: base.host, freeForLife: { places: FREE_FOR_LIFE, left: freeLeft } };
 }
 
 const clean = (name: string) => name.trim().toLowerCase();
@@ -139,11 +140,12 @@ export async function adminList(now = new Date()) {
   const owners = await UserModel.find({ _id: { $in: shops.map((s) => s.ownerUserId) } }).select('name email').lean();
   const subs = await SubscriptionModel.find({ shopId: { $in: rows.map((r) => r.shopId) } }, null, ALL).select('shopId status planCode endDate').lean();
   const pays = await WebAddressPaymentModel.find({ addressId: { $in: rows.map((r) => r._id) }, status: 'paid' }).select('addressId period amount invoiceNumber periodEnd source reference paidAt').sort({ createdAt: -1 }).limit(1000).lean();
-  const p = await prices();
+  const [p, freeLeft] = await Promise.all([prices(), freeForLifeLeft()]);
   return {
     price: p.month,
     yearPrice: p.year,
     domain: base.host,
+    freeForLife: { places: FREE_FOR_LIFE, left: freeLeft },
     rows: rows.map((r) => {
       const shop = shops.find((s) => s._id.equals(r.shopId));
       const owner = owners.find((o) => shop?.ownerUserId && o._id.equals(shop.ownerUserId));
@@ -158,6 +160,7 @@ export async function adminList(now = new Date()) {
         trialEnds: sub?.planCode === 'trial' ? sub.endDate : null,
         freeUntil: r.freeUntil ?? null,
         paidUntil: r.paidUntil ?? null,
+        freeForLife: r.freeForLife === true,
         reason: r.reason ?? '',
         requestedAt: r.requestedAt,
         requestedByName: r.requestedByName,
@@ -193,10 +196,11 @@ export async function decide(a: AdminActor, id: string, action: keyof typeof NEX
   const now = new Date();
   const done = await WebAddressModel.updateOne({ _id: r._id, shopId: r.shopId, status: step.from }, { $set: { status: step.to, decidedAt: now, decidedByName: a.name, reason: action === 'reject' || action === 'stop' ? reason : '' } });
   if (!done.modifiedCount) throw AppError.conflict('It changed meanwhile — reload');
+  const life = action === 'approve' || action === 'restart' ? await markFreeForLife('address', r._id, r.shopId, now) : false;
   forgetLive();
-  await log(a, `web_address_${action}`, reason, `${step.done} the web address ${addressUrl(r.slug)}`, shop, undefined, ip);
+  await log(a, `web_address_${action}`, reason, `${step.done} the web address ${addressUrl(r.slug)}${life ? ' — free for life (first 50)' : ''}`, shop, undefined, ip);
   const url = addressUrl(r.slug);
-  if (action === 'approve' || action === 'restart') await emit(r.shopId, { key: `WEB_ADDRESS:${String(r._id)}:${action}:${String(now.getTime())}`, type: 'WEB_ADDRESS', priority: 'medium', title: `Your web address ${url} is ready`, body: 'Your team can open the app at this address. Share it with them.', route: '/settings/web-address', roles: ['owner'] });
+  if (action === 'approve' || action === 'restart') await emit(r.shopId, { key: `WEB_ADDRESS:${String(r._id)}:${action}:${String(now.getTime())}`, type: 'WEB_ADDRESS', priority: 'medium', title: `Your web address ${url} is ready`, body: life ? 'Your team can open the app at this address. You are one of the first 50 shops: it is free for life.' : 'Your team can open the app at this address. Share it with them.', route: '/settings/web-address', roles: ['owner'] });
   else await emit(r.shopId, { key: `WEB_ADDRESS:${String(r._id)}:${action}:${String(now.getTime())}`, type: 'WEB_ADDRESS', priority: 'medium', title: action === 'reject' ? `MedBox24 did not approve ${url}` : `Your web address ${url} is stopped`, body: reason, route: '/settings/web-address', roles: ['owner'] });
   return (await adminList()).rows.find((x) => x.id === id);
 }
@@ -246,7 +250,7 @@ export async function publicAddress(slug: string, now = new Date()) {
 /** The owner's bell: the address stops within 7 days, or stopped (less than 60 days ago) for want of the add-on. */
 export async function endingOf(shopId: Types.ObjectId, now = new Date()) {
   const r = await WebAddressModel.findOne({ shopId, status: 'active' }).lean<Rec>();
-  if (!r || (await prices()).month === null) return null;
+  if (!r || r.freeForLife === true || (await prices()).month === null) return null;
   const s = await stateOf(r, now);
   const end = s.lastLive ?? r.decidedAt ?? null;
   if (!end) return null;
