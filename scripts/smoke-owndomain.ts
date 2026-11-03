@@ -139,8 +139,8 @@ async function main() {
   const pr = await root.put(`/admin/own-domains/${brow?.id ?? ''}/price`, { price: 120_000, reason: 'Registrar price + our work' });
   check('the team sets ₹1,200 a year; the owner is told', pr.status === 200 && data<Row>(pr).buyPrice === 120_000 && (await NotificationModel.countDocuments({ shopId: b.shopId, title: 'bharat-pharmacy.com costs ₹1,200.00 a year' })) === 1, code(pr));
   const o = await b.post('/web-address/order', { period: 'month', target: 'domain', what: 'domain' });
-  const od = data<{ orderId: string; amount: number; label: string }>(o);
-  check('order: ₹1,200 for a year of the name', o.status === 201 && od.amount === 120_000 && od.label === 'bharat-pharmacy.com · domain for 1 year', code(o));
+  const od = data<{ orderId: string; amount: number; price: number; label: string }>(o);
+  check('order: ₹1,200 for a year of the name + ₹24 online payment charge', o.status === 201 && od.price === 120_000 && od.amount === 122_400 && od.label === 'bharat-pharmacy.com · domain for 1 year', code(o));
   const paid = await b.post('/web-address/test-pay', { orderId: od.orderId });
   check('paid → the name is paid for a year', paid.status === 200 && Math.abs(new Date((await own(b)).domain?.domainPaidUntil ?? 0).getTime() - (Date.now() + 365 * DAY)) < 60_000, code(paid));
   check('a paid request can’t be taken back by the shop → 409', (await b.del('/web-address/domain')).status === 409);
@@ -166,7 +166,7 @@ async function main() {
   forgetLiveDomains();
   check('a paid plan without the add-on → the domain stops; me falls back to none', !(await pub('krishna-med.in')).live && data<{ shops: MeShop[] }>(await a.get('/auth/me')).shops[0]?.address === null);
   const ao = data<{ orderId: string; amount: number; label: string }>(await a.post('/web-address/order', { period: 'month', target: 'domain' }));
-  check('order the add-on for the domain: ₹99, 1 month', ao.amount === 9900 && ao.label === 'krishna-med.in:3000 · 1 month', JSON.stringify(ao));
+  check('order the add-on for the domain: ₹99 + ₹1.98 charge, 1 month', ao.amount === 10_098 && ao.label === 'krishna-med.in:3000 · 1 month', JSON.stringify(ao));
   await a.post('/web-address/test-pay', { orderId: ao.orderId });
   check('paid → live again', (await pub('krishna-med.in')).live);
   check('the admin row shows the payment', (await rowOf('krishna-med.in'))?.payments[0]?.what === 'addon');

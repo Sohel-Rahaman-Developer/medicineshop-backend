@@ -13,6 +13,7 @@ import { AUTOPAY_STATUSES, AutopayModel, PlatformCounterModel, RzpPlanModel, Sub
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, markPaid, placeOf, plansFor, supplier } from './subscription.service';
 import { billingInfo, gateway } from './gateway';
+import { gstOf, splitOf, withCharge } from './online-charge';
 import { platform } from '../admin/platform';
 import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
 import { rupeesInWords } from '../../utils/words';
@@ -39,7 +40,7 @@ async function rzpPlanFor(code: string, name: string, amount: number, yearly: bo
 export async function autopayOf(shopId: Types.ObjectId) {
   const a = await AutopayModel.findOne({ shopId, status: { $ne: 'created' } }).sort({ createdAt: -1 }).lean();
   if (!a) return null;
-  return { status: a.status, planCode: a.planCode, planName: a.planName, amount: a.amount, startAt: a.startAt ?? null, chargeAt: a.chargeAt ?? null, paidCount: a.paidCount, stoppedAt: a.stoppedAt ?? null, running: RUNNING.includes(a.status) };
+  return { status: a.status, planCode: a.planCode, planName: a.planName, ...splitOf(a.amount, a.charge), startAt: a.startAt ?? null, chargeAt: a.chargeAt ?? null, paidCount: a.paidCount, stoppedAt: a.stoppedAt ?? null, running: RUNNING.includes(a.status) };
 }
 
 /**
@@ -53,9 +54,11 @@ export async function startAutopay(t: TenantContext, actor: Actor, planCode: str
   if (await AutopayModel.exists({ shopId: t.shopId, status: { $in: RUNNING } })) throw AppError.conflict('Autopay is already on — stop it first to change the plan', { reason: 'AUTOPAY_ON' });
   const sub = await SubscriptionModel.findOne({ shopId: t.shopId }).lean();
   if (!sub) throw AppError.notFound('No subscription');
-  const shape = (id: string, startAt: Date | null) => ({ subscriptionId: id, amount: plan.price, planName: plan.name, startAt, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName });
+  // v1.51.0: Razorpay charges one fixed amount, so the online payment charge is inside it.
+  const { amount, charge: extra } = withCharge(plan.price, g.chargeBps);
+  const shape = (id: string, startAt: Date | null) => ({ subscriptionId: id, ...splitOf(amount, extra), planName: plan.name, startAt, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName });
   // Checkout closed and opened again: the same unapproved subscription, never a second mandate.
-  const fresh = await AutopayModel.findOne({ shopId: t.shopId, status: 'created', planCode: plan.code, amount: plan.price, createdAt: { $gt: new Date(now.getTime() - 30 * MIN) } }).lean();
+  const fresh = await AutopayModel.findOne({ shopId: t.shopId, status: 'created', planCode: plan.code, amount, createdAt: { $gt: new Date(now.getTime() - 30 * MIN) } }).lean();
   if (fresh && !isPending(fresh.rzpSubscriptionId)) return shape(fresh.rzpSubscriptionId, fresh.startAt ?? null);
   for (const old of await AutopayModel.find({ shopId: t.shopId, status: { $in: ['created', 'halted'] } }).lean()) {
     // Another request is creating this one right now; a reservation older than 2 minutes died with its request.
@@ -65,9 +68,9 @@ export async function startAutopay(t: TenantContext, actor: Actor, planCode: str
   }
   const startAt = sub.planCode !== 'trial' && statusAt(sub, now) === 'active' ? sub.endDate : null;
   const yearly = plan.durationDays >= 365;
-  const rzpPlanId = await rzpPlanFor(plan.code, plan.name, plan.price, yearly);
+  const rzpPlanId = await rzpPlanFor(plan.code, plan.name, amount, yearly);
   // Reserved before Razorpay is called: a second request at the same moment meets the unique index, not a second mandate.
-  const a = await AutopayModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, amount: plan.price, durationDays: plan.durationDays, maxUsers: plan.maxUsers, rzpSubscriptionId: `pending_${randomBytes(9).toString('hex')}`, rzpPlanId, status: 'created', live: true, ...(startAt ? { startAt } : {}), createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }).catch((err: unknown) => {
+  const a = await AutopayModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, amount, charge: extra, durationDays: plan.durationDays, maxUsers: plan.maxUsers, rzpSubscriptionId: `pending_${randomBytes(9).toString('hex')}`, rzpPlanId, status: 'created', live: true, ...(startAt ? { startAt } : {}), createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }).catch((err: unknown) => {
     if ((err as { code?: number }).code === 11000) throw AppError.conflict('Autopay is already being set up — finish it in the open window', { reason: 'AUTOPAY_ON' });
     throw err;
   });
@@ -94,7 +97,7 @@ export async function charge(subscriptionId: string, paymentId: string, amount: 
   const key = `autopay_${paymentId}`;
   await SubscriptionPaymentModel.updateOne(
     { razorpayOrderId: key },
-    { $setOnInsert: { shopId: a.shopId, planCode: a.planCode, planName: a.planName, durationDays: a.durationDays, maxUsers: a.maxUsers, amount: a.amount, gst: a.amount - rhu(a.amount * 100, 118), razorpayOrderId: key, status: 'created', source: 'autopay', autopayId: subscriptionId, createdBy: a.createdBy, createdByName: a.createdByName } },
+    { $setOnInsert: { shopId: a.shopId, planCode: a.planCode, planName: a.planName, durationDays: a.durationDays, maxUsers: a.maxUsers, amount: a.amount, gst: gstOf(a.amount, a.charge), ...(a.charge ? { charge: a.charge } : {}), razorpayOrderId: key, status: 'created', source: 'autopay', autopayId: subscriptionId, createdBy: a.createdBy, createdByName: a.createdByName } },
     { upsert: true },
   );
   const r = await markPaid(key, paymentId, amount, method, by, now);

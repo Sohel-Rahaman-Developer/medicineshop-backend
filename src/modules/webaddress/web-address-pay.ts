@@ -15,6 +15,7 @@ import { audit } from '../audit/audit.model';
 import { ShopModel } from '../shops/shop.model';
 import { billingInfo, gateway } from '../subscription/gateway';
 import { statusAt } from '../subscription/subscription.model';
+import { chargeRow, onlineCharge, splitOf, type Charge } from '../subscription/online-charge';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, nextInvoice, placeOf, supplier } from '../subscription/subscription.service';
 import type { Actor } from '../user/actor';
 import { OwnDomainModel } from '../owndomain/own-domain.model';
@@ -35,8 +36,8 @@ export type PayWhat = 'addon' | 'domain';
 const urlOf = (target: string, name: string) => (target === 'domain' ? domainUrl(name) : addressUrl(name)).replace(/^https?:\/\//, '');
 const labelOf = (target: string, what: string, name: string, period: AddressPeriod) => (what === 'domain' ? `${name} · domain for 1 year` : `${urlOf(target, name)} · ${LABEL[period]}`);
 
-interface PayRow { _id: Types.ObjectId; slug: string; target?: string | null; what?: string | null; period: string; days: number; amount: number; gst: number; status: string; invoiceNumber?: string | null; periodStart?: Date | null; periodEnd?: Date | null; source: string; method?: string | null; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null }
-export const shapePay = (p: PayRow) => ({ id: String(p._id), name: p.slug, target: (p.target ?? 'subdomain') as PayTarget, what: (p.what ?? 'addon') as PayWhat, label: labelOf(p.target ?? 'subdomain', p.what ?? 'addon', p.slug, p.period as AddressPeriod), period: p.period as AddressPeriod, days: p.days, amount: p.amount, gst: p.gst, status: p.status, invoiceNumber: p.invoiceNumber ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, source: p.source, method: p.method ?? null, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null });
+interface PayRow { _id: Types.ObjectId; slug: string; target?: string | null; what?: string | null; period: string; days: number; amount: number; gst: number; status: string; invoiceNumber?: string | null; periodStart?: Date | null; periodEnd?: Date | null; source: string; method?: string | null; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null; charge?: Charge | null }
+export const shapePay = (p: PayRow) => ({ charge: splitOf(p.amount, p.charge).charge, id: String(p._id), name: p.slug, target: (p.target ?? 'subdomain') as PayTarget, what: (p.what ?? 'addon') as PayWhat, label: labelOf(p.target ?? 'subdomain', p.what ?? 'addon', p.slug, p.period as AddressPeriod), period: p.period as AddressPeriod, days: p.days, amount: p.amount, gst: p.gst, status: p.status, invoiceNumber: p.invoiceNumber ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, source: p.source, method: p.method ?? null, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null });
 
 async function planRuns(shopId: Types.ObjectId) {
   const s = await stateOf({ _id: shopId, shopId, slug: '', status: 'active' });
@@ -83,7 +84,7 @@ async function quote(shopId: Types.ObjectId, period: AddressPeriod) {
 /** Settings → Web address: the add-on's payments, and whether the shop can pay online. */
 export async function payInfo(t: TenantContext) {
   const [g, rows] = await Promise.all([gateway(), WebAddressPaymentModel.find({ shopId: t.shopId, status: 'paid' }).sort({ createdAt: -1 }).limit(24).lean()]);
-  return { payments: rows.map(shapePay), payMode: g.mode };
+  return { payments: rows.map(shapePay), payMode: g.mode, chargePct: g.chargeBps / 100 };
 }
 
 /** A Razorpay order for the add-on, its 18% GST inside — the plan purchase, for the address. */
@@ -92,10 +93,11 @@ export async function orderAddress(t: TenantContext, actor: Actor, period: Addre
   if (g.mode === 'off') throw AppError.forbidden('Online payment is off — MedBox24 will call you');
   const q = await quoteFor(t.shopId, period, target, what);
   const per = what === 'domain' ? 'year' : period;
+  const { amount, gst, charge } = await onlineCharge(q.amount);
   const receipt = `${String(t.shopId).slice(-8)}-w${Date.now().toString(36)}`;
-  const orderId = await createOrder(q.amount, receipt, { shopId: String(t.shopId), kind: target === 'domain' ? `own_domain_${what}` : 'web_address', period: per });
-  await WebAddressPaymentModel.create({ shopId: t.shopId, addressId: q.id, slug: q.name, target, what, period: per, days: q.days, amount: q.amount, gst: q.gst, razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount: q.amount, currency: 'INR', label: labelOf(target, what, q.name, per), keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
+  const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), kind: target === 'domain' ? `own_domain_${what}` : 'web_address', period: per });
+  await WebAddressPaymentModel.create({ shopId: t.shopId, addressId: q.id, slug: q.name, target, what, period: per, days: q.days, amount, gst, charge, razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  return { orderId, ...splitOf(amount, charge), currency: 'INR', label: labelOf(target, what, q.name, per), keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 /** Checkout's verify, the webhook and the hourly check all land here: time once per order, a second call is a no-op. */
@@ -196,6 +198,8 @@ export async function addressInvoicePdf(t: TenantContext, id: string) {
   const period = `${day(p.periodStart)} – ${day(p.periodEnd)}`;
   const item = p.what === 'domain' ? `Domain name ${p.slug} — registration for 1 year` : `MedBox24 web address — ${url}`;
   const how = p.source === 'test' ? 'Test payment' : p.source === 'manual' ? `Paid to MedBox24 by hand${p.reference ? ` · ${p.reference}` : ''}` : `Paid by ${p.method ?? 'Razorpay'}${p.razorpayPaymentId ? ` · ${p.razorpayPaymentId}` : ''}`;
+  const sac = (await billingInfo()).sac;
+  const base = { amount: p.amount - (p.charge?.amount ?? 0), gst: p.gst - (p.charge?.gst ?? 0) };
   const buf = await invoiceDoc({
     size: 'A4',
     title: 'TAX INVOICE',
@@ -205,7 +209,7 @@ export async function addressInvoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: p.what === 'domain' ? 'Domain' : 'Web address', lines: [url, `Period ${period}`, how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', item, (await billingInfo()).sac, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.days)} days · ${period}` }],
+    rows: [{ cells: ['1', item, sac, rupees(base.amount - base.gst), '18%', rupees(base.amount)], sub: `${String(p.days)} days · ${period}` }, ...chargeRow(2, p.charge, sac)],
     totals: [{ label: 'Taxable value', value: rupees(p.amount - p.gst) }, ...gstLines(p.gst, from, to), { label: 'Total', value: rupees(p.amount), strong: true }],
     words: rupeesInWords(p.amount),
     notes: ['Thank you for running your shop on MedBox24.', ...(support ? [`Questions about this invoice: ${support}`] : [])],

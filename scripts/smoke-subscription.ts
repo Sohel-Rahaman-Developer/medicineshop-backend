@@ -15,7 +15,7 @@ const shopBody = (name: string) => ({
 });
 
 interface Sub { status: string; planCode: string; endDate: string; daysLeft: number; maxUsers: number; readOnly: boolean; plans: { code: string; price: number }[]; payments: string }
-interface Order { orderId: string; amount: number }
+interface Order { orderId: string; amount: number; price: number; charge: { pct: number; amount: number } | null }
 interface Pay { invoiceNumber: string | null; status: string; replayed?: boolean; periodStart: string; periodEnd: string; id: string }
 
 const DAY = 86_400_000;
@@ -31,6 +31,8 @@ async function main() {
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { SubscriptionPaymentModel, WebhookEventModel } = await import('../src/modules/subscription/billing.model.js');
   const { fyOf } = await import('../src/utils/fy.js');
+  const { GatewaySettingsModel, forgetGateway } = await import('../src/modules/subscription/gateway.js');
+  const { pdfWords } = await import('../src/core/pdf-text.js');
 
   const owner = await h.signIn('rohit@sub1.test');
   const shop1 = data<{ id: string }>(await owner.post('/shops', shopBody('Shri Ram Medical Store'))).id;
@@ -61,10 +63,11 @@ async function main() {
   section('2. Order → Checkout signature → verify');
   const o1r = await owner.post('/subscription/order', { planCode: 'monthly' });
   const o1 = data<Order>(o1r);
-  check('order: ₹499, a test order id', o1r.status === 201 && o1.amount === 49_900 && o1.orderId.startsWith('order_test_'), code(o1r));
+  // v1.51.0: the 2% online payment charge (unset = 2%) on top — 2% of ₹499 = ₹9.98.
+  check('order: ₹499 + 2% online payment charge ₹9.98 = ₹508.98, a test order id', o1r.status === 201 && o1.price === 49_900 && o1.charge?.pct === 2 && o1.charge.amount === 998 && o1.amount === 50_898 && o1.orderId.startsWith('order_test_'), code(o1r));
   const p1 = await SubscriptionPaymentModel.findOne({ razorpayOrderId: o1.orderId }).lean();
-  // ₹499 incl. 18% → taxable 422.88, GST 76.12.
-  check('payment row snapshots ₹499 with ₹76.12 GST inside, status created', p1?.amount === 49_900 && p1.gst === 7_612 && p1.status === 'created');
+  // ₹499 incl. 18% → GST 76.12; ₹9.98 incl. 18% → taxable 8.46, GST 1.52; each part keeps its own.
+  check('payment row snapshots ₹508.98 with ₹76.12 + ₹1.52 GST inside, the charge on its own, status created', p1?.amount === 50_898 && p1.gst === 7_764 && p1.charge?.bps === 200 && p1.charge.amount === 998 && p1.charge.gst === 152 && p1.status === 'created', JSON.stringify(p1));
   check('unknown plan → 422', (await owner.post('/subscription/order', { planCode: 'gold' })).status === 422);
   const bad = await owner.post('/subscription/verify', { orderId: o1.orderId, paymentId: 'pay_ABC123', signature: 'a'.repeat(64) });
   check('a made-up signature → 400 BAD_SIGNATURE, nothing changes', bad.status === 400 && reason(bad) === 'BAD_SIGNATURE' && (await sub()).status === 'trial', code(bad));
@@ -83,7 +86,8 @@ async function main() {
   const hook = h.client({ origin: null });
   const event = (o: string, p: string, amount: number, type = 'payment.captured') => JSON.stringify({ event: type, payload: { payment: { entity: { id: p, order_id: o, amount, method: 'upi' } } } });
   const send = (raw: string, sig: string, id: string) => hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sig, 'x-razorpay-event-id': id });
-  const raw2 = event(o2.orderId, 'pay_YEAR01', 360_000);
+  // ₹3,600 + 2% ₹72.
+  const raw2 = event(o2.orderId, 'pay_YEAR01', 367_200);
   const forged = await send(raw2, sign('wrong-secret', raw2), 'evt_1');
   check('forged signature → 400, logged as invalid, nothing paid', forged.status === 400 && (await WebhookEventModel.findOne({ eventId: 'evt_1' }).lean())?.signatureValid === false && (await sub()).planCode === 'monthly');
   const w2 = await send(raw2, sign(HOOK, raw2), 'evt_2');
@@ -97,10 +101,10 @@ async function main() {
   const w3 = await send(raw3, sign(HOOK, raw3), 'evt_3');
   check('₹1 paid on a ₹499 order → not extended, payment failed', w3.status === 200 && (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o3.orderId }).lean())?.status === 'failed' && (await sub()).endDate === s2.endDate);
   const o4 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
-  const raw4 = event(o4.orderId, 'pay_FAIL01', 49_900, 'payment.failed');
+  const raw4 = event(o4.orderId, 'pay_FAIL01', 50_898, 'payment.failed');
   await send(raw4, sign(HOOK, raw4), 'evt_4');
   check('payment.failed → marked failed', (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o4.orderId }).lean())?.status === 'failed');
-  const raw4b = event(o4.orderId, 'pay_RETRY1', 49_900);
+  const raw4b = event(o4.orderId, 'pay_RETRY1', 50_898);
   const before4 = (await sub()).endDate;
   await send(raw4b, sign(HOOK, raw4b), 'evt_5');
   check('a retry on the same order that captures → paid, a month added', (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o4.orderId }).lean())?.status === 'paid' && near((await sub()).endDate, new Date(before4).getTime() + 30 * DAY));
@@ -111,6 +115,34 @@ async function main() {
   const paid = hist.find((x) => x.invoiceNumber === `MS-${fy}-00001`);
   const pdf = await owner.raw('GET', `/subscription/payments/${paid?.id ?? ''}/invoice`);
   check('invoice PDF', pdf.status === 200 && (pdf.headers.get('content-type') ?? '').includes('pdf'));
+  const text = (await pdfWords(pdf.body)).flat().map((w) => w.text).join(' ');
+  // Line 1 the plan (₹422.88 + GST), line 2 the charge (₹8.46 + GST), total ₹508.98.
+  check('the invoice has the charge as its own line: plan ₹422.88 taxable, “Online payment charge (2%)” ₹8.46 taxable, total ₹508.98', text.includes('Online payment charge (2%)') && text.includes('422.88') && text.includes('8.46') && text.includes('508.98') && text.includes('paid online through Razorpay'), text.slice(0, 600));
+  check('history shows the charge on the payment', paid !== undefined && (paid as Pay & { charge?: { amount: number } | null }).charge?.amount === 998);
+
+  section('4b. The admin raises, lowers or removes the charge');
+  const setCharge = async (bps: number | null) => {
+    await GatewaySettingsModel.updateOne({ _id: 'razorpay' }, bps === null ? { $unset: { chargeBps: 1 } } : { $set: { chargeBps: bps } }, { upsert: true });
+    forgetGateway();
+  };
+  const oldOrder = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
+  await setCharge(250);
+  const o25 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
+  // 2.5% of ₹499 = ₹12.475 → ₹12.48.
+  check('raised to 2.5% → a new order is ₹499 + ₹12.48 = ₹511.48; the plan screen says 2.5%', o25.charge?.pct === 2.5 && o25.charge.amount === 1_248 && o25.amount === 51_148 && (await sub() as Sub & { chargePct: number }).chargePct === 2.5, JSON.stringify(o25));
+  const rawOld = event(oldOrder.orderId, 'pay_OLD001', 50_898);
+  const wOld = await send(rawOld, sign(HOOK, rawOld), 'evt_old');
+  check('an order made at 2% before the change still pays at ₹508.98', wOld.status === 200 && (await SubscriptionPaymentModel.findOne({ razorpayOrderId: oldOrder.orderId }).lean())?.status === 'paid');
+  await setCharge(0);
+  const o0 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
+  const p0 = await SubscriptionPaymentModel.findOne({ razorpayOrderId: o0.orderId }).lean();
+  check('set to 0 → no charge: ₹499, ₹76.12 GST, nothing stored for the charge', o0.charge === null && o0.amount === 49_900 && p0?.amount === 49_900 && p0.gst === 7_612 && !p0.charge, JSON.stringify(o0));
+  await owner.post('/subscription/test-pay', { orderId: o0.orderId });
+  const pdf0 = await owner.raw('GET', `/subscription/payments/${String(p0?._id ?? '')}/invoice`);
+  const text0 = (await pdfWords(pdf0.body)).flat().map((w) => w.text).join(' ');
+  check('its invoice has no charge line', pdf0.status === 200 && !text0.includes('Online payment charge') && text0.includes('499.00'), text0.slice(0, 400));
+  await setCharge(null);
+  check('unset again → back to 2%', data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' })).charge?.amount === 998);
   const otherShop = await h.signIn('kakoli@sub2.test');
   otherShop.shopId = data<{ id: string }>(await otherShop.post('/shops', shopBody('Kakoli Pharmacy'))).id;
   check('another shop: can’t open the invoice or verify the order → 404', (await otherShop.raw('GET', `/subscription/payments/${paid?.id ?? ''}/invoice`)).status === 404 && (await otherShop.post('/subscription/verify', { orderId: o1.orderId, paymentId: payId, signature: sign(KEY, `${o1.orderId}|${payId}`) })).status === 404);

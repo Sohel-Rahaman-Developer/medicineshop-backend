@@ -40,7 +40,8 @@ async function main() {
   const { moveCoins } = await import('../src/modules/ai/coins.js');
   const { holdJob } = await import('../src/modules/ai/meter.js');
   const { aiSettings } = await import('../src/modules/ai/ai-settings.js');
-  const { worstPage } = await import('../src/modules/ai/guard.js');
+  const { roomOf, worstPage } = await import('../src/modules/ai/guard.js');
+  const { aiMoney } = await import('../src/modules/ai/ledger.js');
   const { inTransaction } = await import('../src/core/transaction.js');
   // D109: a token is ₹0.10 with GST → the packs' cheapest token brings in ⌊₹299 ÷ 1.18 ÷ 2,990⌋ = 8 paise. A Sonnet page's
   // worst case (4,000 in × $2.50 + 8,000 out × $10) × ₹88 = ₹7.92 is held as ⌈792 × 1.5 ÷ 8⌉ = 149 tokens; a read that
@@ -134,7 +135,8 @@ async function main() {
   check('taking back more than the shop has → 409, balance stays 10', (await acc.post(`/admin/shops/${shopId}/coins`, { coins: -50, reason: 'given by mistake' })).status === 409 && (await balance()) === 10);
   const ord = await owner.post('/ai/coins/order', { packCode: 'c25' });
   const o = data<{ orderId: string; amount: number }>(ord);
-  check('order the Starter pack: ₹299, GST ₹45.61 inside', ord.status === 201 && o.amount === 29_900 && (await CoinOrderModel.findOne({ razorpayOrderId: o.orderId }).lean())?.gst === 4_561, code(ord));
+  // ₹299 + 2% ₹5.98; GST ₹45.61 + ₹0.91.
+  check('order the Starter pack: ₹299 + ₹5.98 online payment charge = ₹304.98, GST ₹45.61 + ₹0.91 inside', ord.status === 201 && o.amount === 30_498 && (await CoinOrderModel.findOne({ razorpayOrderId: o.orderId }).lean())?.gst === 4_652, code(ord));
   check('unknown pack → 422', (await owner.post('/ai/coins/order', { packCode: 'gold' })).status === 422);
   check('cashier can’t buy coins → 403', (await cashier.post('/ai/coins/order', { packCode: 'c25' })).status === 403);
   const paid = await owner.post('/ai/coins/test-pay', { orderId: o.orderId });
@@ -146,7 +148,7 @@ async function main() {
   check('the coin invoice downloads as a PDF', pdfInv.status === 200 && pdfInv.text.startsWith('%PDF'));
   const o2 = data<{ orderId: string }>(await owner.post('/ai/coins/order', { packCode: 'c100' }));
   const hook = h.client({ origin: null });
-  const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_COIN100', order_id: o2.orderId, amount: 99_900, method: 'upi' } } } });
+  const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_COIN100', order_id: o2.orderId, amount: 101_898, method: 'upi' } } } });
   const w1 = await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign('smoke-razorpay-webhook-secret', raw), 'x-razorpay-event-id': 'evt_coin_1' });
   check('the webhook pays a coin pack → +9,990, balance 12,990', w1.status === 200 && (await balance()) === 12_990, code(w1));
   await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign('smoke-razorpay-webhook-secret', raw), 'x-razorpay-event-id': 'evt_coin_2' });
@@ -259,7 +261,9 @@ async function main() {
   check('filter by shop and status', data<unknown[]>(await viewer.get(`/admin/ai/reads?shopId=${shopId}&status=failed&limit=50`)).length === (await AiReadModel.countDocuments({ shopId: shop, status: 'failed' })));
   const ov = data<{ reads: { done: number; failed: number; coins: number; costPaise: number }; sold: { orders: number; coins: number; amountPaise: number; netPaise: number }; held: { coins: number } }>(await viewer.get('/admin/ai'));
   const charged = (await AiReadModel.find({ refunded: false }).lean()).reduce((s, r) => s + r.coins, 0);
-  check('overview: coins used leave out refunded reads; packs sold ₹1,298 (₹1,100 before GST); coins held', ov.reads.coins === charged && ov.sold.orders === 2 && ov.sold.amountPaise === 129_800 && ov.sold.netPaise === 129_800 - 4_561 - 15_239 && ov.held.coins === (await balance()), JSON.stringify(ov));
+  check('overview: coins used leave out refunded reads; packs sold ₹1,298 (₹1,100 before GST) — the ₹25.96 online payment charge is not AI money; coins held', ov.reads.coins === charged && ov.sold.orders === 2 && ov.sold.amountPaise === 129_800 && ov.sold.netPaise === 129_800 - 4_561 - 15_239 && ov.held.coins === (await balance()), JSON.stringify(ov));
+  const money = (await aiMoney()) as { shops: { shopName: string; paidPaise: number }[] };
+  check('what the shop paid for AI is ₹1,100 before GST — the guard and the money view leave the charge out', (await roomOf(shop, await aiSettings())).paidPaise === 110_000 && money.shops.find((x) => x.shopName.startsWith('Shri Ram'))?.paidPaise === 110_000, JSON.stringify(money.shops.map((x) => [x.shopName, x.paidPaise])));
   check('coin orders: accounts sees them, viewer doesn’t', (await acc.get('/admin/ai/orders?limit=10')).status === 200 && (await viewer.get('/admin/ai/orders?limit=10')).status === 403);
   check('a shop’s coins on its admin page', data<{ balance: number }>(await viewer.get(`/admin/shops/${shopId}/coins`)).balance === (await balance()));
 

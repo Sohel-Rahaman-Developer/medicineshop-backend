@@ -1,5 +1,6 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
+import { chargeSchema } from '../subscription/billing.model';
 
 // D94: a shop's own address, <slug>.medbox24.in. requested → active (admin approves) or rejected; stopped by the admin;
 // released when another shop takes a name that lapsed 60 days ago.
@@ -55,6 +56,7 @@ const paymentSchema = new Schema(
     /** Paise, GST included; `gst` is the 18% inside it. */
     amount: { type: Number, required: true },
     gst: { type: Number, required: true },
+    charge: { type: chargeSchema },
     razorpayOrderId: { type: String, required: true, unique: true },
     razorpayPaymentId: { type: String },
     method: { type: String },

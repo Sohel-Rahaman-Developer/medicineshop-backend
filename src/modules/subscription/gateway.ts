@@ -30,6 +30,8 @@ const gatewaySchema = new Schema(
     test: { type: keySetSchema },
     live: { type: keySetSchema },
     billing: { gstin: { type: String }, state: { type: String }, sac: { type: String } },
+    /** v1.51.0: added on top of every online payment, basis points; unset = DEFAULT_CHARGE_BPS. */
+    chargeBps: { type: Number },
     updatedBy: { type: String },
   },
   { timestamps: true, versionKey: false },
@@ -39,8 +41,12 @@ export const GatewaySettingsModel = model('GatewaySettings', gatewaySchema);
 // Its own key from the admin secret, apart from the TOTP secrets and the Claude key.
 const sealKey = () => `${env.ADMIN_TOTP_KEY ?? env.JWT_ACCESS_SECRET}|razorpay-keys`;
 
+/** v1.51.0: the online payment charge until the admin sets one — 2%, in basis points. */
+export const DEFAULT_CHARGE_BPS = 200;
+export const MAX_CHARGE_BPS = 1000;
+
 export type PayMode = 'off' | 'test' | 'razorpay';
-export interface Gateway { mode: PayMode; source: 'admin' | 'env'; account: GatewayActive | 'env'; keyId: string; keySecret: string; webhookSecret: string }
+export interface Gateway { mode: PayMode; source: 'admin' | 'env'; account: GatewayActive | 'env'; keyId: string; keySecret: string; webhookSecret: string; chargeBps: number }
 
 const TTL = 30_000;
 let cached: { at: number; v: Gateway } | null = null;
@@ -55,15 +61,16 @@ const complete = (s: KeySet | null | undefined) => Boolean(s?.keyId && s.secretS
 export async function gateway(): Promise<Gateway> {
   if (cached && Date.now() - cached.at < TTL) return cached.v;
   const s = await GatewaySettingsModel.findById('razorpay').lean();
-  let v: Gateway;
+  let v: Omit<Gateway, 'chargeBps'>;
   if (s?.active === 'off') v = { mode: 'off', source: 'admin', account: 'off', keyId: '', keySecret: '', webhookSecret: '' };
   else if (s?.active === 'test' || s?.active === 'live') {
     const k = s[s.active];
     if (!k || !complete(k)) v = { mode: 'off', source: 'admin', account: 'off', keyId: '', keySecret: '', webhookSecret: '' };
     else v = { mode: 'razorpay', source: 'admin', account: s.active, keyId: k.keyId ?? '', keySecret: open(k.secretSealed ?? '', sealKey()), webhookSecret: open(k.webhookSealed ?? '', sealKey()) };
   } else v = { mode: env.PAYMENTS_MODE, source: 'env', account: 'env', keyId: env.RAZORPAY_KEY_ID ?? '', keySecret: env.RAZORPAY_KEY_SECRET ?? '', webhookSecret: env.RAZORPAY_WEBHOOK_SECRET ?? '' };
-  cached = { at: Date.now(), v };
-  return v;
+  const out = { ...v, chargeBps: s?.chargeBps ?? DEFAULT_CHARGE_BPS };
+  cached = { at: Date.now(), v: out };
+  return out;
 }
 
 /** MedBox24 on its own invoices: name and address from Platform settings, GSTIN / state / SAC from here; env until set. */
@@ -101,6 +108,8 @@ export async function gatewaySettings() {
     live: shapeSet(s?.live),
     billing: b,
     billingSet: { gstin: s?.billing?.gstin ?? null, state: s?.billing?.state ?? null, sac: s?.billing?.sac ?? null },
+    chargeBps: g.chargeBps,
+    chargeSet: typeof s?.chargeBps === 'number',
   };
 }
 
@@ -146,6 +155,13 @@ export async function setActive(active: GatewayActive, by: string) {
 export interface BillingInput { gstin: string; state: string; sac: string }
 export async function saveBilling(input: BillingInput, by: string) {
   await GatewaySettingsModel.updateOne({ _id: 'razorpay' }, { $set: { billing: input, updatedBy: by } }, { upsert: true });
+  return gatewaySettings();
+}
+
+/** v1.51.0: the admin raises, lowers or removes (0) the online payment charge; orders already made keep theirs. */
+export async function saveCharge(bps: number, by: string) {
+  await GatewaySettingsModel.updateOne({ _id: 'razorpay' }, { $set: { chargeBps: bps, updatedBy: by } }, { upsert: true });
+  forgetGateway();
   return gatewaySettings();
 }
 

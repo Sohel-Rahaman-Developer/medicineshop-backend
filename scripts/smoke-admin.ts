@@ -171,7 +171,7 @@ async function main() {
   await amit.put(`/admin/shops/${shopId}/prices`, { prices: [{ code: 'monthly', price: 129_900 }], reason: 'Discount period over' });
   const m2 = await planOf();
   check('a rise waits 30 days: still ₹599, ₹1,299 from then', m2?.price === 59_900 && m2.upcoming?.price === 129_900 && Math.round((new Date(m2.upcoming.from).getTime() - Date.now()) / DAY) === 30, JSON.stringify(m2));
-  check('an order now is at ₹599', data<{ amount: number }>(await owner.post('/subscription/order', { planCode: 'monthly' })).amount === 59_900);
+  check('an order now is at ₹599 + 2% online payment charge ₹11.98', ((o) => o.price === 59_900 && o.amount === 61_098)(data<{ amount: number; price: number }>(await owner.post('/subscription/order', { planCode: 'monthly' }))));
   const { ShopTermsModel } = await import('../src/modules/subscription/terms.js');
   const from1 = (await ShopTermsModel.findOne({ shopId }).lean())?.priceFrom?.getTime();
   await amit.put(`/admin/shops/${shopId}/prices`, { prices: [{ code: 'yearly', price: 899_000 }], reason: 'Yearly cut too' });

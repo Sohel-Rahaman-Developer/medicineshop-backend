@@ -150,8 +150,9 @@ async function main() {
   check('a shop without an approved address can’t pay → 409', (await b.post('/web-address/order', { period: 'month' })).status === 409);
   check('an unknown period → 422', (await c.post('/web-address/order', { period: 'week' })).status === 422);
   const ord = await c.post('/web-address/order', { period: 'month' });
-  const o1 = data<{ orderId: string; amount: number; label: string }>(ord);
-  check('order a month: ₹99, GST ₹15.10 inside', ord.status === 201 && o1.amount === 9900 && (await WebAddressPaymentModel.findOne({ razorpayOrderId: o1.orderId }).lean())?.gst === 1510 && o1.label === 'ganga.localhost:3000 · 1 month', code(ord));
+  const o1 = data<{ orderId: string; amount: number; price: number; label: string }>(ord);
+  // ₹99 + 2% ₹1.98 = ₹100.98; GST ₹15.10 + ₹0.30.
+  check('order a month: ₹99 + ₹1.98 online payment charge = ₹100.98, GST ₹15.10 + ₹0.30 inside', ord.status === 201 && o1.price === 9900 && o1.amount === 10_098 && (await WebAddressPaymentModel.findOne({ razorpayOrderId: o1.orderId }).lean())?.gst === 1540 && o1.label === 'ganga.localhost:3000 · 1 month', code(ord));
   const trialEnd = (await SubscriptionModel.findOne({ shopId: c.shopId }).lean())?.endDate ?? new Date();
   const p1 = await c.post('/web-address/test-pay', { orderId: o1.orderId });
   const p1d = data<{ id: string; invoiceNumber: string; periodStart: string; periodEnd: string }>(p1);
@@ -165,7 +166,7 @@ async function main() {
 
   const o2 = data<{ orderId: string }>(await c.post('/web-address/order', { period: 'year' }));
   const hook = h.client({ origin: null });
-  const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_WEBYEAR1', order_id: o2.orderId, amount: 99_000, method: 'upi' } } } });
+  const raw = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_WEBYEAR1', order_id: o2.orderId, amount: 100_980, method: 'upi' } } } });
   const w1 = await hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sign(raw), 'x-razorpay-event-id': 'evt_web_1' });
   const afterYear = (await mine(c)).address?.paidUntil ?? '';
   check('the webhook pays a year → 365 more days after the month', w1.status === 200 && new Date(afterYear).getTime() === new Date(p1d.periodEnd).getTime() + 365 * DAY, code(w1));
@@ -182,6 +183,8 @@ async function main() {
   check('MedBox24 records cash → 30 more days, on the admin row', man.status === 200 && new Date(manRow.paidUntil).getTime() === new Date(afterYear).getTime() + 30 * DAY && manRow.payments[0]?.source === 'manual' && manRow.payments[0].reference === 'CASH-0412', code(man));
   const cm = await mine(c);
   check('the shop sees 3 paid payments, online in test mode', cm.payments.length === 3 && cm.payMode === 'test');
+  const cash = await WebAddressPaymentModel.findOne({ shopId: c.shopId, source: 'manual' }).lean();
+  check('cash by hand is ₹99 flat — no online payment charge', cash?.amount === 9900 && !cash.charge, JSON.stringify(cash));
   check('another shop never sees them', (await mine(b)).payments.length === 0);
 
   await WebAddressModel.updateOne({ shopId: c.shopId, slug: 'ganga' }, { $set: { paidUntil: new Date(Date.now() + 3 * DAY - 60_000) } });

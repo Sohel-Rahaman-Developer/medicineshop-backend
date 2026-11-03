@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { invoicePdf } from '../src/core/invoice-pdf';
+import { chargeRow } from '../src/modules/subscription/online-charge';
 import { rupeesInWords } from '../src/utils/words';
 
 const out = process.argv[2] ?? '.';
@@ -42,9 +43,10 @@ async function main() {
     issuer: { name: 'MedBox24 Technologies Pvt Ltd', lines: ['5 Camac Street, Kolkata 700017', 'GSTIN 19AABCM1234A1Z5 · support@medbox24.in'] },
     parties: [{ label: 'Billed to', lines: ['Shri Ram Medical Store', '14B Park Street, Kolkata, West Bengal 700016', 'GSTIN 19ABCDE1234F1Z5'] }, { label: 'Subscription', lines: ['Monthly plan · up to 5 users', 'Period 03 Oct 2026 – 02 Nov 2026', 'Paid by UPI · pay_RdX81Kq2'] }],
     columns: [{ label: '#', w: 0.4 }, { label: 'Description', w: 4 }, { label: 'SAC', w: 1, num: true }, { label: 'Taxable', w: 1.2, num: true }, { label: 'GST', w: 0.7, num: true }, { label: 'Amount', w: 1.2, num: true }],
-    rows: [{ cells: ['1', 'MedBox24 software subscription — Monthly', '998314', '₹422.88', '18%', '₹499.00'], sub: '30 days · up to 5 users · 03 Oct 2026 – 02 Nov 2026' }],
-    totals: [{ label: 'Taxable value', value: '₹422.88' }, { label: 'CGST 9%', value: '₹38.06' }, { label: 'SGST 9%', value: '₹38.06' }, { label: 'Total', value: '₹499.00', strong: true }],
-    words: rupeesInWords(49_900),
+    // v1.51.0: the 2% online payment charge as its own line (₹8.46 + ₹1.52 GST).
+    rows: [{ cells: ['1', 'MedBox24 software subscription — Monthly', '998314', '₹422.88', '18%', '₹499.00'], sub: '30 days · up to 5 users · 03 Oct 2026 – 02 Nov 2026' }, ...chargeRow(2, { bps: 200, amount: 998, gst: 152 }, '998314')],
+    totals: [{ label: 'Taxable value', value: '₹431.34' }, { label: 'CGST 9%', value: '₹38.82' }, { label: 'SGST 9%', value: '₹38.82' }, { label: 'Total', value: '₹508.98', strong: true }],
+    words: rupeesInWords(50_898),
     notes: ['Thank you for running your shop on MedBox24.', 'Questions about this invoice: support@medbox24.in'],
     footer: 'Computer-generated invoice — no signature needed · MedBox24 Technologies Pvt Ltd',
   });

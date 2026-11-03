@@ -3,7 +3,7 @@ import { AskQuestionModel } from '../ask/ask.model';
 import { ShopModel } from '../shops/shop.model';
 import { istMonth } from '../../utils/date';
 import { PROVIDER_NAME, aiSettings, priceOf } from './ai-settings';
-import { AI_MODELS, AI_PROVIDERS, AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type AiProvider } from './ai.model';
+import { AI_MODELS, AI_PROVIDERS, AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, PACK_NET, type AiProvider } from './ai.model';
 import { PAGE_IN, PAGE_OUT, checks, coinValue, roomOf, tokensFor } from './guard';
 
 // D97: the admin's money view of AI — is every price safe, what margin it really makes, and which shop (and who in it)
@@ -26,7 +26,7 @@ export async function aiMoney(now = new Date()) {
     AskQuestionModel.aggregate<Sum>([{ $match: { route: AI_ROUTES } }, { $group: { _id: '$shopId', cost: { $sum: '$costPaise' }, done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, month: month('$costPaise') } }]),
     AiReadModel.aggregate<UserSum>([{ $group: { _id: { shop: '$shopId', user: '$userName' }, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } }]),
     AskQuestionModel.aggregate<UserSum>([{ $match: { route: AI_ROUTES } }, { $group: { _id: { shop: '$shopId', user: '$userName' }, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } }]),
-    CoinOrderModel.aggregate<{ _id: Types.ObjectId; net: number; month: number }>([{ $match: { status: 'paid' } }, { $group: { _id: '$shopId', net: { $sum: { $subtract: ['$amount', '$gst'] } }, month: { $sum: { $cond: [{ $gte: ['$paidAt', since] }, { $subtract: ['$amount', '$gst'] }, 0] } } } }]),
+    CoinOrderModel.aggregate<{ _id: Types.ObjectId; net: number; month: number }>([{ $match: { status: 'paid' } }, { $group: { _id: '$shopId', net: { $sum: PACK_NET }, month: { $sum: { $cond: [{ $gte: ['$paidAt', since] }, PACK_NET, 0] } } } }]),
     CoinEntryModel.aggregate<{ _id: Types.ObjectId; coins: number }>([{ $match: { shopId: { $exists: true }, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: '$shopId', coins: { $sum: '$coins' } } }]),
     AiReadModel.aggregate<{ cost: number; pages: number }>([{ $match: { createdAt: { $gte: since }, costPaise: { $gt: 0 } } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, pages: { $sum: '$pages' } } }]),
     AskQuestionModel.aggregate<{ cost: number; n: number }>([{ $match: { createdAt: { $gte: since }, route: AI_ROUTES, costPaise: { $gt: 0 } } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } }]),

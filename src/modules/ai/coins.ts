@@ -4,13 +4,14 @@ import { AppError } from '../../core/errors';
 import { invoicePdf as invoiceDoc } from '../../core/invoice-pdf';
 import type { TenantContext } from '../../core/middleware/tenant';
 import { inTransaction } from '../../core/transaction';
-import { inr, rhu } from '../../utils/money';
+import { inr } from '../../utils/money';
 import { rupeesInWords } from '../../utils/words';
 import { checkPayment, createOrder, fetchPayment, paymentSignature, type GwPayment } from '../../services/razorpay';
 import { audit } from '../audit/audit.model';
 import { platform } from '../admin/platform';
 import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, nextInvoice, placeOf, supplier } from '../subscription/subscription.service';
 import { billingInfo, gateway } from '../subscription/gateway';
+import { chargeRow, onlineCharge, splitOf, type Charge } from '../subscription/online-charge';
 import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
 import { aiOffer, aiSettings, readyFor } from './ai-settings';
@@ -37,8 +38,9 @@ export async function balanceOf(shopId: Types.ObjectId) {
   return (await CoinWalletModel.findOne({ shopId }).lean())?.balance ?? 0;
 }
 
-const shapeOrder = (o: { _id: Types.ObjectId; packName: string; coins: number; amount: number; gst: number; status: string; invoiceNumber?: string | null; paidAt?: Date | null; createdAt: Date; failureReason?: string | null; source: string }) => ({
+const shapeOrder = (o: { _id: Types.ObjectId; packName: string; coins: number; amount: number; gst: number; status: string; invoiceNumber?: string | null; paidAt?: Date | null; createdAt: Date; failureReason?: string | null; source: string; charge?: Charge | null }) => ({
   id: String(o._id),
+  charge: splitOf(o.amount, o.charge).charge,
   packName: o.packName,
   coins: o.coins,
   amount: o.amount,
@@ -87,7 +89,7 @@ export async function wallet(t: TenantContext) {
     margin: s.targetMargin,
     balance: w?.balance ?? 0,
     held: w?.held ?? 0,
-    payments: (await gateway()).mode,
+    ...(await gateway().then((g) => ({ payments: g.mode, chargePct: g.chargeBps / 100 }))),
     ask: { available: s.chat.enabled && readyFor(s, s.chat.model), on: Boolean(w?.askAi), by: w?.askAiBy ?? null, at: w?.askAiAt ?? null, coinsPerQuestion: mine.question.most },
     questions: questions.map((q) => ({ id: String(q._id), userName: q.userName, offTopic: q.route === 'off_topic', status: q.status, free: q.free, coins: q.coins, refunded: q.refunded, error: q.error ?? null, at: q.createdAt })),
     entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })),
@@ -104,10 +106,11 @@ export async function orderCoins(t: TenantContext, actor: Actor, packCode: strin
   if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add tokens');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
+  const { amount, gst, charge } = await onlineCharge(pack.price);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
-  const orderId = await createOrder(pack.price, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
-  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount: pack.price, gst: pack.price - rhu(pack.price * 100, 118), razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount: pack.price, currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} tokens`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
+  const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
+  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount, gst, charge, razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  return { orderId, ...splitOf(amount, charge), currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} tokens`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 /** Checkout's verify and the webhook both land here: coins once per order, a second call is a no-op. */
@@ -165,6 +168,8 @@ export async function coinInvoicePdf(t: TenantContext, id: string) {
   const to = o.invoiceTo ?? (await buyerOf(o.shopId));
   const support = (await platform()).supportEmail;
   const how = o.source === 'test' ? 'Test payment' : `Paid by ${o.method ?? 'Razorpay'}${o.razorpayPaymentId ? ` · ${o.razorpayPaymentId}` : ''}`;
+  const sac = (await billingInfo()).sac;
+  const base = { amount: o.amount - (o.charge?.amount ?? 0), gst: o.gst - (o.charge?.gst ?? 0) };
   const buf = await invoiceDoc({
     size: 'A4',
     title: 'TAX INVOICE',
@@ -174,7 +179,7 @@ export async function coinInvoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'AI tokens', lines: [`${o.packName} · ${String(o.coins)} tokens`, 'For AI bill reading and AI answers', how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedBox24 AI — ${String(o.coins)} tokens`, (await billingInfo()).sac, rupees(o.amount - o.gst), '18%', rupees(o.amount)], sub: `${o.packName} pack` }],
+    rows: [{ cells: ['1', `MedBox24 AI — ${String(o.coins)} tokens`, sac, rupees(base.amount - base.gst), '18%', rupees(base.amount)], sub: `${o.packName} pack` }, ...chargeRow(2, o.charge, sac)],
     totals: [{ label: 'Taxable value', value: rupees(o.amount - o.gst) }, ...gstLines(o.gst, from, to), { label: 'Total', value: rupees(o.amount), strong: true }],
     words: rupeesInWords(o.amount),
     notes: ['Tokens do not expire and are not refundable as cash.', ...(support ? [`Questions about this invoice: ${support}`] : [])],

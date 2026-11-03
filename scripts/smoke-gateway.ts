@@ -22,8 +22,8 @@ const TEST = { keyId: 'rzp_test_AbCdEf123456', keySecret: 'tEsTsEcReT0123456789w
 const LIVE = { keyId: 'rzp_live_ZyXwVu987654', keySecret: 'LiVeSeCrEt9876543210abcd', webhookSecret: 'hook-live-1a2b3c4d' }; // gitleaks:allow
 const ENV_HOOK = 'smoke-razorpay-webhook-secret';
 
-interface Seen { method: string; url: string; auth: string }
-interface View { active: string | null; mode: string; source: string; test: { keyId: string | null; secretLast4: string | null; webhookLast4: string | null; complete: boolean }; live: { complete: boolean }; billing: { gstin: string; state: string; sac: string; legalName: string }; lastWebhook: { event: string; valid: boolean } | null }
+interface Seen { method: string; url: string; auth: string; body: string }
+interface View { chargeBps: number; chargeSet: boolean; active: string | null; mode: string; source: string; test: { keyId: string | null; secretLast4: string | null; webhookLast4: string | null; complete: boolean }; live: { complete: boolean }; billing: { gstin: string; state: string; sac: string; legalName: string }; lastWebhook: { event: string; valid: boolean } | null }
 
 /** Razorpay's answers for the calls MedBox24 makes: good keys get 200, others 401; an unknown order id 400. */
 async function startFakeRazorpay() {
@@ -31,10 +31,11 @@ async function startFakeRazorpay() {
   const good = new Set([basic(TEST.keyId, TEST.keySecret), basic(LIVE.keyId, LIVE.keySecret)]);
   let n = 0;
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    req.resume();
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const auth = req.headers.authorization ?? '';
-      seen.push({ method: req.method ?? '', url: req.url ?? '', auth });
+      seen.push({ method: req.method ?? '', url: req.url ?? '', auth, body: Buffer.concat(chunks).toString('utf8') });
       const send = (status: number, body: unknown) => {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(body));
@@ -138,6 +139,26 @@ async function main() {
   check('the admin sees the last webhook and that it was signed right', (await view()).lastWebhook?.valid === true);
   check('the switch is in the audit log', Boolean(await AdminAuditModel.exists({ action: 'gateway_switched', reason: 'start test payments' })));
   check('keys in use can’t be removed → 409', (await root.del('/admin/gateway/keys/test', { reason: 'clean up old keys' })).status === 409);
+  check('Razorpay is asked for ₹499 + the 2% online payment charge = ₹508.98', (JSON.parse(call?.body ?? '{}') as { amount?: number }).amount === 50_898, call?.body);
+
+  section('4b. The online payment charge: the super admin raises, lowers or removes it');
+  const setCharge = (bps: unknown, r = 'Razorpay fee went up') => root.put('/admin/gateway/charge', { bps, reason: r });
+  check('the Razorpay page says 2% until the admin sets one', (await view()).chargeBps === 200 && !(await view()).chargeSet);
+  check('accounts and viewers can’t change it → 403', (await acc.put('/admin/gateway/charge', { bps: 300, reason: 'Razorpay fee went up' })).status === 403 && (await viewer.put('/admin/gateway/charge', { bps: 300, reason: 'Razorpay fee went up' })).status === 403);
+  check('no reason, above 10%, a fraction of a basis point or below 0 → 422', (await root.put('/admin/gateway/charge', { bps: 300 })).status === 422 && (await setCharge(1001)).status === 422 && (await setCharge(2.5)).status === 422 && (await setCharge(-1)).status === 422);
+  const raised = await setCharge(300);
+  check('raised to 3% → saved, in the admin log as “2% → 3%”', raised.status === 200 && data<View>(raised).chargeBps === 300 && data<View>(raised).chargeSet && Boolean(await AdminAuditModel.exists({ action: 'gateway_charge', text: { $regex: '2% → 3%' }, reason: 'Razorpay fee went up' })), code(raised));
+  const askAt = async () => {
+    const from = fake.seen.length;
+    await owner.post('/subscription/order', { planCode: 'monthly' });
+    return (JSON.parse(fake.seen.slice(from).find((s) => s.url === '/v1/orders')?.body ?? '{}') as { amount?: number }).amount;
+  };
+  // 3% of ₹499 = ₹14.97.
+  check('the very next order asks Razorpay for ₹499 + ₹14.97 = ₹513.97', (await askAt()) === 51_397);
+  check('the shop’s plan screen says 3%', data<{ chargePct: number }>(await owner.get('/subscription')).chargePct === 3);
+  const removed0 = await setCharge(0, 'No charge this month');
+  check('set to 0 → the next order is ₹499 flat; logged as removed', removed0.status === 200 && (await askAt()) === 49_900 && Boolean(await AdminAuditModel.exists({ action: 'gateway_charge', text: { $regex: 'removed the online payment charge' } })));
+  await setCharge(200, 'Back to the usual 2%');
 
   section('5. Another account’s order id skips, never stops the hourly check');
   await SubscriptionPaymentModel.create({ shopId: new Types.ObjectId(owner.shopId), planCode: 'monthly', planName: 'Pro Monthly', durationDays: 30, maxUsers: 5, amount: 49_900, gst: 7_612, razorpayOrderId: 'order_FromOtherAcct', status: 'created', source: 'razorpay', createdBy: new Types.ObjectId(), createdByName: 'Rohit' });

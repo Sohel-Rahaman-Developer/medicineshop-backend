@@ -1,5 +1,6 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { tenantScoped } from '../../core/tenant-scope';
+import { chargeSchema } from '../subscription/billing.model';
 
 // D78: reading a supplier's bill with Claude, paid in coins. Settings, reads and coin orders are platform-side (the
 // admin lists them across shops, every shop-facing query filters by shopId); the wallet and its ledger are per shop.
@@ -196,6 +197,7 @@ const orderSchema = new Schema(
     /** Snapshot at order time, GST included; `gst` is the 18% inside it. */
     amount: { type: Number, required: true },
     gst: { type: Number, required: true },
+    charge: { type: chargeSchema },
     razorpayOrderId: { type: String, required: true, unique: true },
     razorpayPaymentId: { type: String },
     method: { type: String },
@@ -215,6 +217,10 @@ orderSchema.index({ shopId: 1, createdAt: -1 });
 orderSchema.index({ createdAt: -1, _id: -1 });
 orderSchema.index({ razorpayPaymentId: 1 }, { unique: true, partialFilterExpression: { razorpayPaymentId: { $type: 'string' } } });
 export const CoinOrderModel = model('CoinOrder', orderSchema);
+/** v1.51.0: what a pack sold for, without the online payment charge — that pays Razorpay, never AI. */
+export const PACK_AMOUNT = { $subtract: ['$amount', { $ifNull: ['$charge.amount', 0] }] };
+export const PACK_GST = { $subtract: ['$gst', { $ifNull: ['$charge.gst', 0] }] };
+export const PACK_NET = { $subtract: [PACK_AMOUNT, PACK_GST] };
 
 // D110: what the AI said a medicine the shop has never kept is made of — kept for this shop only, so asking again is free.
 const saltNoteSchema = new Schema(

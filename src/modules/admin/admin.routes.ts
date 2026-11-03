@@ -24,7 +24,7 @@ import { perfOverview } from '../perf/perf';
 import { aiBill, aiMoney } from '../ai/ledger';
 import * as credit from '../ai/credits';
 import { AI_MODEL_IDS, AI_PROVIDERS, type AiProvider } from '../ai/ai.model';
-import { GATEWAY_ACTIVE, GATEWAY_SETS, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
+import { GATEWAY_ACTIVE, GATEWAY_SETS, MAX_CHARGE_BPS, gateway, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
 import { STATES } from '../../utils/india';
 import { aiSettingsSchema, chatSettingsSchema, pricesSchema, type AiSettingsInput, type ChatSettingsInput, type PricesInput } from '../ai/ai-settings';
 import * as chat from '../ask/ask-admin';
@@ -155,6 +155,7 @@ adminRouter.put('/gateway/keys/:set', superOnly, validate({ params: setParams, b
 adminRouter.delete('/gateway/keys/:set', superOnly, validate({ params: setParams, body: z.object({ reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await gw.removeKeys(adminOf(req), (req.params as { set: GatewaySet }).set, (req.body as { reason: string }).reason, req.ip), 'Keys removed'); }));
 adminRouter.post('/gateway/keys/:set/test', superOnly, validate({ params: setParams }), asyncHandler(async (req: Request, res: Response) => { const r = await gw.testGatewayKeys((req.params as { set: GatewaySet }).set); sent(res, r, r.message); }));
 adminRouter.put('/gateway/active', superOnly, validate({ body: z.object({ active: z.enum(GATEWAY_ACTIVE), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { active: GatewayActive; reason: string }; sent(res, await gw.switchActive(adminOf(req), b.active, b.reason, req.ip), 'Online payments switched'); }));
+adminRouter.put('/gateway/charge', superOnly, validate({ body: z.object({ bps: z.number().int().min(0).max(MAX_CHARGE_BPS), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { bps: number; reason: string }; sent(res, await gw.updateCharge(adminOf(req), b.bps, b.reason, req.ip), 'Online payment charge saved'); }));
 adminRouter.put('/gateway/billing', superOnly, validate({ body: billingBody }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as BillingInput & { reason: string }; sent(res, await gw.updateBilling(adminOf(req), { gstin: b.gstin, state: b.state, sac: b.sac }, b.reason, req.ip), 'Invoice details saved'); }));
 
 // D80: referral program — the terms are super's; who referred a shop is support's (shops role).
@@ -277,7 +278,7 @@ adminRouter.get('/audit', validate({ query: z.object({ cursor: z.string().max(40
 
 /** Public: the maintenance banner, support contacts and the trial, for the shop app and the public site. */
 export const platformRouter = Router();
-platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const [p, web, left] = await Promise.all([platform(), webPrices(), freeForLifeLeft()]); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers, graceDays: p.graceDays, legalName: p.legalName, address: p.address, grievanceOfficer: p.grievanceOfficer, webAddress: { price: web.month, freeForLife: FREE_FOR_LIFE, freeLeft: left } }); }));
+platformRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { const [p, web, left, g] = await Promise.all([platform(), webPrices(), freeForLifeLeft(), gateway()]); fetched(res, { maintenance: p.maintenance, supportEmail: p.supportEmail, supportPhone: p.supportPhone, trialDays: p.trialDays, trialMaxUsers: p.trialMaxUsers, graceDays: p.graceDays, legalName: p.legalName, address: p.address, grievanceOfficer: p.grievanceOfficer, webAddress: { price: web.month, freeForLife: FREE_FOR_LIFE, freeLeft: left }, onlineChargePct: g.chargeBps / 100 }); }));
 
 /** Shop side (owner): see MedBox24's requests, approve / deny / stop. */
 export const supportAccessRouter = Router();

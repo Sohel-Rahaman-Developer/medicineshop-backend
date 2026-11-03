@@ -1,6 +1,7 @@
 import { STATES } from '../../utils/india';
 import { WebhookEventModel } from '../subscription/billing.model';
-import { clearKeys, gatewaySettings, saveBilling, saveKeys, setActive, testKeys, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
+import { pctText } from '../subscription/online-charge';
+import { clearKeys, gatewaySettings, saveBilling, saveCharge, saveKeys, setActive, testKeys, type BillingInput, type GatewayActive, type GatewaySet, type KeysInput } from '../subscription/gateway';
 import type { AdminActor } from './admin-auth';
 import { log } from './admin.service';
 
@@ -39,6 +40,14 @@ export async function updateBilling(a: AdminActor, input: BillingInput, reason: 
   const before = (await gatewaySettings()).billingSet;
   await saveBilling(input, a.name);
   await log(a, 'gateway_billing', reason, `invoice details: GSTIN ${input.gstin || '—'}, ${input.state}, SAC ${input.sac}`, undefined, { before, after: input }, ip);
+  return gatewayOverview();
+}
+
+/** v1.51.0: the online payment charge — new orders use it at once; orders already made and running autopays keep theirs. */
+export async function updateCharge(a: AdminActor, bps: number, reason: string, ip?: string) {
+  const before = (await gatewaySettings()).chargeBps;
+  await saveCharge(bps, a.name);
+  await log(a, 'gateway_charge', reason, bps ? `online payment charge ${pctText(before)} → ${pctText(bps)}` : `removed the online payment charge (was ${pctText(before)})`, undefined, { before, after: bps }, ip);
   return gatewayOverview();
 }
 

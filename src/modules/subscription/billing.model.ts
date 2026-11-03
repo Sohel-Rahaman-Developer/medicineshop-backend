@@ -46,6 +46,9 @@ const refundSchema = new Schema({
   at: { type: Date, required: true },
 });
 
+/** v1.51.0: the online payment charge inside `amount` (its own 18% GST inside `gst`); none on money taken by hand. */
+export const chargeSchema = new Schema({ bps: { type: Number, required: true }, amount: { type: Number, required: true }, gst: { type: Number, required: true } }, { _id: false });
+
 /** One side of a tax invoice, frozen when the invoice is made (CGST Rule 46). */
 const partySchema = new Schema({ name: String, address: String, gstin: String, state: String, stateCode: String }, { _id: false });
 
@@ -70,6 +73,7 @@ const paymentSchema = new Schema(
     continued: { type: Boolean },
     /** D80: a referral discount taken off the plan price; `amount` above is what was charged. */
     discount: { type: new Schema({ kind: { type: String, enum: ['welcome', 'reward'], required: true }, pct: { type: Number, required: true }, off: { type: Number, required: true }, listAmount: { type: Number, required: true }, referralId: { type: Schema.Types.ObjectId, required: true } }, { _id: false }) },
+    charge: { type: chargeSchema },
     invoiceNumber: { type: String },
     invoiceFrom: { type: partySchema },
     invoiceTo: { type: partySchema },
@@ -105,6 +109,8 @@ const autopaySchema = new Schema(
     planName: { type: String, required: true },
     /** The price it was set up at, GST included — Razorpay charges this until it is stopped. */
     amount: { type: Number, required: true },
+    /** v1.51.0: the online payment charge inside `amount`, copied onto each charge's payment. */
+    charge: { type: chargeSchema },
     durationDays: { type: Number, required: true },
     maxUsers: { type: Number, required: true },
     rzpSubscriptionId: { type: String, required: true, unique: true },

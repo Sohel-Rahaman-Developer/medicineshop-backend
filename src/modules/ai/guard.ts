@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import { AppError } from '../../core/errors';
 import { AskQuestionModel } from '../ask/ask.model';
 import { priceOf, type AiSettings, type Price } from './ai-settings';
-import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type AiModelId } from './ai.model';
+import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, PACK_NET, type AiModelId } from './ai.model';
 
 // D97: AI never costs MedBox24 more than the coins bring in. Every read and question has a worst case fixed before it
 // starts (its token caps); a price that could lose money can't be saved and can't run; and each shop's total AI cost
@@ -84,7 +84,7 @@ export async function roomOf(shopId: Types.ObjectId, s: AiSettings): Promise<Roo
   const old = s.oldCoinPaise ?? coin;
   const since = s.tokensAt ?? new Date(8.64e15);
   const [paid, gifts, wallet, reads, asks] = await Promise.all([
-    CoinOrderModel.aggregate<{ net: number }>([{ $match: { shopId, status: 'paid' } }, { $group: { _id: null, net: { $sum: { $subtract: ['$amount', '$gst'] } } } }]),
+    CoinOrderModel.aggregate<{ net: number }>([{ $match: { shopId, status: 'paid' } }, { $group: { _id: null, net: { $sum: PACK_NET } } }]),
     CoinEntryModel.aggregate<{ _id: boolean; coins: number }>([{ $match: { shopId, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: { $lt: ['$createdAt', since] }, coins: { $sum: '$coins' } } }]),
     CoinWalletModel.findOne({ shopId }).select('askFree freeTotalPaise oldFreeGone').lean(),
     AiReadModel.aggregate<{ cost: number; runningPages: number }>([{ $match: { shopId } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, runningPages: { $sum: { $cond: [{ $eq: ['$status', 'running'] }, '$pages', 0] } } } }]),

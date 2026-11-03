@@ -22,6 +22,7 @@ import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
 import { priceFor } from './terms';
 import { allFeatures, type Feature, type Tier } from './features';
 import { ensurePlans } from './plan-access';
+import { chargeRow, onlineCharge, splitOf, type Charge } from './online-charge';
 export { forgetTiers } from './plan-access';
 import { afterPaid, discountFor, withOffer, type Offer } from '../referral/referral.service';
 
@@ -46,7 +47,7 @@ export async function allPlans() {
   return (await PlanModel.find({}).sort({ isActive: -1, sortOrder: 1 }).lean()).map(shapePlan);
 }
 
-interface PaymentRow { _id: Types.ObjectId; planName: string; amount: number; gst: number; status: string; razorpayOrderId: string; razorpayPaymentId?: string | null; periodStart?: Date | null; periodEnd?: Date | null; invoiceNumber?: string | null; source: string; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null; refunded?: number; refunds?: { _id: Types.ObjectId; amount: number; status: string; creditNote?: string | null; daysRemoved: number; at: Date }[]; dispute?: { status?: string | null } | null; discount?: { kind: string; pct: number; off: number; listAmount: number } | null }
+interface PaymentRow { _id: Types.ObjectId; planName: string; amount: number; gst: number; status: string; razorpayOrderId: string; razorpayPaymentId?: string | null; periodStart?: Date | null; periodEnd?: Date | null; invoiceNumber?: string | null; source: string; createdAt?: Date; paidAt?: Date | null; failureReason?: string | null; refunded?: number; refunds?: { _id: Types.ObjectId; amount: number; status: string; creditNote?: string | null; daysRemoved: number; at: Date }[]; dispute?: { status?: string | null } | null; discount?: { kind: string; pct: number; off: number; listAmount: number } | null; charge?: Charge | null }
 export function shapePayment(p: PaymentRow) {
   return {
     id: String(p._id), planName: p.planName, amount: p.amount, gst: p.gst, status: p.status, orderId: p.razorpayOrderId, paymentId: p.razorpayPaymentId ?? null, periodStart: p.periodStart ?? null, periodEnd: p.periodEnd ?? null, invoiceNumber: p.invoiceNumber ?? null, source: p.source, createdAt: p.createdAt ?? null, paidAt: p.paidAt ?? null, failureReason: p.failureReason ?? null,
@@ -54,6 +55,7 @@ export function shapePayment(p: PaymentRow) {
     refunds: (p.refunds ?? []).map((r) => ({ id: String(r._id), amount: r.amount, status: r.status, creditNote: r.creditNote ?? null, daysRemoved: r.daysRemoved, at: r.at })),
     dispute: p.dispute?.status ?? null,
     discount: p.discount ? { kind: p.discount.kind, pct: p.discount.pct, off: p.discount.off, listAmount: p.discount.listAmount } : null,
+    charge: splitOf(p.amount, p.charge).charge,
   };
 }
 
@@ -96,6 +98,7 @@ export async function current(t: TenantContext, now = new Date()) {
     autopay,
     payments: g.mode,
     keyId: g.mode === 'razorpay' ? g.keyId : null,
+    chargePct: g.chargeBps / 100,
   };
 }
 
@@ -105,11 +108,13 @@ export async function order(t: TenantContext, actor: Actor, planCode: string) {
   const plan = (await plansFor(t.shopId)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   const offer = await discountFor(t.shopId);
-  const { amount, off } = withOffer(plan.price, offer);
+  const { amount: price, off } = withOffer(plan.price, offer);
+  // The referral discount first, then the online payment charge on what is left.
+  const { amount, gst, charge } = await onlineCharge(price);
   const receipt = `${String(t.shopId).slice(-8)}-${Date.now().toString(36)}`;
   const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), planCode: plan.code });
-  await SubscriptionPaymentModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount, gst: amount - rhu(amount * 100, 118), discount: discountRecord(offer, off, plan.price), razorpayOrderId: orderId, status: 'created', source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
-  return { orderId, amount, currency: 'INR', planName: plan.name, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
+  await SubscriptionPaymentModel.create({ shopId: t.shopId, planCode: plan.code, planName: plan.name, durationDays: plan.durationDays, maxUsers: plan.maxUsers, amount, gst, charge, discount: discountRecord(offer, off, plan.price), razorpayOrderId: orderId, status: 'created', source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  return { orderId, ...splitOf(amount, charge), currency: 'INR', planName: plan.name, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
 const discountRecord = (o: Offer | null, off: number, listAmount: number) => (o && off ? { kind: o.kind, pct: o.pct, off, listAmount, referralId: o.referralId } : undefined);
@@ -304,6 +309,8 @@ export async function invoicePdf(t: TenantContext, id: string) {
   const support = (await platform()).supportEmail;
   const period = `${day(p.periodStart)} – ${day(p.periodEnd)}`;
   const how = p.source === 'test' ? 'Test payment' : p.source === 'manual' ? `Paid outside Razorpay${p.reference ? ` · ${p.reference}` : ''}` : `Paid by ${p.method ?? 'Razorpay'}${p.razorpayPaymentId ? ` · ${p.razorpayPaymentId}` : ''}`;
+  const sac = (await billingInfo()).sac;
+  const plan = { amount: p.amount - (p.charge?.amount ?? 0), gst: p.gst - (p.charge?.gst ?? 0) };
   const buf = await invoiceDoc({
     size: 'A4',
     title: 'TAX INVOICE',
@@ -313,7 +320,7 @@ export async function invoicePdf(t: TenantContext, id: string) {
     logo: true,
     parties: [billedTo(to), { label: 'Subscription', lines: [`${p.planName} plan · up to ${String(p.maxUsers)} users`, `Period ${period}`, how] }],
     columns: SUB_COLUMNS,
-    rows: [{ cells: ['1', `MedBox24 software subscription — ${p.planName}`, (await billingInfo()).sac, rupees(p.amount - p.gst), '18%', rupees(p.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }],
+    rows: [{ cells: ['1', `MedBox24 software subscription — ${p.planName}`, sac, rupees(plan.amount - plan.gst), '18%', rupees(plan.amount)], sub: `${String(p.durationDays)} days · up to ${String(p.maxUsers)} users · ${period}${p.discount ? ` · price ${inr(p.discount.listAmount)} less ${String(p.discount.pct)}% referral discount ${inr(p.discount.off)}` : ''}` }, ...chargeRow(2, p.charge, sac)],
     totals: [{ label: 'Taxable value', value: rupees(p.amount - p.gst) }, ...gstLines(p.gst, from, to), { label: 'Total', value: rupees(p.amount), strong: true }],
     words: rupeesInWords(p.amount),
     notes: ['Thank you for running your shop on MedBox24.', ...(support ? [`Questions about this invoice: ${support}`] : [])],

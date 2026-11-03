@@ -17,9 +17,11 @@ const shopBody = (name: string, state = 'West Bengal') => ({
 interface Autopay { status: string; planCode: string; amount: number; startAt: string | null; paidCount: number; running: boolean }
 interface Sub { status: string; planCode: string; endDate: string; autopay: Autopay | null }
 interface Pay { id: string; status: string; source: string; invoiceNumber: string | null; refunded: number; refunds: { id: string; amount: number; status: string; creditNote: string | null; daysRemoved: number }[]; dispute: string | null; paymentId: string | null }
-interface Start { subscriptionId: string; amount: number; startAt: string | null; mode: string }
+interface Start { subscriptionId: string; amount: number; price: number; charge: { pct: number; amount: number } | null; startAt: string | null; mode: string }
 
 const DAY = 86_400_000;
+// v1.51.0: Pro Monthly ₹499 + the 2% online payment charge ₹9.98 — what autopay charges.
+const MONTH = 50_898;
 const sign = (secret: string, body: string) => createHmac('sha256', secret).update(body).digest('hex');
 const KEY = 'smoke-razorpay-key-secret';
 const HOOK = 'smoke-razorpay-webhook-secret';
@@ -57,7 +59,8 @@ async function main() {
   section('1. Turn on autopay from a trial: the approval is the first charge');
   const a0 = await owner.post('/subscription/autopay', { planCode: 'monthly' });
   const s0 = data<Start>(a0);
-  check('owner starts Monthly autopay → a subscription, first charge now', a0.status === 201 && s0.subscriptionId.startsWith('sub_test_') && s0.startAt === null && s0.amount === 49_900, code(a0));
+  check('owner starts Monthly autopay → a subscription, first charge now', a0.status === 201 && s0.subscriptionId.startsWith('sub_test_') && s0.startAt === null && s0.amount === MONTH, code(a0));
+  check('the mandate is ₹499 + ₹9.98 online payment charge (2%) — shown split before approving', s0.price === 49_900 && s0.charge?.pct === 2 && s0.charge.amount === 998, JSON.stringify(s0));
   check('not approved yet → the Plan screen shows no autopay', (await sub()).autopay === null);
   check('manager can’t turn it on → 403', (await manager.post('/subscription/autopay', { planCode: 'monthly' })).status === 403);
   const again = data<Start>(await owner.post('/subscription/autopay', { planCode: 'monthly' }));
@@ -73,6 +76,8 @@ async function main() {
   check('signed approval → active Monthly, 30 days, autopay active (1 charge)', ok.status === 200 && v1.status === 'active' && v1.planCode === 'monthly' && near(v1.endDate, Date.now() + 30 * DAY) && v1.autopay?.status === 'active' && v1.autopay.paidCount === 1, `${code(ok)} ${JSON.stringify(v1)}`);
   const p1 = (await pays())[0];
   check('the charge is an autopay payment with its own tax invoice', p1?.source === 'autopay' && /^MS-/.test(p1.invoiceNumber ?? ''), JSON.stringify(p1));
+  const row1 = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: pay1 }).lean();
+  check('each autopay charge keeps the split: ₹508.98 with ₹76.12 + ₹1.52 GST, ₹9.98 of it the charge', row1?.amount === MONTH && row1.gst === 7_764 && row1.charge?.amount === 998 && row1.charge.gst === 152, JSON.stringify(row1));
   check('shop log: who turned autopay on', Boolean(await AuditLogModel.exists({ shopId, text: { $regex: 'turned on autopay' } })));
   const conflict = await owner.post('/subscription/autopay', { planCode: 'yearly' });
   check('a second autopay while one runs → 409 AUTOPAY_ON', conflict.status === 409 && reason(conflict) === 'AUTOPAY_ON', code(conflict));
@@ -80,18 +85,18 @@ async function main() {
   section('2. Renewals arrive by webhook, once each');
   const end1 = new Date(v1.endDate).getTime();
   const e1 = 'evt_charge_2';
-  const c2 = await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 49_900 }), e1);
+  const c2 = await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: MONTH }), e1);
   const v2 = await sub();
   check('subscription.charged → 30 more days after the running month', c2.status === 200 && near(v2.endDate, end1 + 30 * DAY) && v2.autopay?.paidCount === 2 && (await result(e1)) === 'charged', `${code(c2)} ${v2.endDate}`);
-  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 49_900 }), e1);
+  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: MONTH }), e1);
   const again2 = 'evt_charge_2b';
-  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: 49_900 }), again2);
+  await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0002', amount: MONTH }), again2);
   check('same event again, or the same payment under a new event → no extra days', (await sub()).endDate === v2.endDate && (await result(again2)) === 'already paid' && (await SubscriptionPaymentModel.countDocuments({ shopId, source: 'autopay', status: 'paid' })) === 2);
   const wrong = 'evt_charge_bad';
   await send(subEvent('subscription.charged', s1.subscriptionId, { id: 'pay_AUTO0003', amount: 100 }), wrong);
   check('a charge for the wrong amount → refused, no days', (await sub()).endDate === v2.endDate && ((await result(wrong)) ?? '').startsWith('error'), await result(wrong));
   const cap = 'evt_cap_other';
-  await send({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_AUTO0002', order_id: 'order_rzp_pay_AUTO0002', amount: 49_900, method: 'upi' } } } }, cap);
+  await send({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_AUTO0002', order_id: 'order_rzp_pay_AUTO0002', amount: MONTH, method: 'upi' } } } }, cap);
   check('payment.captured for the charge (Razorpay’s own order) → ignored, not an error', (await result(cap)) === 'ignored: not our order');
 
   section('3. Failures and the order of events');
@@ -142,28 +147,28 @@ async function main() {
   const r1 = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 10_000, removeDays: false, reason: 'Charged a day early' });
   const f1 = (await pays()).find((p) => p.id === first.id);
   check('partial ₹100 → processed, credit note CN-<FY>-00001 (≤ 16 characters), plan days unchanged', r1.status === 200 && f1?.refunded === 10_000 && f1.refunds[0]?.status === 'processed' && /^CN-\d{4}-\d{2}-\d{5}$/.test(f1.refunds[0].creditNote ?? '') && (f1.refunds[0].creditNote ?? '').length <= 16 && (await sub()).endDate === endBefore, code(r1));
-  const over = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 40_000, removeDays: false, reason: 'Too much money' });
-  check('more than what is left (₹399) → 422', over.status === 422, code(over));
-  const r2 = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 39_900, removeDays: false, reason: 'Shop closed down' });
+  const over = await acc.post(`/admin/payments/${first.id}/refund`, { amount: 41_000, removeDays: false, reason: 'Too much money' });
+  check('more than what is left (₹408.98) → 422', over.status === 422, code(over));
+  const r2 = await acc.post(`/admin/payments/${first.id}/refund`, { amount: MONTH - 10_000, removeDays: false, reason: 'Shop closed down' });
   const f2 = (await pays()).find((p) => p.id === first.id);
-  check('the rest → fully refunded: 30 plan days come off, second credit note', r2.status === 200 && f2?.refunded === 49_900 && f2.refunds[1]?.daysRemoved === 30 && near((await sub()).endDate, new Date(endBefore).getTime() - 30 * DAY) && f2.refunds[1].creditNote !== f2.refunds[0]?.creditNote, code(r2));
+  check('the rest → fully refunded: 30 plan days come off, second credit note', r2.status === 200 && f2?.refunded === MONTH && f2.refunds[1]?.daysRemoved === 30 && near((await sub()).endDate, new Date(endBefore).getTime() - 30 * DAY) && f2.refunds[1].creditNote !== f2.refunds[0]?.creditNote, code(r2));
   const cn = await owner.raw('GET', `/subscription/payments/${first.id}/credit-notes/${f2?.refunds[0]?.id ?? ''}`);
   check('owner downloads the credit note (PDF)', cn.status === 200 && (cn.headers.get('content-type') ?? '').includes('pdf'), String(cn.status));
-  check('admin log and the shop’s log both record the refund', Boolean(await AdminAuditModel.exists({ action: 'refund', reason: 'Shop closed down' })) && Boolean(await AuditLogModel.exists({ shopId, text: { $regex: 'refunded ₹399' } })));
-  const [x, y2] = await Promise.all([1, 2].map(() => acc.post(`/admin/payments/${second.id}/refund`, { amount: 49_900, removeDays: false, reason: 'Two clicks at once' })));
+  check('admin log and the shop’s log both record the refund', Boolean(await AdminAuditModel.exists({ action: 'refund', reason: 'Shop closed down' })) && Boolean(await AuditLogModel.exists({ shopId, text: { $regex: 'refunded ₹408.98' } })));
+  const [x, y2] = await Promise.all([1, 2].map(() => acc.post(`/admin/payments/${second.id}/refund`, { amount: MONTH, removeDays: false, reason: 'Two clicks at once' })));
   const f3 = (await pays()).find((p) => p.id === second.id);
-  check('two refunds of the full amount at once → one goes through', [x?.status, y2?.status].filter((s) => s === 200).length === 1 && f3?.refunded === 49_900 && f3.refunds.filter((r) => r.status !== 'failed').length === 1, `${String(x?.status)} ${String(y2?.status)}`);
+  check('two refunds of the full amount at once → one goes through', [x?.status, y2?.status].filter((s) => s === 200).length === 1 && f3?.refunded === MONTH && f3.refunds.filter((r) => r.status !== 'failed').length === 1, `${String(x?.status)} ${String(y2?.status)}`);
 
   section('6. A refund the bank fails, and disputes');
   const endF = (await sub()).endDate;
   const rf = (await SubscriptionPaymentModel.findById(second.id).lean())?.refunds.find((r) => r.status !== 'failed');
-  await send({ event: 'refund.failed', payload: { refund: { entity: { id: rf?.rzpRefundId, payment_id: 'pay_AUTO0002', amount: 49_900, status: 'failed' } } } });
+  await send({ event: 'refund.failed', payload: { refund: { entity: { id: rf?.rzpRefundId, payment_id: 'pay_AUTO0002', amount: MONTH, status: 'failed' } } } });
   const f4 = (await pays()).find((p) => p.id === second.id);
   check('refund.failed → the money count and the 30 days come back', f4?.refunded === 0 && near((await sub()).endDate, new Date(endF).getTime() + 30 * DAY), `${String(f4?.refunded)} ${(await sub()).endDate}`);
   await send({ event: 'refund.failed', payload: { refund: { entity: { id: rf?.rzpRefundId } } } });
   check('the same failure twice → no double days, the money count stays right', (await pays()).find((p) => p.id === second.id)?.refunded === 0 && near((await sub()).endDate, new Date(endF).getTime() + 30 * DAY));
   const endD = (await sub()).endDate;
-  await send({ event: 'payment.dispute.created', payload: { dispute: { entity: { id: 'disp_1', payment_id: 'pay_AUTO0002', amount: 49_900, reason_code: 'fraud' } } } });
+  await send({ event: 'payment.dispute.created', payload: { dispute: { entity: { id: 'disp_1', payment_id: 'pay_AUTO0002', amount: MONTH, reason_code: 'fraud' } } } });
   check('dispute opened → recorded, days unchanged', (await pays()).find((p) => p.id === second.id)?.dispute === 'open' && (await sub()).endDate === endD);
   await send({ event: 'payment.dispute.lost', payload: { dispute: { entity: { id: 'disp_1', payment_id: 'pay_AUTO0002' } } } });
   await send({ event: 'payment.dispute.lost', payload: { dispute: { entity: { id: 'disp_1', payment_id: 'pay_AUTO0002' } } } });
@@ -197,7 +202,7 @@ async function main() {
 
   const end0 = new Date((await sub2()).endDate).getTime();
   testGateway.subscriptions.set(subB, { paid_count: 2, status: 'active' });
-  testGateway.invoices.set(subB, [{ payment_id: payB1, amount: 49_900, status: 'paid' }, { payment_id: 'pay_B0000002', amount: 49_900, status: 'paid' }]);
+  testGateway.invoices.set(subB, [{ payment_id: payB1, amount: MONTH, status: 'paid' }, { payment_id: 'pay_B0000002', amount: MONTH, status: 'paid' }]);
   const later = new Date(Date.now() + 15 * 60_000);
   const rc1 = await reconcile(later);
   check('a renewal whose webhook never came → the reconcile books it (+30 days)', rc1.charges === 1 && near((await sub2()).endDate, end0 + 30 * DAY) && (await sub2()).autopay?.paidCount === 2, JSON.stringify(rc1));
@@ -206,10 +211,10 @@ async function main() {
   const endB1 = new Date((await sub2()).endDate).getTime();
   const o = data<{ orderId: string }>(await own2.post('/subscription/order', { planCode: 'monthly' }));
   const payO = 'pay_ONCE00001';
-  testGateway.payments.set(payO, { id: payO, amount: 49_900, status: 'authorized', method: 'upi' });
+  testGateway.payments.set(payO, { id: payO, amount: MONTH, status: 'authorized', method: 'upi' });
   const vo = await own2.post('/subscription/verify', { orderId: o.orderId, paymentId: payO, signature: sign(KEY, `${o.orderId}|${payO}`) });
   check('a valid signature on a payment not yet captured → "confirming", no days yet', vo.status === 200 && data<{ confirming: boolean }>(vo).confirming && near((await sub2()).endDate, endB1), code(vo));
-  testGateway.orderPayments.set(o.orderId, [{ id: payO, amount: 49_900, status: 'captured', method: 'upi' }]);
+  testGateway.orderPayments.set(o.orderId, [{ id: payO, amount: MONTH, status: 'captured', method: 'upi' }]);
   const rc2 = await reconcile(later);
   check('captured later, webhook lost → the reconcile books it once (+30 days)', rc2.orders === 1 && near((await sub2()).endDate, endB1 + 30 * DAY) && (await reconcile(later)).orders === 0, JSON.stringify(rc2));
 

@@ -10,7 +10,7 @@ import { ShopModel } from '../shops/shop.model';
 import { GeminiError, modelInfo } from '../../services/gemini';
 import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, readyFor, saveAiSettings, setApiKey, setGeminiPaid, type AiSettingsInput } from './ai-settings';
 import type { AiModelId, AiProvider } from './ai.model';
-import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } from './ai.model';
+import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, PACK_AMOUNT, PACK_GST } from './ai.model';
 import { moveCoins } from './coins';
 import { upcomingPrices } from './price-changes';
 import { aiStatus, type Feature } from './status';
@@ -25,8 +25,8 @@ export async function aiOverview(now = new Date()) {
     aiSettings(now),
     AiReadModel.aggregate<{ _id: string; n: number; pages: number; coins: number; cost: number }>([{ $group: { _id: '$status', n: { $sum: 1 }, pages: { $sum: '$pages' }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, cost: { $sum: '$costPaise' } } }]),
     AiReadModel.aggregate<{ n: number; coins: number; cost: number }>([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: null, n: { $sum: 1 }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, cost: { $sum: '$costPaise' } } }]),
-    CoinOrderModel.aggregate<{ amount: number; gst: number; coins: number; n: number }>([{ $match: { status: 'paid' } }, { $group: { _id: null, amount: { $sum: '$amount' }, gst: { $sum: '$gst' }, coins: { $sum: '$coins' }, n: { $sum: 1 } } }]),
-    CoinOrderModel.aggregate<{ amount: number; gst: number }>([{ $match: { status: 'paid', paidAt: { $gte: since } } }, { $group: { _id: null, amount: { $sum: '$amount' }, gst: { $sum: '$gst' } } }]),
+    CoinOrderModel.aggregate<{ amount: number; gst: number; coins: number; n: number }>([{ $match: { status: 'paid' } }, { $group: { _id: null, amount: { $sum: PACK_AMOUNT }, gst: { $sum: PACK_GST }, coins: { $sum: '$coins' }, n: { $sum: 1 } } }]),
+    CoinOrderModel.aggregate<{ amount: number; gst: number }>([{ $match: { status: 'paid', paidAt: { $gte: since } } }, { $group: { _id: null, amount: { $sum: PACK_AMOUNT }, gst: { $sum: PACK_GST } } }]),
     CoinWalletModel.aggregate<{ coins: number; shops: number }>([{ $match: { shopId: { $exists: true } } }, { $group: { _id: null, coins: { $sum: '$balance' }, shops: { $sum: { $cond: [{ $gt: ['$balance', 0] }, 1, 0] } } } }]),
   ]);
   const by = (s: string) => reads.find((r) => r._id === s);

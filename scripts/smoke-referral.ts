@@ -81,7 +81,8 @@ async function main() {
   check('Plan shows the welcome 10%: Monthly ₹499 → pay ₹449 (whole rupees)', sb.offer?.kind === 'welcome' && sb.offer.pct === 10 && monthly?.price === 49_900 && monthly.pay === 44_900, JSON.stringify(sb.offer));
   check('Shri Ram itself has nothing to take yet', (await sub(a)).offer === null);
   const p1 = await payPlan(b, 'monthly');
-  check('the order and the payment are ₹449; GST is worked out on ₹449', p1.order.amount === 44_900 && p1.pay.amount === 44_900 && p1.pay.gst === 44_900 - Math.round((44_900 * 100) / 118), JSON.stringify(p1.pay));
+  // v1.51.0: the discount first, then 2% on what is left — ₹449 + ₹8.98 (charging first would make ₹458.08).
+  check('the order is ₹449 + 2% online payment charge ₹8.98 = ₹457.98; GST worked out on each part', p1.order.amount === 45_798 && p1.pay.amount === 45_798 && p1.pay.gst === 6_849 + 137, JSON.stringify(p1.pay));
   check('the payment says what came off: welcome 10% = ₹50 of ₹499', p1.pay.discount?.kind === 'welcome' && p1.pay.discount.pct === 10 && p1.pay.discount.off === 5_000 && p1.pay.discount.listAmount === 49_900);
   const inv = await b.get(`/subscription/payments/${p1.pay.id}/invoice`);
   check('its tax invoice downloads', inv.status === 200 && inv.headers.get('content-type') === 'application/pdf', code(inv));
@@ -107,14 +108,14 @@ async function main() {
   const sa = await sub(a);
   check('Shri Ram’s plan screen: reward 10% → Yearly ₹3,600 → pay ₹3,240', sa.offer?.kind === 'reward' && sa.offer.pct === 10 && sa.plans.find((p) => p.code === 'yearly')?.pay === 324_000, JSON.stringify(sa.offer));
   const pa = await payPlan(a, 'monthly');
-  check('Shri Ram pays Monthly with the reward → ₹449, reward used on that payment', pa.pay.amount === 44_900 && pa.pay.discount?.kind === 'reward' && (await refOf(b.id))?.reward === 'used' && String((await refOf(b.id))?.rewardPaymentId) === pa.pay.id);
+  check('Shri Ram pays Monthly with the reward → ₹449 + ₹8.98 charge, reward used on that payment', pa.pay.amount === 45_798 && pa.pay.discount?.kind === 'reward' && (await refOf(b.id))?.reward === 'used' && String((await refOf(b.id))?.rewardPaymentId) === pa.pay.id);
   check('the next payment is full price again (one reward, one payment)', (await sub(a)).offer === null);
 
   section('4. Yearly qualifies at once; two rewards are two payments');
   const d = await ownerOf('dev@ref1.test', 'Dev Pharmacy', ma.code);
   const e = await ownerOf('esha@ref1.test', 'Esha Medicals', ma.code);
   const pd = await payPlan(d, 'yearly');
-  check('Dev pays Yearly with the welcome → ₹3,240, and qualifies with one payment (365 ≥ 90)', pd.pay.amount === 324_000 && (await refOf(d.id))?.status === 'qualified');
+  check('Dev pays Yearly with the welcome → ₹3,240 + ₹64.80 charge, and qualifies with one payment (365 ≥ 90)', pd.pay.amount === 330_480 && (await refOf(d.id))?.status === 'qualified');
   await payPlan(e, 'yearly');
   check('Esha too → Shri Ram has 2 rewards ready', (await mine(a)).rewardsReady === 2);
   const pa2 = await payPlan(a, 'monthly');
@@ -179,7 +180,7 @@ async function main() {
     return login('acc@medshop.test');
   })();
   const man = await acc.post('/admin/payments/manual', { shopId: b.id, planCode: 'monthly', reference: 'UTR 4455', reason: 'Paid by bank transfer' });
-  check('a payment the accounts desk records takes the reward too: ₹499 − 15% = ₹424', man.status === 200 && data<Pay>(man).amount === 42_400 && data<Pay>(man).discount?.kind === 'reward', code(man));
+  check('a payment the accounts desk records takes the reward too: ₹499 − 15% = ₹424, and no online payment charge', man.status === 200 && data<Pay>(man).amount === 42_400 && !(data<Pay>(man) as Pay & { charge?: unknown }).charge && data<Pay>(man).discount?.kind === 'reward', code(man));
   const removeFrom = await ownerOf('isha@ref1.test', 'Isha Pharma');
   await help.put(`/admin/shops/${removeFrom.id}/referrer`, { referrerShopId: a.id, reason: 'Owner called us' });
   const rm = await help.put(`/admin/shops/${removeFrom.id}/referrer`, { referrerShopId: null, reason: 'Owner was wrong' });

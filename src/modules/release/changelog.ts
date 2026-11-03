@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.51.0',
+    date: '2026-11-03',
+    title: 'A 2% online payment charge, shown before you pay',
+    shop: [
+      'Paying online through Razorpay (UPI, card or net banking) adds a 2% online payment charge — for a plan, autopay, the web address, your own domain and AI tokens. On Pro Monthly that is ₹499 + ₹9.98 = ₹508.98.',
+      'Every Pay button now opens a short check first: the price, the online payment charge with its working (2% of ₹499.00 = ₹9.98) and what you pay. Nothing is charged until you tap Pay there.',
+      'The tax invoice shows the charge as its own line with its GST, and the payment lists say how much of each payment was the charge.',
+      'A referral discount comes off first; the charge is worked out on what is left (₹449 + ₹8.98).',
+      'An autopay you start now includes the charge in its amount; one already running keeps the amount it started with.',
+      'The website, the Terms and medbox24.in/llms.txt say so.',
+    ],
+    admin: [
+      'Razorpay → Online payment charge: raise it, lower it, or set 0 to remove it, with a reason (super admin). The panel shows the working on a ₹499 plan and whether the charge covers Razorpay’s fee (about 2.87% does).',
+      'Money you record by hand (cash, bank transfer) never has the charge. AI money views and the AI guard count token packs without it.',
+    ],
+    api: ['Orders and autopay starts give price, charge { pct, amount } and amount (what Razorpay takes). Payments, web address payments and token orders carry charge. GET /subscription, /web-address and /ai/coins give chargePct; GET /platform gives onlineChargePct. PUT /admin/gateway/charge { bps, reason } (0–1000).'],
+  },
+  {
     version: '1.50.0',
     date: '2026-11-02',
     title: 'One Pro plan at ₹499 a month, and your own web address free for the first 50 shops',
