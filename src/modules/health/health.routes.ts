@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { supportsTransactions } from '../../config/db';
 import { env } from '../../config/env';
 import { release } from '../release/release';
+import { mailState } from '../../services/mail-health';
 
 export const healthRouter = Router();
 
@@ -29,8 +30,8 @@ async function pingMs(): Promise<number | null> {
 
 healthRouter.get('/', (_req, res, next) => {
   const dbState = DB_STATE[mongoose.connection.readyState] ?? 'unknown';
-  (dbState === 'connected' ? pingMs() : Promise.resolve(null))
-    .then((ping) => {
+  Promise.all([dbState === 'connected' ? pingMs() : Promise.resolve(null), mailState().then((m) => m.state, () => 'unknown' as const)])
+    .then(([ping, mail]) => {
       const healthy = ping !== null;
       res.status(healthy ? 200 : 503).json({
         success: healthy,
@@ -45,6 +46,8 @@ healthRouter.get('/', (_req, res, next) => {
             pingMs: ping,
             transactions: healthy ? supportsTransactions() : false,
           },
+          // An outside uptime check can watch for "mail":"ok": when our own mailbox fails, its alert email cannot reach anyone.
+          mail,
           time: new Date().toISOString(),
         },
       });

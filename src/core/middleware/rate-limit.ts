@@ -1,9 +1,10 @@
-import { rateLimit, ipKeyGenerator, type Options } from 'express-rate-limit';
+import { rateLimit, ipKeyGenerator, type Options, type RateLimitInfo } from 'express-rate-limit';
 import type { Request } from 'express';
 import { readCookie } from '../cookies';
 import { AppError } from '../errors';
 import { SharedStore } from '../rate-store';
 import { env } from '../../config/env';
+import { signal } from '../../services/monitor';
 import { ACCESS_COOKIE } from '../../modules/auth/auth.cookies';
 import { verifyAccessToken } from '../../modules/auth/token.service';
 
@@ -73,35 +74,69 @@ export const fileLimiter = rateLimit({
   handler: (_req, _res, next) => next(AppError.rateLimited('Too many downloads at once. Wait a minute and try again.')),
 });
 
-// Requesting an OTP — keyed by EMAIL.
-export const otpRequestByEmailLimiter = rateLimit({
-  ...shared,
-  windowMs: WINDOW,
-  limit: env.RATE_OTP_REQUEST_PER_EMAIL,
-  keyGenerator: (req) => `otp-req:${emailOf(req) ?? ipKeyGenerator(req.ip ?? '')}`,
-  // No email at all? Do not spend a bucket on it — validation will 422 anyway.
-  skip: (req) => !emailOf(req),
-  store: new SharedStore('rl:'),
-});
+/** Minutes until the window opens again, at least 1. */
+const minutesLeft = (req: Request) => {
+  const reset = (req as Request & { rateLimit?: RateLimitInfo }).rateLimit?.resetTime;
+  return Math.max(1, Math.ceil(((reset?.getTime() ?? Date.now() + WINDOW) - Date.now()) / ONE_MIN));
+};
 
-// Requesting an OTP — keyed by IP, purely to stop mass enumeration.
-export const otpRequestByIpLimiter = rateLimit({
-  ...shared,
-  windowMs: WINDOW,
-  limit: env.RATE_OTP_REQUEST_PER_IP,
-  keyGenerator: ipKey,
-  store: new SharedStore('rl-otp-ip:'),
-});
+/** A sign-in code limit says when it opens again; many hits in a row alert the super admins. */
+const codeLimited = (req: Request) => {
+  void signal('code_limited');
+  return minutesLeft(req);
+};
 
-// Verifying an OTP — keyed by email.
-export const otpVerifyLimiter = rateLimit({
-  ...shared,
-  windowMs: WINDOW,
-  limit: env.RATE_OTP_VERIFY_PER_EMAIL,
-  keyGenerator: (req) => `otp-verify:${emailOf(req) ?? ipKeyGenerator(req.ip ?? '')}`,
-  skip: (req) => !emailOf(req),
-  store: new SharedStore('rl:'),
-});
+/** `key` and `store` keep each sign-in's counters apart; the shop and partner ones stay as they always were. */
+function codeLimiters(key: string, store: string) {
+  return {
+    // Per email; a code the mail server refused (503) does not use up the person's tries.
+    byEmail: rateLimit({
+      ...shared,
+      windowMs: WINDOW,
+      limit: env.RATE_OTP_REQUEST_PER_EMAIL,
+      keyGenerator: (req) => `${key}-req:${emailOf(req) ?? ipKeyGenerator(req.ip ?? '')}`,
+      // No email at all? Do not spend a bucket on it — validation will 422 anyway.
+      skip: (req) => !emailOf(req),
+      skipFailedRequests: true,
+      requestWasSuccessful: (_req, res) => res.statusCode !== 503,
+      handler: (req, _res, next) => {
+        const min = codeLimited(req);
+        next(AppError.rateLimited(`Too many codes asked for this email. Try again in ${String(min)} min.`));
+      },
+      store: new SharedStore(`${store}:`),
+    }),
+    // Per IP, purely to stop mass enumeration; every request counts, during a mail outage too.
+    byIp: rateLimit({
+      ...shared,
+      windowMs: WINDOW,
+      limit: env.RATE_OTP_REQUEST_PER_IP,
+      keyGenerator: ipKey,
+      handler: (req, _res, next) => {
+        const min = codeLimited(req);
+        next(AppError.rateLimited(`Too many sign-in codes asked from this network. Try again in ${String(min)} min.`));
+      },
+      store: new SharedStore(`${store}-${key}-ip:`),
+    }),
+    check: rateLimit({
+      ...shared,
+      windowMs: WINDOW,
+      limit: env.RATE_OTP_VERIFY_PER_EMAIL,
+      keyGenerator: (req) => `${key}-verify:${emailOf(req) ?? ipKeyGenerator(req.ip ?? '')}`,
+      skip: (req) => !emailOf(req),
+      handler: (req, _res, next) => {
+        const min = minutesLeft(req);
+        next(AppError.rateLimited(`Too many tries for this email. Try again in ${String(min)} min.`));
+      },
+      store: new SharedStore(`${store}:`),
+    }),
+  };
+}
+
+const shopCodes = codeLimiters('otp', 'rl');
+export const otpRequestByEmailLimiter = shopCodes.byEmail;
+export const otpRequestByIpLimiter = shopCodes.byIp;
+export const otpVerifyLimiter = shopCodes.check;
+export const adminCodeLimiters = codeLimiters('admin', 'rl-admin');
 
 // Refresh — keyed by user when an access token is present, otherwise by IP.
 export const refreshLimiter = rateLimit({

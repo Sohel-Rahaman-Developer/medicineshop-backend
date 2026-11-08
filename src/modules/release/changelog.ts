@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.51.1',
+    date: '2026-11-08',
+    title: 'Sign-in says so when the email can’t go out',
+    shop: [
+      'If our mail server refuses an email, sign-in now says “We could not send the email right now. Please try again in a few minutes.” instead of “Something went wrong”, in your language.',
+      'A code that could not be sent does not use up your tries for that email.',
+      'Asking for too many codes now says how long to wait: “Try again in 12 min.”',
+    ],
+    admin: [
+      'Team sign-in has the same limits as shops: 3 codes per email and 15 code checks per email in 15 minutes, with its own counters.',
+      'New alerts: “Sign-in code emails the mail server refused” (at the first one) and “Sign-in code requests stopped by the limit” (20 in 15 minutes).',
+      'Messaging & health → Mail server: working or failing, since when and why. While failing it checks the mailbox again every 15 minutes, and turns back to working by itself.',
+      'When our own mailbox fails, its alert email can’t reach anyone: point a free outside uptime check at /api/v1/health and alert when "mail":"ok" is missing.',
+    ],
+    api: ['A refused sign-in code email answers 503 SERVICE_UNAVAILABLE (was 500). GET /health gives mail: ok | failing. POST /admin/auth/code and /admin/auth/verify are rate limited. GET /admin/health gives mail.server { state, since, lastError }.'],
+  },
+  {
     version: '1.51.0',
     date: '2026-11-03',
     title: 'A 2% online payment charge, shown before you pay',

@@ -1039,5 +1039,9 @@
   "Your team can open the app at this address. You are one of the first 50 shops: the monthly add-on is free for life.": "আপনার টিম এই ঠিকানায় অ্যাপ খুলতে পারবে। আপনি প্রথম ৫০টি দোকানের একটি: মাসিক অ্যাড-অন চিরকাল ফ্রি।",
   "Your add-on is free for life — there is nothing to pay": "আপনার অ্যাড-অন চিরকাল ফ্রি — কিছুই দিতে হবে না",
   "Your web address is free for life — there is nothing to pay": "আপনার ওয়েব ঠিকানা চিরকাল ফ্রি — কিছুই দিতে হবে না",
-  "Your team can open the app at this address. You are one of the first 50 shops: it is free for life.": "আপনার টিম এই ঠিকানায় অ্যাপ খুলতে পারবে। আপনি প্রথম ৫০টি দোকানের একটি: এটা চিরকাল ফ্রি।"
+  "Your team can open the app at this address. You are one of the first 50 shops: it is free for life.": "আপনার টিম এই ঠিকানায় অ্যাপ খুলতে পারবে। আপনি প্রথম ৫০টি দোকানের একটি: এটা চিরকাল ফ্রি।",
+  "Too many codes asked for this email. Try again in {min} min.": "এই email-এর জন্য অনেকবার code চাওয়া হয়েছে। {min} মিনিট পরে আবার চেষ্টা করুন।",
+  "Too many sign-in codes asked from this network. Try again in {min} min.": "এই network থেকে অনেকবার sign-in code চাওয়া হয়েছে। {min} মিনিট পরে আবার চেষ্টা করুন।",
+  "Too many tries for this email. Try again in {min} min.": "এই email দিয়ে অনেকবার চেষ্টা হয়েছে। {min} মিনিট পরে আবার চেষ্টা করুন।",
+  "We could not send the email right now. Please try again in a few minutes.": "এখন email পাঠানো গেল না। কয়েক মিনিট পরে আবার চেষ্টা করুন।"
 }

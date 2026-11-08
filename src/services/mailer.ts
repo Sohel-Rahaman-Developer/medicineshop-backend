@@ -2,6 +2,9 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { env, isProd, isSmtpConfigured } from '../config/env';
 import { logger } from '../config/logger';
 import { isDemoEmail } from '../modules/demo/demo.model';
+import { AppError } from '../core/errors';
+import { markMail } from './mail-health';
+import { signal } from './monitor';
 
 let transporter: Transporter | null = null;
 
@@ -43,13 +46,32 @@ export async function sendMail(mail: MailInput): Promise<void> {
     return;
   }
 
-  await tx.sendMail({
-    from: `"${env.MAIL_FROM_NAME}" <${env.MAIL_FROM_EMAIL}>`,
-    to: mail.to,
-    subject: mail.subject,
-    text: mail.text,
-    html: mail.html,
-  });
+  try {
+    await tx.sendMail({
+      from: `"${env.MAIL_FROM_NAME}" <${env.MAIL_FROM_EMAIL}>`,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
+    });
+  } catch (err) {
+    await markMail(false, err);
+    throw err;
+  }
+  await markMail(true);
+}
+
+export const CODE_MAIL_DOWN = 'We could not send the email right now. Please try again in a few minutes.';
+
+/** A sign-in code: a refused send alerts at once and tells the person plainly, instead of "Something went wrong". */
+export async function sendCodeMail(mail: MailInput): Promise<void> {
+  try {
+    await sendMail(mail);
+  } catch (err) {
+    logger.error({ err }, 'Sign-in code email not sent');
+    await signal('code_mail_fail');
+    throw AppError.serviceUnavailable(CODE_MAIL_DOWN);
+  }
 }
 
 /** Checked once at boot so bad SMTP credentials surface at startup. */

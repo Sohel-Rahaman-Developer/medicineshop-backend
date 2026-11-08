@@ -14,6 +14,7 @@ import { forgetPlanFeatures } from '../subscription/plan-access';
 import { ShopTermsModel, setPrices } from '../subscription/terms';
 import * as retention from '../retention/retention';
 import { EmailJobModel } from '../../services/mail-queue';
+import { mailState } from '../../services/mail-health';
 import { JobRunModel } from '../notifications/jobs';
 import { signalSummary } from '../../services/monitor';
 import { WebhookEventModel } from '../subscription/billing.model';
@@ -180,12 +181,13 @@ export async function setShopPrices(a: AdminActor, id: string, input: { code: st
 /** SANDBOX A17: the email queue, the scheduler and Razorpay webhooks at a glance. */
 export async function health(now = new Date()) {
   const day = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const [mail, failed, runs, hooks, signals] = await Promise.all([
+  const [mail, failed, runs, hooks, signals, server] = await Promise.all([
     EmailJobModel.aggregate<{ _id: string; n: number }>([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
     EmailJobModel.find({ status: 'failed' }).sort({ updatedAt: -1 }).limit(10).select('kind to lastError attempts updatedAt').lean(),
     JobRunModel.find({ at: { $gte: day } }).sort({ at: -1 }).limit(200).lean(),
     WebhookEventModel.find({}).sort({ createdAt: -1 }).limit(20).lean(),
     signalSummary(now),
+    mailState(),
   ]);
   const by = (s: string) => mail.find((m) => m._id === s)?.n ?? 0;
   const kinds = new Map<string, { runs: number; last: Date }>();
@@ -195,7 +197,7 @@ export async function health(now = new Date()) {
     kinds.set(k, { runs: (v?.runs ?? 0) + 1, last: v && v.last > r.at ? v.last : r.at });
   }
   return {
-    mail: { pending: by('pending') + by('sending'), sent: by('sent'), failed: by('failed'), recentFailed: failed.map((f) => ({ id: String(f._id), kind: f.kind, to: f.to, error: f.lastError, attempts: f.attempts, at: (f as { updatedAt?: Date }).updatedAt ?? null })) },
+    mail: { pending: by('pending') + by('sending'), sent: by('sent'), failed: by('failed'), recentFailed: failed.map((f) => ({ id: String(f._id), kind: f.kind, to: f.to, error: f.lastError, attempts: f.attempts, at: (f as { updatedAt?: Date }).updatedAt ?? null })), server },
     jobs: [...kinds.entries()].map(([kind, v]) => ({ kind, runs24h: v.runs, lastRun: v.last })),
     webhooks: hooks.map((w) => ({ id: String(w._id), event: w.event, valid: w.signatureValid, result: w.result, at: (w as { createdAt?: Date }).createdAt ?? null })),
     signals,

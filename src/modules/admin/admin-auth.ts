@@ -4,7 +4,7 @@ import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { readCookie } from '../../core/cookies';
 import { AppError } from '../../core/errors';
-import { sendMail } from '../../services/mailer';
+import { sendCodeMail } from '../../services/mailer';
 import { adminOtpEmail } from '../../services/email-templates';
 import { signal } from '../../services/monitor';
 import { compareOtp, generateNumericOtp, generateOpaqueToken, hashOtp, sha256 } from '../../utils/crypto';
@@ -51,7 +51,7 @@ export async function requestCode(rawEmail: string, ip?: string) {
   await OtpTokenModel.updateMany({ audience: 'admin', email, consumedAt: null }, { $set: { consumedAt: new Date() } });
   const otp = env.DEV_STATIC_OTP ?? generateNumericOtp(env.OTP_LENGTH);
   await OtpTokenModel.create({ email, otpHash: await hashOtp(otp), audience: 'admin', maxAttempts: env.OTP_MAX_ATTEMPTS, expiresAt: new Date(Date.now() + env.OTP_TTL_MINUTES * 60_000), ip });
-  await sendMail({ to: email, ...adminOtpEmail(otp, env.OTP_TTL_MINUTES) });
+  await sendCodeMail({ to: email, ...adminOtpEmail(otp, env.OTP_TTL_MINUTES) });
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
 }
 

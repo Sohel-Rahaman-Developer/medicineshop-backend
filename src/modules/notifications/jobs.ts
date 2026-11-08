@@ -7,6 +7,8 @@ import { contextFor, type TenantContext } from '../../core/middleware/tenant';
 import { istClock, istDayStart, istIsoDay } from '../../utils/date';
 import { inr } from '../../utils/money';
 import { drainMail, queueMail } from '../../services/mail-queue';
+import { recheckMail } from '../../services/mail-health';
+import { verifyMailer } from '../../services/mailer';
 import * as loyalty from '../loyalty/loyalty.service';
 import { MembershipModel } from '../memberships/membership.model';
 import { SaleReturnModel } from '../sales/sale-return.model';
@@ -182,6 +184,9 @@ async function nightly(shopId: Types.ObjectId, ownerId: Types.ObjectId, now: Dat
 /** One minute of the scheduler: mail out, then each shop's due jobs once per IST day. */
 export async function tick(now = new Date()) {
   const mail = await drainMail(now);
+  await recheckMail(verifyMailer, now).catch((err: unknown) => {
+    logger.error({ err }, 'Mail recheck failed');
+  });
   const day = istIsoDay(now);
   const clock = istClock(now);
   const shops = await ShopModel.find({ status: 'active' }).select('name ownerUserId settings.notifications').lean();

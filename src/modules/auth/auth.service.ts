@@ -3,7 +3,7 @@ import { logger } from '../../config/logger';
 import { Types } from 'mongoose';
 import { AppError } from '../../core/errors';
 import { otherShopAddress } from '../../core/origins';
-import { sendMail } from '../../services/mailer';
+import { sendCodeMail, sendMail } from '../../services/mailer';
 import { otpEmail, sessionRevokedEmail } from '../../services/email-templates';
 import type { Lang } from '../../core/lang';
 import { signal } from '../../services/monitor';
@@ -67,7 +67,7 @@ export async function requestOtp(rawEmail: string, ctx: RequestContext): Promise
   });
 
   const mail = otpEmail(otp, env.OTP_TTL_MINUTES, ctx.lang);
-  await sendMail({ to: email, ...mail });
+  await sendCodeMail({ to: email, ...mail });
 
   return { expiresInMinutes: env.OTP_TTL_MINUTES };
 }

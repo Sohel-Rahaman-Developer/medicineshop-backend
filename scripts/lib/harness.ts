@@ -186,7 +186,7 @@ export interface Harness {
 /** Must run before anything imports src/config/env — env is read once at import. */
 /** `dbPath`: a fixed folder, wiped first — for servers that get killed before they can clean up (e2e on Windows). */
 /** welcomeCoins / freeMonthPaise: the free coins (D96) and monthly free AI (D109) — 0 unless a test is about them, so balances start at zero. */
-export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number; freeMonthPaise?: number } = {}): Promise<Harness> {
+export async function startHarness(opts: { port?: number; dbPath?: string; welcomeCoins?: number; freeMonthPaise?: number; env?: Record<string, string> } = {}): Promise<Harness> {
   process.env.MONGOMS_LAUNCH_TIMEOUT ??= '120000';
   // Suites fire far more calls a minute than a person; smoke-vapt sets low limits of its own to test them.
   process.env.RATE_API_PER_USER_PER_MIN ??= '100000';
@@ -220,6 +220,7 @@ export async function startHarness(opts: { port?: number; dbPath?: string; welco
     BILLING_ADDRESS: '5 Camac Street, Kolkata 700017',
     BILLING_STATE: 'West Bengal',
     BILLING_GSTIN: '19AABCM1234A1Z5',
+    ...opts.env,
   });
 
   const { connectDb, disconnectDb } = await import('../../src/config/db.js');

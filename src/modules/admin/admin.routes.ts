@@ -6,7 +6,7 @@ import { fetched, sent } from '../../core/response';
 import { LIMIT, idParams, objectId } from '../../core/zod';
 import { ADMIN_ROLES } from './admin.model';
 import { adminOf, clearPin, lockNow, meOf, requestCode, requireAdmin, requireAdminRole, setPin, signOut, unlock, verifyCode, verifyTotp } from './admin-auth';
-import { otpVerifyLimiter } from '../../core/middleware/rate-limit';
+import { adminCodeLimiters, otpVerifyLimiter } from '../../core/middleware/rate-limit';
 import { AdminAuditModel } from './admin.model';
 import { Types } from 'mongoose';
 import * as svc from './admin.service';
@@ -67,8 +67,8 @@ const settingsSchema = z
 // PLAN §21.1 / SECURITY §3: the platform console. Roles — super: everything; support: shops; accounts: money; viewer: read.
 export const adminRouter = Router();
 
-adminRouter.post('/auth/code', validate({ body: z.object({ email }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await requestCode((req.body as { email: string }).email, req.ip), 'If this address is on the platform team, a code is on its way'); }));
-adminRouter.post('/auth/verify', validate({ body: z.object({ email, otp: z.string().regex(/^\d{4,8}$/) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; otp: string }; fetched(res, await verifyCode(req, res, b.email, b.otp)); }));
+adminRouter.post('/auth/code', adminCodeLimiters.byIp, adminCodeLimiters.byEmail, validate({ body: z.object({ email }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await requestCode((req.body as { email: string }).email, req.ip), 'If this address is on the platform team, a code is on its way'); }));
+adminRouter.post('/auth/verify', adminCodeLimiters.check, validate({ body: z.object({ email, otp: z.string().regex(/^\d{4,8}$/) }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { email: string; otp: string }; fetched(res, await verifyCode(req, res, b.email, b.otp)); }));
 adminRouter.post('/auth/totp', validate({ body: z.object({ code: z.string().regex(/^\d{6}$/, 'Six digits from your authenticator') }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await verifyTotp(req, res, (req.body as { code: string }).code), 'Signed in'); }));
 adminRouter.post('/auth/logout', asyncHandler(async (req: Request, res: Response) => { await signOut(req, res); sent(res, { ok: true }, 'Signed out'); }));
 
