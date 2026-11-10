@@ -13,7 +13,7 @@ const shopBody = (name: string) => ({
 });
 const DAY = 86_400_000;
 
-const ALL_FEATURES = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai'];
+const ALL_FEATURES = ['analytics', 'registers', 'report:sales-register', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai'];
 
 async function main() {
   const h = await startHarness();

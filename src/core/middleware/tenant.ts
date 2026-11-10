@@ -10,7 +10,7 @@ import { ShopModel } from '../../modules/shops/shop.model';
 import { SubscriptionModel, graceEndOf, isReadOnly, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
 import { env } from '../../config/env';
 import { platform } from '../../modules/admin/platform';
-import { FEATURE_NAMES, type Feature } from '../../modules/subscription/features';
+import { MODULE_NAMES, type Feature, type PlanModule } from '../../modules/subscription/features';
 import { featuresOf } from '../../modules/subscription/plan-access';
 
 export interface TenantContext {
@@ -126,12 +126,12 @@ export const requireAnyPermission =
     next(needs.some(([m, a]) => can(t.permissions, m, a)) ? undefined : AppError.forbidden());
   };
 
-/** D87: a module the shop's plan does not open answers PLAN_UPGRADE. */
+/** D87: a module the shop's plan does not open answers PLAN_UPGRADE (a report checks its own, D113). */
 export const needFeature =
-  (feature: Feature): RequestHandler =>
+  (feature: PlanModule): RequestHandler =>
   (req, _res, next) => {
     if (!req.tenant) return next(AppError.internal());
-    if (!req.tenant.features.includes(feature)) return next(AppError.upgrade(feature, FEATURE_NAMES[feature]));
+    if (!req.tenant.features.includes(feature)) return next(AppError.upgrade(feature, MODULE_NAMES[feature]));
     next();
   };
 

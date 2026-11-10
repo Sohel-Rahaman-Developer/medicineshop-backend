@@ -17,6 +17,7 @@ import { ALL_VIEWS, KINDS, NAMES, VIEWS, describe, register, type Filters, type 
 import { SupplierModel } from '../suppliers/supplier.model';
 import { SCHEDULE_TYPES } from '../products/product.model';
 import { SALE_PAY_MODES } from '../sales/sale.model';
+import { MODULE_NAMES, featureOfReport } from '../subscription/features';
 import { objectId } from '../../core/zod';
 
 const rangeSchema = z
@@ -73,12 +74,17 @@ async function together(req: Request, want: 'shop' | 'gstin' | undefined) {
   if (want === 'gstin' && !fam.shops.length) throw AppError.forbidden('Only the owner of two or more shops on this GSTIN sees them together');
   return { fam, shops: want === 'gstin' ? fam.shops.map((s) => s.id) : undefined };
 }
-const reportPlan: RequestHandler = (req, res, next) => {
-  if (gstKeys.has((req.params as { key?: string }).key ?? '')) {
+/** D113: each report has its own lock; GST, H1 and X never lock (the law needs them in every shop). */
+const reportPlan: RequestHandler = (req, _res, next) => {
+  const key = (req.params as { key?: string }).key ?? '';
+  const r = reportByKey(key);
+  const need = featureOfReport(key);
+  // An unknown key goes on to its 404.
+  if (!r || !need || tenantOf(req).features.includes(need)) {
     next();
     return;
   }
-  needFeature('reports')(req, res, next);
+  next(AppError.upgrade(need, need === 'pnl' ? MODULE_NAMES.pnl : r.name));
 };
 
 reportsRouter.get(
@@ -103,7 +109,14 @@ reportsRouter.get(
 );
 
 // S61 report centre: the list, a report (first 300 rows on screen) and its Excel / PDF (reports:export, all rows).
-reportsRouter.get('/catalog', needFeature('reports'), (_req: Request, res: Response) => { fetched(res, reportList()); });
+// Every report is listed; a locked one says so, so the app can show it with its lock and the upgrade.
+reportsRouter.get('/catalog', (req: Request, res: Response) => {
+  const has = tenantOf(req).features;
+  fetched(res, reportList().map((r) => {
+    const need = featureOfReport(r.key);
+    return { ...r, locked: Boolean(need && !has.includes(need)) };
+  }));
+});
 
 reportsRouter.get(
   '/r/:key',
@@ -185,7 +198,7 @@ function filtersOf(kind: Kind, q: RegisterQuery): Filters {
 
 reportsRouter.get(
   '/registers/:kind',
-  needFeature('reports'),
+  needFeature('registers'),
   validate({ params: kindParams, query: registerQuery }),
   asyncHandler(async (req: Request, res: Response) => {
     const kind = (req.params as { kind: Kind }).kind;
@@ -197,7 +210,7 @@ reportsRouter.get(
 reportsRouter.get(
   '/registers/:kind/export',
   requirePermission('reports', 'export'),
-  needFeature('reports'),
+  needFeature('registers'),
   validate({ params: kindParams, query: registerQuery }),
   asyncHandler(async (req: Request, res: Response) => {
     const kind = (req.params as { kind: Kind }).kind;

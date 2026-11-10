@@ -1,5 +1,5 @@
 import { DEFAULT_PLANS, PlanModel } from './billing.model';
-import { D87_FEATURES, FEATURES, allFeatures, type Feature } from './features';
+import { D87_FEATURES, FEATURES, REPORTS_SPLIT, allFeatures, isFeature, type Feature } from './features';
 
 // Plans change rarely: one read a minute, dropped at once when the admin saves plans.
 let cache: { at: number; map: Map<string, Feature[]> } | null = null;
@@ -15,9 +15,14 @@ export async function ensurePlans() {
   if (!(await PlanModel.exists({}))) await PlanModel.insertMany(DEFAULT_PLANS, { ordered: false }).catch(() => undefined);
   const old = await PlanModel.find({ tier: { $exists: false } }).lean();
   for (const p of old) await PlanModel.updateOne({ _id: p._id, tier: { $exists: false } }, { $set: { tier: 'pro', features: allFeatures(), ...(p.name === 'Monthly' || p.name === 'Yearly' ? { name: `Pro ${p.name}` } : {}) } });
+  // D113: the one "reports" switch becomes the registers and each report — a plan that had it keeps every one.
+  const swap = (l: string[]) => [...new Set(l.flatMap((f): readonly string[] => (f === 'reports' ? REPORTS_SPLIT : [f])))];
+  for (const p of await PlanModel.find({ $or: [{ features: 'reports' }, { knows: 'reports' }] }).select('features knows').lean()) {
+    await PlanModel.updateOne({ _id: p._id }, { $set: { ...(p.features ? { features: swap(p.features) } : {}), ...(p.knows ? { knows: swap(p.knows) } : {}) } });
+  }
   // A module added later (D90 clinic) opens on every Pro plan once; Basic stays as the admin set it.
   for (const p of await PlanModel.find({}).select('tier knows').lean()) {
-    const knows = p.knows?.length ? p.knows : D87_FEATURES;
+    const knows = p.knows?.length ? p.knows : swap([...D87_FEATURES]);
     const fresh = FEATURES.filter((f) => !knows.includes(f));
     if (!fresh.length) continue;
     await PlanModel.updateOne({ _id: p._id }, { $set: { knows: [...FEATURES] }, ...(p.tier === 'pro' ? { $addToSet: { features: { $each: fresh } } } : {}) });
@@ -37,7 +42,7 @@ export async function featuresOf(planCode: string, now = Date.now()): Promise<Fe
   await ensurePlans();
   if (!cache || now - cache.at > 60_000) {
     const rows = await PlanModel.find({}).select('code features').lean();
-    cache = { at: now, map: new Map(rows.map((r) => [r.code, (r.features ?? allFeatures()) as Feature[]])) };
+    cache = { at: now, map: new Map(rows.map((r) => [r.code, r.features ? r.features.filter(isFeature) : allFeatures()])) };
   }
   return cache.map.get(planCode) ?? allFeatures();
 }

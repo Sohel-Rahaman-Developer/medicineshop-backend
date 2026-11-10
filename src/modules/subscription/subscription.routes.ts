@@ -10,6 +10,7 @@ import { idParams, objectId } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import * as autopay from './autopay';
 import * as svc from './subscription.service';
+import { featureCatalog } from './feature-catalog';
 
 const orderSchema = z.object({ planCode: z.string().trim().min(1).max(20) }).strict();
 const verifySchema = z.object({ orderId: z.string().trim().min(6).max(60), paymentId: z.string().trim().min(6).max(60), signature: z.string().trim().regex(/^[a-f0-9]{64}$/, 'Invalid signature') }).strict();
@@ -21,6 +22,8 @@ const cancelSchema = z.object({ reason: z.string().trim().min(3, 'Say why (3 let
 // PLAN §8 / §33: plans are public; the rest is the shop's own plan. Owner pays and cancels (subscription: edit).
 export const plansRouter = Router();
 plansRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.plans()); }));
+// D113: the one list of what a plan can open — the admin checklist and the website read it from here.
+plansRouter.get('/features', (_req: Request, res: Response) => { fetched(res, featureCatalog()); });
 
 export const subscriptionRouter = Router();
 subscriptionRouter.use(shopAuth);

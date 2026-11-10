@@ -69,9 +69,13 @@ purchasesRouter.get(
 );
 
 // D77: Confirm & Save a supplier bill — new products, the purchase and the supplier's names in one go.
+// D113: putting stock in from a supplier's bill file is a plan module; typing a purchase never locks.
+const billImport = needFeature('bill-import');
+
 purchasesRouter.post(
   '/import',
   create,
+  billImport,
   requirePermission('products', 'create'),
   validate({ body: billImportSchema }),
   asyncHandler(async (req: Request, res: Response) => {
@@ -86,6 +90,7 @@ purchasesRouter.post(
 purchasesRouter.post(
   '/import/read',
   create,
+  billImport,
   validate({ body: billReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, sayNotes(langOf(req), await readAndPreview(tenantOf(req), req.body as BillReadInput)));
@@ -96,6 +101,7 @@ purchasesRouter.post(
 purchasesRouter.post(
   '/import/ai',
   create,
+  billImport,
   needFeature('ai'),
   validate({ body: aiReadSchema }),
   asyncHandler(async (req: Request, res: Response) => {
@@ -107,6 +113,7 @@ purchasesRouter.post(
 purchasesRouter.post(
   '/import/preview',
   create,
+  billImport,
   validate({ body: billPreviewSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, sayNotes(langOf(req), await previewBill(tenantOf(req), req.body as BillPreviewInput)));

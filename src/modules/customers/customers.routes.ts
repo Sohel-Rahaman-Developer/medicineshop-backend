@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../core/async-handler';
-import { requireAnyPermission, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, requireAnyPermission, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -102,9 +102,11 @@ doctorsRouter.get(
   asyncHandler(async (req: Request, res: Response) => { fetched(res, await svc.doctors(tenantOf(req), (req.query as { q?: string }).q)); }),
 );
 
+// D113: keeping a doctors list is a plan module; picking or typing a doctor on a bill never locks.
 doctorsRouter.post(
   '/',
   requirePermission('customers', 'create'),
+  needFeature('doctors'),
   validate({ body: doctorSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const d = await svc.addDoctor(tenantOf(req), await actorOf(req), req.body as DoctorInput, req.ip);
@@ -115,6 +117,7 @@ doctorsRouter.post(
 doctorsRouter.put(
   '/:id',
   requirePermission('customers', 'edit'),
+  needFeature('doctors'),
   validate({ params: idParams, body: doctorSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     const d = await svc.updateDoctor(tenantOf(req), await actorOf(req), (req.params as { id: string }).id, req.body as DoctorInput, req.ip);

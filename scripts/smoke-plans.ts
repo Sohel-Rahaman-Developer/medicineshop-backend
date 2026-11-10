@@ -16,7 +16,9 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 const DAY = 86_400_000;
-const ALL = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels', 'tally'];
+/** D113: the catalog the server keeps — modules, then each report. */
+let ALL: string[] = [];
+const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 interface Plan { code: string; name: string; tier: string; features: string[]; isActive: boolean; maxUsers: number }
 
@@ -30,6 +32,8 @@ async function main() {
   const { forgetTiers } = await import('../src/modules/subscription/subscription.service.js');
   const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
   const { totpAt } = await import('../src/utils/totp.js');
+  const { FEATURES, REPORTS_SPLIT } = await import('../src/modules/subscription/features.js');
+  ALL = [...FEATURES];
 
   section('1. A new platform: Pro monthly and yearly; a Basic plan the admin adds');
   const fresh = data<(Plan & { price: number })[]>(await h.client().get('/plans'));
@@ -37,12 +41,12 @@ async function main() {
   await seedBasic();
   const plans = data<Plan[]>(await h.client().get('/plans'));
   check('with Basic added: 4 plans on sale, Basic first', plans.map((p) => p.name).join() === 'Basic Monthly,Basic Yearly,Pro Monthly,Pro Yearly', JSON.stringify(plans.map((p) => p.name)));
-  check('Basic opens no extra module, 2 users; Pro opens all 10', plans.filter((p) => p.tier === 'basic').every((p) => p.features.length === 0 && p.maxUsers === 2) && plans.filter((p) => p.tier === 'pro').every((p) => p.features.join() === ALL.join()));
+  check('Basic opens no extra module, 2 users; Pro opens every feature', plans.filter((p) => p.tier === 'basic').every((p) => p.features.length === 0 && p.maxUsers === 2) && plans.filter((p) => p.tier === 'pro').every((p) => same(p.features, ALL)));
 
   const owner = await h.signIn('rohit@plans1.test');
   owner.shopId = data<{ id: string }>(await owner.post('/shops', shopBody('Shri Ram Medical Store'))).id;
   const ctx = async () => data<{ features: string[]; subscription: { planCode: string } }>(await owner.get('/shop/context'));
-  check('a trial shop sees every module', (await ctx()).features.join() === ALL.join());
+  check('a trial shop sees every module', same((await ctx()).features, ALL));
   check('…and its reports, P&L, analytics, loyalty, orders, Ask all answer', (await owner.get('/reports/catalog')).status === 200 && (await owner.get('/loyalty/settings')).status === 200 && (await owner.get('/orders')).status === 200 && (await owner.get('/ask/offer')).status === 200);
 
   section('2. Basic: the daily work only — the server refuses the rest');
@@ -55,7 +59,7 @@ async function main() {
     analytics: await owner.get(`/reports/analytics?tab=sales&from=${today}&to=${today}`),
     pnl: await owner.get(`/reports/pnl?from=${today}&to=${today}`),
     daybook: await owner.get(`/reports/daybook?month=${month}`),
-    catalog: await owner.get('/reports/catalog'),
+    salesRegister: await owner.get(`/reports/r/sales-register?from=${today}&to=${today}`),
     report: await owner.get(`/reports/r/sales-register?from=${today}&to=${today}`),
     loyalty: await owner.get('/loyalty/settings'),
     orders: await owner.get('/orders'),
@@ -113,7 +117,7 @@ async function main() {
   section('4. Pro and the demo open everything');
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'monthly' } });
   forgetPlanFeatures();
-  check('Pro Monthly: all 10 modules, reports answer', (await ctx()).features.join() === ALL.join() && (await owner.get('/reports/catalog')).status === 200);
+  check('Pro Monthly: every feature, reports answer', same((await ctx()).features, ALL) && (await owner.get(`/reports/r/sales-register?from=${today}&to=${today}`)).status === 200);
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'gone-plan' } });
   forgetPlanFeatures();
   check('a plan code the admin deleted keeps everything (a paying shop never loses work)', (await ctx()).features.length === ALL.length);
@@ -134,13 +138,13 @@ async function main() {
 
   section('6. A module added later (D90 clinic) joins Pro by itself, never Basic');
   await seedBasic();
-  const d87 = ALL.filter((f) => !['clinic', 'brief', 'refills'].includes(f));
+  const d87 = ['analytics', 'reports', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'labels', 'tally'];
   await PlanModel.updateMany({ tier: 'pro' }, { $set: { features: d87 }, $unset: { knows: 1 } });
-  await PlanModel.updateMany({ tier: 'basic' }, { $set: { features: ['loyalty'] }, $unset: { knows: 1 } });
+  await PlanModel.updateMany({ tier: 'basic' }, { $set: { features: ['loyalty', 'reports'] }, $unset: { knows: 1 } });
   forgetTiers();
   forgetPlanFeatures();
   const grown = data<Plan[]>(await root.get('/admin/plans'));
-  check('Pro plans now open the doctor chamber too; Basic keeps exactly what the admin ticked', grown.some((p) => p.tier === 'basic') && grown.filter((p) => p.tier === 'pro').every((p) => p.features.includes('clinic') && p.features.length === ALL.length) && grown.filter((p) => p.tier === 'basic').every((p) => p.features.join() === 'loyalty'), JSON.stringify(grown.map((p) => `${p.code}:${p.features.join('+')}`)));
+  check('Pro plans now open the doctor chamber too; Basic keeps exactly what the admin ticked — its old “reports” tick becomes the registers and every report (D113)', grown.some((p) => p.tier === 'basic') && grown.filter((p) => p.tier === 'pro').every((p) => p.features.includes('clinic') && same(p.features, ALL)) && grown.filter((p) => p.tier === 'basic').every((p) => same(p.features, ['loyalty', ...REPORTS_SPLIT])), JSON.stringify(grown.map((p) => `${p.code}:${p.features.join('+')}`)));
   await PlanModel.updateMany({ tier: 'pro' }, { $pull: { features: 'clinic' } });
   forgetTiers();
   await h.client().get('/plans');

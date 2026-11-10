@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.52.0',
+    date: '2026-11-10',
+    title: 'Each report locks on its own; groundwork for Basic and Pro',
+    shop: [
+      'The report centre always opens. A report your plan does not have shows PRO and tells you what it is; GST, H1 and X reports are open in every plan.',
+      'The sales, stock and purchase registers are their own module now.',
+      'Putting stock in from a supplier’s bill file (PDF, Word, Excel) is a Pro module; typing a purchase stays in every plan. The From bill button shows PRO when your plan doesn’t have it.',
+      'The free trial still opens everything.',
+      'Fixed: the help said every shop gets 100 free AI tokens; the first ₹10 of AI is free every month. The website no longer says “30+ reports”.',
+      'Fixed: on a tablet the buttons above New bill could slide under the bill, so “Waiting” (offline bills) could not be tapped. They now show as icons and move to a second line when there is no room.',
+    ],
+    admin: [
+      'Plans & pricing: the checklist comes from the server — every module, and each report under “Reports: N of 19 open” with an “All reports” tick. What every plan always has is listed under it.',
+      'Plans that had “Reports & Excel” keep every report and the registers. Pro plans get “Stock from a bill file” by itself; Basic plans don’t.',
+    ],
+    api: ['GET /plans/features lists what a plan can open. GET /reports/catalog lists every report with locked. A plan without a report answers 403 PLAN_UPGRADE with feature report:<key>. New features: registers, bill-import, report:<key>. Locks added where the app only hid the screen: adding or editing a doctor (doctors), reading a prescription or finding a salt with AI (ai).'],
+  },
+  {
     version: '1.51.1',
     date: '2026-11-08',
     title: 'Sign-in says so when the email can’t go out',
