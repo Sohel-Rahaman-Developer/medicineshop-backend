@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
+import { logger } from '../../config/logger';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
 import type { TenantContext } from '../../core/middleware/tenant';
@@ -7,11 +8,20 @@ import { inTransaction } from '../../core/transaction';
 import { istIsoDay } from '../../utils/date';
 import { inr } from '../../utils/money';
 import { audit } from '../audit/audit.model';
+import { MembershipModel } from '../memberships/membership.model';
+import { RoleModel } from '../roles/role.model';
+import { ShopModel } from '../shops/shop.model';
+import { UserModel } from '../user/user.model';
 import { addExpense, dropExpense } from '../expenses/expenses.service';
 import type { Actor } from '../user/actor';
 import { lastDayOf, salaryFor, type CalcPerson, type Salary } from './payroll.calc';
 import { AttendanceModel, EmployeeModel, PayEntryModel, PayrollSettingModel, type DayBasis, type Employee, type Mark, type PayEntry } from './payroll.model';
 import type { AdvanceInput, BonusInput, EmployeeInput, MarkInput, PayInput, PfInput } from './payroll.validation';
+import { queueMail } from '../../services/mail-queue';
+import { payslipEmail } from '../../services/email-templates';
+import { rupees } from '../../core/export';
+import { dayLabel } from '../../utils/date';
+import { payslipPdf, slipLines } from './payroll.pdf';
 
 const IST = 5.5 * 60 * 60 * 1000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -31,7 +41,9 @@ function shapeEmployee(e: Lean) {
   return {
     id: String(e._id),
     name: e.name,
+    userId: e.userId ? String(e.userId) : null,
     phone: e.phone,
+    email: e.email,
     job: e.job,
     payKind: e.payKind,
     pay: e.pay,
@@ -59,6 +71,8 @@ function shapeEntry(e: Entry) {
     fromDrawer: e.fromDrawer,
     note: e.note,
     reference: e.reference,
+    mailedTo: e.mailedTo ?? null,
+    mailedAt: e.mailedAt ?? null,
     advanceCut: e.advanceCut,
     pfEmployee: e.pfEmployee,
     pfShop: e.pfShop,
@@ -155,6 +169,23 @@ export async function saveSettings(t: TenantContext, actor: Actor, basis: DayBas
   return { dayBasis: basis };
 }
 
+/** Staff with an app login who are not on payroll yet — the owner adds them in one tap (the owner left out). */
+async function staffOffPayroll(t: TenantContext) {
+  const [members, linked, shop] = await Promise.all([
+    MembershipModel.find({ shopId: t.shopId, status: 'active' }).select('userId roleId designation').lean(),
+    EmployeeModel.distinct('userId', { shopId: t.shopId, userId: { $type: 'objectId' } }),
+    ShopModel.findById(t.shopId).select('ownerUserId').lean(),
+  ]);
+  const on = new Set(linked.map(String));
+  const left = members.filter((m) => !on.has(String(m.userId)) && !shop?.ownerUserId.equals(m.userId));
+  if (!left.length) return [];
+  const [users, roles] = await Promise.all([UserModel.find({ _id: { $in: left.map((m) => m.userId) } }).select('name email phone').lean(), RoleModel.find({ shopId: t.shopId, _id: { $in: left.map((m) => m.roleId) } }).select('name').lean()]);
+  return left.map((m) => {
+    const u = users.find((x) => x._id.equals(m.userId));
+    return { userId: String(m.userId), name: u?.name || u?.email || '', email: u?.email ?? '', phone: u?.phone ?? '', job: m.designation || (roles.find((r) => r._id.equals(m.roleId))?.name ?? '') };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** Everyone who worked here in the month, each with the month worked out (or as paid). */
 export async function month(t: TenantContext, m: string, now = new Date()) {
   const start = atIst(`${m}-01`);
@@ -179,6 +210,7 @@ export async function month(t: TenantContext, m: string, now = new Date()) {
   const today = istIsoDay(now);
   return {
     month: m,
+    staff: await staffOffPayroll(t),
     today,
     dayBasis: basis,
     canPay: today >= lastDayOf(m),
@@ -238,7 +270,13 @@ export async function mark(t: TenantContext, actor: Actor, input: MarkInput, now
 }
 
 export async function createEmployee(t: TenantContext, actor: Actor, input: EmployeeInput, ip?: string) {
-  const [doc] = await EmployeeModel.create([{ shopId: t.shopId, ...input, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined }]);
+  const userId = input.userId ? oid(input.userId) : undefined;
+  if (userId) {
+    if (!(await MembershipModel.exists({ shopId: t.shopId, userId, status: 'active' }))) throw AppError.validation('That person is not on this shop’s staff', [{ field: 'body.userId', message: 'Not on the staff' }]);
+    const already = await EmployeeModel.findOne({ shopId: t.shopId, userId }).select('name').lean();
+    if (already) throw AppError.conflict(`${already.name} is already on payroll`, { reason: 'ON_PAYROLL' });
+  }
+  const [doc] = await EmployeeModel.create([{ shopId: t.shopId, ...input, userId, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined }]);
   if (!doc) throw AppError.internal();
   const e = doc.toObject<Lean>();
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'payroll', entityId: String(e._id), entityName: e.name, text: `${actor.name} added ${e.name} · ${inr(e.pay)} a ${e.payKind}${e.pf ? ' · PF' : ''}`, ip });
@@ -254,10 +292,13 @@ export async function updateEmployee(t: TenantContext, actor: Actor, id: string,
     const to = input.leftOn ? istIsoDay(input.leftOn) : null;
     const outside = paid.find((p) => p.month && (lastDayOf(p.month) < from || (to !== null && `${p.month}-01` > to)));
     if (outside?.month) throw AppError.conflict(`${monthName(outside.month)} is paid — the dates must keep it in`, { reason: 'SALARY_PAID' });
-    await EmployeeModel.updateOne({ shopId: t.shopId, _id: e._id }, { $set: { ...input, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined }, ...(input.extraRate === null || input.leftOn === null ? { $unset: { ...(input.extraRate === null ? { extraRate: 1 } : {}), ...(input.leftOn === null ? { leftOn: 1 } : {}) } } : {}) }, { session });
+    // The app login link is set when added and never moves to someone else.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { userId, ...fields } = input;
+    await EmployeeModel.updateOne({ shopId: t.shopId, _id: e._id }, { $set: { ...fields, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined }, ...(input.extraRate === null || input.leftOn === null ? { $unset: { ...(input.extraRate === null ? { extraRate: 1 } : {}), ...(input.leftOn === null ? { leftOn: 1 } : {}) } } : {}) }, { session });
     const what = [e.pay !== input.pay || e.payKind !== input.payKind ? `pay ${inr(e.pay)} a ${e.payKind} → ${inr(input.pay)} a ${input.payKind}` : '', e.pf !== input.pf ? `PF ${input.pf ? 'on' : 'off'}` : '', !e.leftOn && to ? `last day ${dayName(to)}` : ''].filter(Boolean);
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'payroll', entityId: id, entityName: input.name, text: `${actor.name} changed ${input.name}${what.length ? ` · ${what.join(' · ')}` : ''}`, ip }, session);
-    return shapeEmployee({ ...e, ...input, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined });
+    return shapeEmployee({ ...e, ...fields, extraRate: input.extraRate ?? undefined, leftOn: input.leftOn ?? undefined });
   });
 }
 
@@ -375,4 +416,32 @@ export async function removeEntry(t: TenantContext, actor: Actor, id: string, re
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'payroll', entityId: x.employeeId ? String(x.employeeId) : id, entityName: x.employeeName || KIND_TEXT[x.kind], text: `${actor.name} undid ${who}${KIND_TEXT[x.kind]}${x.month ? ` for ${monthName(x.month)}` : ''} · ${inr(x.amount)} — ${reason}`, ip }, session);
     return { ...shapeEntry(x), status: 'removed' as const };
   });
+}
+
+const MODE_NAME: Record<string, string> = { CASH: 'cash', UPI: 'UPI', CARD: 'card', BANK: 'bank transfer' };
+
+/** D114: the payslip PDF to the person's email, through the mail queue (retried; the shop sees when it went). */
+export async function mailPayslip(t: TenantContext, actor: Actor, id: string, ip?: string) {
+  const s = await payslipPdf(t, id);
+  if (!s.e.email) throw AppError.conflict(`Add ${s.e.name}’s email first`, { reason: 'NO_EMAIL' });
+  const m = payslipEmail({ shop: s.shopName, name: s.e.name, month: monthName(s.month), net: rupees(s.x.amount), day: dayLabel(s.x.date), mode: MODE_NAME[s.x.paymentMode ?? ''] ?? 'cash', lines: slipLines(s.e, s.c, s.month).map(([item, how, amt]) => [`${item} · ${how}`, rupees(amt)]) });
+  await queueMail({ kind: 'payslip', shopId: t.shopId, to: s.e.email, ...m, attachments: [{ filename: `${s.name}.pdf`, contentType: 'application/pdf', content: s.pdf }] });
+  const at = new Date();
+  await PayEntryModel.updateOne({ shopId: t.shopId, _id: s.x._id }, { $set: { mailedTo: s.e.email, mailedAt: at } });
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'payroll', entityId: String(s.e._id), entityName: s.e.name, text: `${actor.name} emailed ${s.e.name}’s payslip for ${monthName(s.month)} to ${s.e.email}`, ip });
+  return { mailedTo: s.e.email, mailedAt: at };
+}
+
+/** After a salary is paid: the payslip goes by itself when the person has an email (never from the demo shop). */
+export async function mailIfEmail(t: TenantContext, actor: Actor, id: string, ip?: string) {
+  if (t.demo) return null;
+  const x = await PayEntryModel.findOne({ shopId: t.shopId, _id: oid(id) }).select('employeeId').lean<Entry>();
+  const has = x?.employeeId ? await EmployeeModel.exists({ shopId: t.shopId, _id: x.employeeId, email: { $ne: '' } }) : null;
+  if (!has) return null;
+  try {
+    return await mailPayslip(t, actor, id, ip);
+  } catch (err) {
+    logger.error({ err, entryId: id }, 'Payslip email could not be queued');
+    return null;
+  }
 }

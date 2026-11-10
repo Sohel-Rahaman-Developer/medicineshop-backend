@@ -4,6 +4,7 @@ import { LINK, todoHead } from '../brief/brief.mail';
 import type { Brief } from '../brief/brief.service';
 import { BUY_DAYS } from './facts';
 import type * as F from './facts';
+import type { month as payrollMonth } from '../payroll/payroll.service';
 import { langOf, type Voice } from './lang';
 import { CHIPS, LABEL, MODE, PERIOD, TEXT, TITLE, WEEKDAY, say } from './texts';
 
@@ -368,3 +369,19 @@ export function briefCard(b: Brief, v: Voice): Card {
 export const helpCard = (v: Voice): Card => card(say(TITLE.help, v), { items: CHIPS[langOf(v)].map((q) => ({ name: q, value: '' })) });
 
 export const noteCard = (title: string, note: string): Card => card(title, { note });
+
+/** D114: the month's payroll — who, what is still to pay, PF; app logins not on payroll are named so the owner adds them. */
+export function payrollCard(d: Awaited<ReturnType<typeof payrollMonth>>, v: Voice): Card {
+  return card(say(TITLE.payroll, v, { month: monthLabel(new Date(`${d.month}-15T00:00:00Z`)) }), {
+    rows: [
+      { label: say(LABEL.people, v), value: String(d.rows.length) },
+      { label: say(LABEL.toPay, v), value: rs(d.totals.toPay), tone: d.totals.toPay ? 'warn' : undefined },
+      { label: say(LABEL.paid, v), value: rs(d.totals.paid), tone: d.totals.paid ? 'ok' : undefined },
+      ...(d.pf.due ? [{ label: say(LABEL.pfDue, v), value: rs(d.pf.due), tone: 'warn' as const }] : []),
+      ...(d.staff.length ? [{ label: say(LABEL.notOnPayroll, v), value: d.staff.map((s) => s.name).join(', '), tone: 'warn' as const }] : []),
+    ],
+    items: d.rows.map((r) => ({ name: r.employee.name, value: rs(r.paid ? r.paid.amount : r.calc.net), sub: `${r.paid ? `${say(LABEL.paid, v)} · ` : ''}${say(LABEL.workSub, v, { absent: r.calc.counts.absent, half: r.calc.counts.half, extra: r.calc.counts.extra })}`, href: `/payroll/${r.employee.id}?month=${d.month}` })),
+    note: d.rows.length ? undefined : say(TEXT.payrollEmpty, v),
+    href: '/payroll',
+  });
+}

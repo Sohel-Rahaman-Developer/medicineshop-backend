@@ -1,3 +1,5 @@
+import { EmployeeModel } from '../payroll/payroll.model';
+import { seedPayroll } from './demo.payroll';
 import mongoose, { Types } from 'mongoose';
 import { env } from '../../config/env';
 import { logger } from '../../config/logger';
@@ -147,6 +149,11 @@ async function run(kind: JobKind, by: string) {
       from = start;
     }
     const r = await play(shopId, EMAILS, from, now, progress);
+    // A demo made before payroll gets its people on the next top-up too.
+    if (kind !== 'topup' || !(await EmployeeModel.exists({ shopId }))) {
+      const owner = (await DemoModel.findById('demo').select('userId').lean())?.userId;
+      if (owner) await seedPayroll(shopId, owner, now);
+    }
     await DemoModel.updateOne(
       { _id: 'demo' },
       { $set: { filledTo: now, ...(kind === 'topup' ? {} : { resetAt: now }), busyUntil: null, 'job.state': 'done', 'job.finishedAt': new Date(), 'job.done': r.total, 'job.total': r.total, 'job.skipped': r.skipped, ...(r.skipped > r.total * 0.3 ? { 'job.error': `${String(r.skipped)} of ${String(r.total)} steps were skipped` } : {}) } },

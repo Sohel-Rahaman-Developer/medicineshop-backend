@@ -76,6 +76,9 @@ export function salaryFor(month: string, p: CalcPerson, marks: ReadonlyMap<strin
   const advanceDue = o.advanceDue ?? 0;
   const maxCut = Math.max(0, Math.min(advanceDue, gross - pfEmployee));
   const advanceCut = o.advanceCut == null ? maxCut : o.advanceCut;
+  // Paid in whole rupees, like a bill: ₹16,366.66 → ₹16,367.
+  const exact = gross - pfEmployee - advanceCut;
+  const net = rhu(exact, 100) * 100;
   return {
     month,
     days,
@@ -102,7 +105,8 @@ export function salaryFor(month: string, p: CalcPerson, marks: ReadonlyMap<strin
     advanceDue,
     maxCut,
     advanceCut,
-    net: gross - pfEmployee - advanceCut,
+    roundOff: net - exact,
+    net,
   };
 }
 export type Salary = ReturnType<typeof salaryFor>;

@@ -33,6 +33,7 @@ export const TEXT = {
   busyNote: w('Bills by hour and by weekday, India time.', 'घंटे और वार के हिसाब से बिल, भारत का समय।', 'ঘণ্টা আর বার অনুযায়ী বিল, ভারতের সময়।', 'Ghante aur vaar ke hisaab se bill, Bharat ka samay.', 'Ghonta ar bar onujayi bill, Bharoter somoy.'),
   briefNote: w('Today’s jobs, most urgent first — open the brief for the whole list.', 'आज के काम, सबसे ज़रूरी पहले — पूरी list के लिए brief खोलिए।', 'আজকের কাজ, সবচেয়ে জরুরি আগে — পুরো list-এর জন্য brief খুলুন।', 'Aaj ke kaam, sabse zaroori pehle — poori list ke liye brief kholiye.', 'Ajker kaj, sobcheye joruri age — puro list-er jonno brief khulun.'),
   notInPlan: w('This is in the Pro plan — upgrade in Settings → Plan.', 'यह Pro प्लान में है — Settings → Plan में अपग्रेड कीजिए।', 'এটা Pro প্ল্যানে আছে — Settings → Plan থেকে আপগ্রেড করুন।', 'Yeh Pro plan mein hai — Settings → Plan mein upgrade kijiye.', 'Eta Pro plan-e achhe — Settings → Plan theke upgrade korun.'),
+  payrollEmpty: w('No one is on payroll yet — add people in Money → Payroll.', 'Payroll में अभी कोई नहीं — Money → Payroll में लोग जोड़िए।', 'Payroll-এ এখনও কেউ নেই — Money → Payroll-এ লোক যোগ করুন।', 'Payroll mein abhi koi nahi — Money → Payroll mein log jodiye.', 'Payroll-e ekhono keu nei — Money → Payroll-e lok jog korun.'),
   briefClear: w('Nothing needs you today.', 'आज आपके लिए कोई काम नहीं।', 'আজ আপনার কোনো কাজ নেই।', 'Aaj aapke liye koi kaam nahi.', 'Aaj apnar kono kaj nei.'),
 } as const;
 
@@ -78,6 +79,7 @@ export const TITLE = {
   customers: w('Top customers — {period}', 'सबसे बड़े ग्राहक — {period}', 'সেরা গ্রাহক — {period}', 'Sabse bade grahak — {period}', 'Sera grahok — {period}'),
   modes: w('Money in by mode — {period}', 'किस तरह पैसा आया — {period}', 'কীভাবে টাকা এল — {period}', 'Kis tarah paisa aaya — {period}', 'Kibhabe taka elo — {period}'),
   orders: w('Customer orders waiting', 'बाकी ग्राहक ऑर्डर', 'বাকি গ্রাহক অর্ডার', 'Baaki customer order', 'Baki grahok order'),
+  payroll: w('Payroll — {month}', 'Payroll — {month}', 'Payroll — {month}', 'Payroll — {month}', 'Payroll — {month}'),
   gst: w('GST — {month}', 'GST — {month}', 'GST — {month}', 'GST — {month}', 'GST — {month}'),
   staff: w('Sales by staff — {period}', 'स्टाफ़ की बिक्री — {period}', 'স্টাফের বিক্রি — {period}', 'Staff ki bikri — {period}', 'Staff-er bikri — {period}'),
   compare_today: w('Today vs yesterday, same hours', 'आज बनाम कल, उतने ही घंटे', 'আজ বনাম গতকাল, একই সময় পর্যন্ত', 'Aaj vs kal, utne hi ghante', 'Aaj vs gotokal, ekoi somoy porjonto'),
@@ -125,6 +127,11 @@ export const LABEL = {
   entries: w('Entries', 'एंट्री', 'এন্ট্রি', 'Entries', 'Entry'),
   purchaseTotal: w('Bought for', 'कुल खरीद', 'মোট কেনা', 'Kul kharid', 'Mot kena'),
   paid: w('Paid', 'दे दिया', 'দেওয়া হয়েছে', 'De diya', 'Deoa hoyechhe'),
+  people: w('People on payroll', 'Payroll पर लोग', 'Payroll-এ লোক', 'Payroll par log', 'Payroll-e lok'),
+  toPay: w('Still to pay', 'अभी देना है', 'এখনও দিতে হবে', 'Abhi dena hai', 'Ekhono dite hobe'),
+  pfDue: w('PF to deposit', 'PF जमा करना है', 'PF জমা দিতে হবে', 'PF jama karna hai', 'PF joma dite hobe'),
+  notOnPayroll: w('Staff not on payroll', 'Staff जो Payroll में नहीं', 'Staff যাঁরা Payroll-এ নেই', 'Staff jo Payroll mein nahi', 'Staff jara Payroll-e nei'),
+  workSub: w('{absent} absent · {half} half · {extra} extra', '{absent} गैरहाज़िर · {half} आधा दिन · {extra} एक्स्ट्रा', '{absent} অনুপস্থিত · {half} অর্ধেক দিন · {extra} বাড়তি', '{absent} absent · {half} half · {extra} extra', '{absent} absent · {half} half · {extra} extra'),
   stillOwe: w('Still to pay', 'अभी देना है', 'এখনও দিতে হবে', 'Abhi dena hai', 'Ekhono dite hobe'),
   gstRate: w('GST', 'GST', 'GST', 'GST', 'GST'),
   per: w('MRP per {unit}', 'MRP प्रति {unit}', 'MRP প্রতি {unit}', 'MRP per {unit}', 'MRP proti {unit}'),

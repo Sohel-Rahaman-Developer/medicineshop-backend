@@ -12,6 +12,7 @@ const jobSchema = new Schema(
     subject: { type: String, required: true },
     html: { type: String, required: true },
     text: { type: String, required: true },
+    attachments: { type: [{ _id: false, filename: String, contentType: String, content: Buffer }], default: undefined },
     status: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], required: true, default: 'pending' },
     attempts: { type: Number, required: true, default: 0 },
     maxAttempts: { type: Number, required: true, default: 3 },
@@ -42,7 +43,7 @@ export async function drainMail(now = new Date(), limit = 50) {
     const job = await EmailJobModel.findOneAndUpdate({ status: 'pending', scheduledFor: { $lte: now } }, { $set: { status: 'sending' }, $inc: { attempts: 1 } }, { sort: { scheduledFor: 1 }, returnDocument: 'after' }).lean();
     if (!job) break;
     try {
-      await sendMail({ to: job.to, subject: job.subject, html: job.html, text: job.text });
+      await sendMail({ to: job.to, subject: job.subject, html: job.html, text: job.text, ...(job.attachments?.length ? { attachments: job.attachments.map((a) => ({ filename: a.filename ?? 'file', contentType: a.contentType ?? 'application/octet-stream', content: a.content ? Buffer.from(a.content.buffer) : Buffer.alloc(0) })) } : {}) });
       await EmailJobModel.updateOne({ _id: job._id }, { $set: { status: 'sent', sentAt: new Date(), lastError: '' } });
       sent++;
     } catch (err) {

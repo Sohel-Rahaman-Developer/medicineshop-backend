@@ -24,7 +24,8 @@ export type Intent =
   | { kind: 'margins'; order: 'low' | 'high'; period: Period }
   | { kind: 'cheaper'; name: string | null }
   | { kind: 'busy'; period: Period }
-  | { kind: 'brief' };
+  | { kind: 'brief' }
+  | { kind: 'payroll'; last: boolean };
 
 const words = (...w: string[]) => w.map(normalize);
 
@@ -48,6 +49,8 @@ const G = {
   modes: words('upi', 'card', 'cards', 'gpay', 'phonepe', 'paytm', 'online', 'digital', 'mode', 'modes', 'कार्ड', 'ऑनलाइन', 'কার্ড', 'অনলাইন'),
   staff: words('staff', 'employee', 'employees', 'cashier', 'cashiers', 'salesman', 'karmachari', 'kisne', 'kormi', 'स्टाफ', 'कर्मचारी', 'किसने', 'স্টাফ', 'কর্মী'),
   order: words('order', 'orders', 'ऑर्डर', 'অর্ডার'),
+  // D114: the people the shop pays — not the app logins (staff).
+  payroll: words('payroll', 'salary', 'salaries', 'tankhwah', 'tankha', 'vetan', 'betan', 'beton', 'hazri', 'haziri', 'hajira', 'attendance', 'पेरोल', 'सैलरी', 'तनख़्वाह', 'तनख्वाह', 'वेतन', 'हाज़िरी', 'हाजिरी', 'পেরোল', 'স্যালারি', 'বেতন', 'হাজিরা'),
   pending: words('pending', 'open', 'advance', 'booking', 'booked', 'agrim', 'पेंडिंग', 'बुकिंग', 'एडवांस', 'পেন্ডিং', 'বুকিং', 'অগ্রিম'),
   gst: words('gst', 'tax', 'taxes', 'जीएसटी', 'टैक्स', 'জিএসটি', 'ট্যাক্স'),
   dead: words('dead', 'slow', 'nonmoving', 'idle', 'अचल', 'অচল'),
@@ -132,7 +135,7 @@ export function matchIntent(text: string): Intent | null {
 
   if (on.block || on.blockWhole) return null;
   // v1.30: the repeated advice questions get a card — only when nothing else (a name, another topic) is in them.
-  const other = on.stock || on.supplier || on.udhaar || on.expense || on.purchase || on.gst || on.staff || on.modes || on.cash || on.expiry || on.order || on.dead || on.salt || on.price;
+  const other = on.payroll || on.stock || on.supplier || on.udhaar || on.expense || on.purchase || on.gst || on.staff || on.modes || on.cash || on.expiry || on.order || on.dead || on.salt || on.price;
   const least = on.least || (on.top && on.lowWeak);
   const recent = (): Period => (days !== null || on.today || on.yesterday || on.week || on.month ? period('month') : { key: 'days', n: 30 });
   if (on.cheap) return (on.supplier || on.purchase) && (!name || latinName) ? { kind: 'cheaper', name: latinName } : null;
@@ -143,6 +146,8 @@ export function matchIntent(text: string): Intent | null {
   if (on.brief) return name ? null : { kind: 'brief' };
   // "Sabse kam munafa": the least of something is a ranking only the AI makes; "kam stock" stays the reorder card.
   if (on.top && on.lowWeak && !on.stock) return null;
+  // "Salary kharcha" stays the expenses card (every plan has it); payroll is the people and their month.
+  if (on.payroll && !on.expense) return { kind: 'payroll', last: on.last && on.month };
   if (on.help) return { kind: 'help' };
   if (on.expiry) return days !== null ? { kind: 'expiring', days } : on.gone ? { kind: 'expired' } : { kind: 'expiring', days: 30 };
   if (on.supplier) return { kind: 'suppliers', name };

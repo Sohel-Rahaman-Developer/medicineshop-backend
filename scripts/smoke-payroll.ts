@@ -18,7 +18,7 @@ const shopBody = (name: string) => ({
 interface Calc { dayRate: number; base: number; missed: number; covered: number; cut: number; extraPay: number; earned: number; bonus: number; gross: number; pfEmployee: number; pfShop: number; advanceDue: number; maxCut: number; advanceCut: number; net: number; counts: Record<string, number> }
 interface Row { employee: { id: string; name: string }; calc: Calc; paid: { id: string; amount: number } | null; advanceDue: number }
 interface Month { canPay: boolean; rows: Row[]; totals: { toPay: number; paid: number }; pf: { total: number; deposited: number; due: number; dueBy: string; people: number } }
-interface Entry { id: string; amount: number; expenseNumber: string | null; advanceCut: number; pfEmployee: number; status: string }
+interface Entry { id: string; amount: number; expenseNumber: string | null; advanceCut: number; pfEmployee: number; status: string; mailedTo?: string | null }
 interface Exp { id: string; expenseNumber: string; category: string; description: string; amount: number; paymentMode: string; fromDrawer: boolean; source: string | null; status: string }
 
 const IST = 5.5 * 3_600_000;
@@ -31,6 +31,8 @@ async function main() {
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { forgetPlanFeatures } = await import('../src/modules/subscription/plan-access.js');
   const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');
+  const { EmailJobModel, drainMail } = await import('../src/services/mail-queue.js');
+  const { pdfWords } = await import('../src/core/pdf-text.js');
 
   const owner = await h.signIn('rohit@pay1.test');
   const shop1 = data<{ id: string }>(await owner.post('/shops', shopBody('Shri Ram Medical Store'))).id;
@@ -77,7 +79,7 @@ async function main() {
   const bad = await Promise.all([person({ name: 'R' }), person({ pay: 0 }), person({ uan: '1234' }), person({ leftOn: `${String(my - 1)}-03-01` }), person({ weeklyOff: [0, 1, 2, 3, 4, 5, 6] }), person({ payKind: 'week' })].map((b) => owner.post('/payroll/employees', b)));
   check('short name / no pay / UAN not 12 digits / last day before the first / no working day / unknown pay → 422', bad.every((r) => r.status === 422), bad.map((r) => r.status).join());
   const ramesh = data<{ id: string }>(await owner.post('/payroll/employees', person())).id;
-  const meera = data<{ id: string }>(await owner.post('/payroll/employees', person({ name: 'Meera Sen', pay: 2_000_000, weeklyOff: [], paidLeaves: 0, pf: true, uan: '100200300400' }))).id;
+  const meera = data<{ id: string }>(await owner.post('/payroll/employees', person({ name: 'Meera Sen', email: 'Meera.Sen@pay1.test', pay: 2_000_000, weeklyOff: [], paidLeaves: 0, pf: true, uan: '100200300400' }))).id;
   const babu = data<{ id: string }>(await owner.post('/payroll/employees', person({ name: 'Babu (delivery)', job: 'Delivery', payKind: 'day', pay: 50_000, weeklyOff: [], paidLeaves: 0 }))).id;
   check('three people: a monthly pharmacist, a monthly one with PF, a day wage', Boolean(ramesh && meera && babu));
 
@@ -136,7 +138,8 @@ async function main() {
   const paidE = data<Entry>(paid);
   check('paid ₹10,800 → 201, expense made', paid.status === 201 && paidE.amount === 1_080_000 && paidE.advanceCut === 200_000, code(paid));
   const payX = await expense(paidE.expenseNumber);
-  const mName = new Date(Date.UTC(my, mm - 1, 1)).toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+  // Written out: en-GB says "Sept" on newer ICU, the app says "Sep".
+  const mName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mm - 1] ?? '';
   check(`the expense: Salary · "Salary — Ramesh Das, ${mName} ${String(my)}" · ₹10,800 from the drawer`, payX?.amount === 1_080_000 && payX.description === `Salary — Ramesh Das, ${mName} ${String(my)}` && payX.fromDrawer, JSON.stringify(payX));
   check('day close: ₹2,000 + ₹10,800 out of the drawer', (await drawerOut()) === out0 + 1_280_000);
   const r3 = await rowOf(ramesh);
@@ -144,6 +147,11 @@ async function main() {
   check('paid again → 409', (await pay()).status === 409);
   const late = await mark(ramesh, work[5] ?? '', 'absent');
   check('a paid month’s attendance is locked → 409 SALARY_PAID', late.status === 409 && reason(late) === 'SALARY_PAID', code(late));
+  const slip = await owner.get(`/payroll/entries/${paidE.id}/pdf`);
+  const words = slip.status === 200 ? (await pdfWords(slip.body)).flat().map((w) => w.text).join(' ') : '';
+  check('the payslip PDF: Payslip, Ramesh Das, ₹12,000 a month, 1.5 days not paid, advance recovered, net ₹10,800', slip.headers.get('content-type') === 'application/pdf' && /Payslip/.test(words) && words.includes('Ramesh Das') && words.includes('12,000.00') && words.includes('600.00') && words.includes('2,000.00') && words.includes('10,800.00'), `${String(slip.status)} ${words.slice(0, 400)}`);
+  check('no email for Ramesh → nothing queued; “Email payslip” → 409 NO_EMAIL', !(await EmailJobModel.exists({ kind: 'payslip', shopId: shop1 })) && reason(await owner.post(`/payroll/entries/${paidE.id}/email`, {})) === 'NO_EMAIL');
+  check('the manager can’t read a payslip → 403', (await manager.get(`/payroll/entries/${paidE.id}/pdf`)).status === 403);
   check('a bonus “with the salary” for a paid month → 409', (await owner.post('/payroll/bonuses', { clientRequestId: randomUUID(), employeeId: ramesh, month: M, amount: 10_000, note: '', paidNow: false })).status === 409);
   const advUndo = await owner.del(`/payroll/entries/${advE.id}`, { reason: 'Entered twice' });
   check('undo the advance once a salary cut it → 409 ADVANCE_CUT', advUndo.status === 409 && reason(advUndo) === 'ADVANCE_CUT', code(advUndo));
@@ -151,6 +159,13 @@ async function main() {
   section('7. PF: due, deposited, undone in order');
   const mp = await owner.post('/payroll/pay', { clientRequestId: randomUUID(), employeeId: meera, month: M, advanceCut: 0, expect: 1_820_000, note: '', paymentMode: 'BANK', fromDrawer: false, date: today });
   check('Meera paid ₹18,200 by bank; ₹1,800 PF kept', mp.status === 201 && data<Entry>(mp).pfEmployee === 180_000, code(mp));
+  const job = await EmailJobModel.findOne({ kind: 'payslip', shopId: shop1 }).lean();
+  const att = job?.attachments?.[0];
+  check('she has an email: the payslip is queued to it at once, the PDF attached', data<Entry>(mp).mailedTo === 'meera.sen@pay1.test' && job?.to === 'meera.sen@pay1.test' && job.subject === `Payslip · ${mName} ${String(my)} · Shri Ram Medical Store` && att?.contentType === 'application/pdf' && Buffer.from(att.content?.buffer ?? []).subarray(0, 4).toString() === '%PDF' && job.text.includes('₹18,200.00'), JSON.stringify({ to: job?.to, subject: job?.subject, mailed: data<Entry>(mp).mailedTo }));
+  const drained = await drainMail(new Date(Date.now() + 60_000));
+  check('the mail job sends with its attachment', drained.sent >= 1 && (await EmailJobModel.findById(job?._id).lean())?.status === 'sent', JSON.stringify(drained));
+  const again = await owner.post(`/payroll/entries/${data<Entry>(mp).id}/email`, {});
+  check('“Email payslip” again → 200, a second mail, audited', again.status === 200 && (await EmailJobModel.countDocuments({ kind: 'payslip', shopId: shop1 })) === 2 && Boolean(await AuditLogModel.exists({ shopId: shop1, module: 'payroll', text: /emailed Meera Sen’s payslip/ })), code(again));
   const pf1 = (await month()).pf;
   const next = mm === 12 ? `${String(my + 1)}-01` : `${String(my)}-${String(mm + 1).padStart(2, '0')}`;
   check(`PF due ₹3,600 (₹1,800 + ₹1,800) by ${next}-15`, pf1.due === 360_000 && pf1.dueBy === `${next}-15` && pf1.people === 1, JSON.stringify(pf1));
@@ -173,6 +188,7 @@ async function main() {
   const au = await AuditLogModel.findOne({ shopId: shop1, module: 'payroll', text: /undid Ramesh Das’s salary/ }).lean();
   check('audit: who undid what, and why', /undid Ramesh Das’s salary for .* · ₹10,800\.00 — Paid the wrong month/.test(au?.text ?? ''), au?.text);
   check('undo again → 404', (await owner.del(`/payroll/entries/${paidE.id}`, { reason: 'again' })).status === 404);
+  check('an undone salary has no payslip → 404', (await owner.get(`/payroll/entries/${paidE.id}/pdf`)).status === 404);
 
   section('9. Leaving and removing');
   const rm = await owner.del(`/payroll/employees/${ramesh}`);
@@ -189,6 +205,46 @@ async function main() {
   const kDays = Number(today.slice(8));
   const kPay = await owner.post('/payroll/pay', { clientRequestId: randomUUID(), employeeId: leaver, month: thisMonth, advanceCut: 0, expect: kRow?.calc.net ?? -1, note: '', paymentMode: 'BANK', fromDrawer: false, date: today });
   check(`someone leaving today is paid today: ${String(kDays)} days × ₹400 (never above the month)`, kPay.status === 201 && data<Entry>(kPay).amount === Math.min(1_200_000, kDays * 40_000), code(kPay));
+
+  section('9b. App staff on payroll, and Ask knows payroll from staff');
+  const { Types } = await import('mongoose');
+  const { UserModel } = await import('../src/modules/user/user.model.js');
+  const { contextFor } = await import('../src/core/middleware/tenant.js');
+  const { runTool } = await import('../src/modules/ask/tools.js');
+  type StaffRow = { userId: string; name: string; email: string; job: string };
+  const staffNow = async () => data<Month & { staff: StaffRow[] }>(await owner.get(`/payroll/month?month=${thisMonth}`)).staff;
+  const st1 = await staffNow();
+  check('app logins not on payroll are listed with their role — the manager and the cashier, never the owner', st1.map((x) => x.name).sort().join() === 'anil,sunita' && st1.find((x) => x.name === 'anil')?.job === 'Manager' && st1.every((x) => x.email.endsWith('@pay1.test')), JSON.stringify(st1));
+  const anilRow = st1.find((x) => x.name === 'anil');
+  const addAnil = await owner.post('/payroll/employees', person({ name: 'Anil Ghosh', userId: anilRow?.userId, email: anilRow?.email }));
+  check('one tap adds the manager, linked to his login; he leaves the list', addAnil.status === 201 && data<{ userId: string | null }>(addAnil).userId === anilRow?.userId && (await staffNow()).map((x) => x.name).join() === 'sunita', code(addAnil));
+  const twice = await owner.post('/payroll/employees', person({ name: 'Anil again', userId: anilRow?.userId }));
+  check('the same login twice → 409 ON_PAYROLL; a login from no staff → 422', twice.status === 409 && reason(twice) === 'ON_PAYROLL' && (await owner.post('/payroll/employees', person({ userId: new Types.ObjectId().toHexString() }))).status === 422, code(twice));
+  const people = data<Month>(await owner.get(`/payroll/month?month=${thisMonth}`)).rows.length;
+  type Card = { title: string; rows: { label: string; value: string }[]; items: { name: string }[]; note?: string };
+  const ask = async (c: typeof owner, text: string) => (r => (r.json.data as { route: string; cards?: Card[] } | undefined))(await c.post('/ask', { text, confirm: true }));
+  const a1 = await ask(owner, 'how many employees on payroll?');
+  const c1 = a1?.cards?.[0];
+  check(`Ask “how many employees on payroll?” → a free card: ${String(people)} people, Anil among them, Sunita named as not on payroll`, a1?.route !== 'ai' && /^Payroll — /.test(c1?.title ?? '') && c1?.rows.find((r) => r.label === 'People on payroll')?.value === String(people) && c1.items.some((i) => i.name === 'Anil Ghosh') && c1.rows.find((r) => r.label === 'Staff not on payroll')?.value === 'sunita', JSON.stringify(a1));
+  const a2 = await ask(owner, 'amr payroll a kotoguli employee a6e?');
+  check('the same in Roman Bengali (the question that went to AI before) → the payroll card, free', a2?.route !== 'ai' && /^Payroll — /.test(a2?.cards?.[0]?.title ?? ''), JSON.stringify(a2));
+  const a4 = await ask(owner, 'salary expense this month');
+  check('“salary expense this month” stays the expenses card (every plan has it)', a4?.route !== 'ai' && !/^Payroll/.test(a4?.cards?.[0]?.title ?? '') && /^Expenses/.test(a4?.cards?.[0]?.title ?? ''), JSON.stringify(a4?.cards?.[0]?.title));
+  const a3 = await ask(manager, 'payroll this month');
+  check('the manager without Payroll → “your role can’t see this”, no numbers', !a3?.cards?.[0]?.rows.length && Boolean(a3?.cards?.[0]?.note), JSON.stringify(a3));
+  const ownerId = (await UserModel.findOne({ email: 'rohit@pay1.test' }).lean())?._id ?? new Types.ObjectId();
+  const { ctx } = await contextFor(new Types.ObjectId(shop1), ownerId);
+  const tool = await runTool({ t: ctx, userId: String(ownerId), now: new Date() }, 'payroll', { month: 'this' });
+  const mgrId = (await UserModel.findOne({ email: 'anil@pay1.test' }).lean())?._id ?? new Types.ObjectId();
+  const mgrCtx = (await contextFor(new Types.ObjectId(shop1), mgrId)).ctx;
+  check('…the manager’s AI gets “your role can’t see this”, no names', !(await runTool({ t: mgrCtx, userId: String(mgrId), now: new Date() }, 'payroll', { month: 'this' })).ok);
+  const odd = data<{ id: string }>(await owner.post('/payroll/employees', person({ name: 'Paise Test', pay: 1_000_001, paidLeaves: 0, weeklyOff: [] }))).id;
+  const oddRow = data<Month>(await owner.get(`/payroll/month?month=${M}`)).rows.find((r) => r.employee.id === odd);
+  const oddPay = await owner.post('/payroll/pay', { clientRequestId: randomUUID(), employeeId: odd, month: M, advanceCut: 0, expect: oddRow?.calc.net ?? -1, note: '', paymentMode: 'BANK', fromDrawer: false, date: today });
+  const oddSlip = await owner.get(`/payroll/entries/${data<Entry>(oddPay).id}/pdf`);
+  const oddWords = (await pdfWords(oddSlip.body)).flat().map((w) => w.text).join(' ');
+  check('₹10,000.01 a month is paid ₹10,000 — the slip shows “Round off −₹0.01”', data<Entry>(oddPay).amount === 1_000_000 && oddWords.includes('Round off') && oddWords.includes('0.01'), `${code(oddPay)} ${oddWords.slice(0, 300)}`);
+  check('the AI’s payroll tool reads the people paid, which one has an app login, and who is still off payroll', tool.ok && tool.text.includes('Ramesh Das') && tool.text.includes('"name":"Anil Ghosh","job":"Pharmacist","appLogin":true') && tool.text.includes('"staffNotOnPayroll":["sunita"]') && tool.href === '/payroll', tool.text.slice(0, 300));
 
   section('10. Another shop sees nothing');
   const other = await h.signIn('gita@pay2.test');

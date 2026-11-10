@@ -9,7 +9,10 @@ const isoDayText = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]
 
 const person = {
   name: z.string().trim().min(2, 'Enter the name').max(60, 'At most 60 letters'),
+  /** A staff member with an app login; set when added, never changed after. */
+  userId: objectId.nullable().default(null),
   phone: text(20),
+  email: z.union([z.literal(''), z.email('Enter a valid email address').toLowerCase().trim()]).default(''),
   job: text(40),
   payKind: z.enum(PAY_KINDS, 'Choose monthly or daily pay'),
   pay: paise('Pay', 100_000_000).min(100, 'Enter the pay'),

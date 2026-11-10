@@ -27,6 +27,8 @@ export interface MailInput {
   subject: string;
   html: string;
   text: string;
+  /** D114: a payslip PDF; small files only (the queue keeps them in the job). */
+  attachments?: { filename: string; contentType: string; content: Buffer }[];
 }
 
 export async function sendMail(mail: MailInput): Promise<void> {
@@ -53,6 +55,7 @@ export async function sendMail(mail: MailInput): Promise<void> {
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
+      ...(mail.attachments?.length ? { attachments: mail.attachments } : {}),
     });
   } catch (err) {
     await markMail(false, err);

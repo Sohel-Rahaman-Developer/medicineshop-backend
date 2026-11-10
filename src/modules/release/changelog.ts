@@ -10,6 +10,21 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.55.0',
+    date: '2026-11-11',
+    title: 'Payslips like a bill, staff linked to payroll, Ask knows payroll',
+    shop: [
+      'A paid salary has a payslip, on the same designed paper as a bill: each line with its working, attendance, net pay in words. Share it, send it on WhatsApp or save the PDF.',
+      'Give a person an email and the payslip is mailed to them, PDF attached, as soon as the salary is paid; “Email payslip again” sends it once more. The screen says where and when it went.',
+      'Salary is paid in whole rupees, like a bill: ₹16,366.66 becomes ₹16,367.00 with the round-off shown.',
+      'Payroll lists your staff with an app login who are not on payroll yet; “Add to payroll” fills in their name, email and phone and links them for good. People with a login show “App login”.',
+      'Ask your shop knows payroll: “how many employees on payroll”, “salary this month” — a free answer card with who is paid, what is still to pay, PF due and staff not on payroll. The AI no longer reads the sales by staff as payroll.',
+      'The demo shop shows a payroll at work: its staff, a delivery boy on a day wage, last month paid, an advance and PF due.',
+    ],
+    admin: ['The demo shop gets its payroll on the next fill.'],
+    api: ['GET /payroll/entries/:id/pdf (payslip), POST /payroll/entries/:id/email. A person has an email; a paid salary carries mailedTo / mailedAt; POST /payroll/pay answers with mailedTo. A person may carry userId (an active staff login, once); GET /payroll/month lists staff not on payroll. Ask: a payroll card and an AI payroll tool, both behind the Payroll feature and permission. The month’s working has roundOff and net is in whole rupees. Mail jobs can carry a PDF attachment.'],
+  },
+  {
     version: '1.54.0',
     date: '2026-11-10',
     title: 'Payroll: attendance, advances, salary and PF — every payment an expense',

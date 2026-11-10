@@ -69,7 +69,10 @@ async function main() {
   check('a product never stocked is in it, with nothing to sell', cat.items.find((i) => i.id === never)?.sellable === 0);
 
   section('3. A bill sent later');
-  const soldAt = new Date(Date.now() - 2 * HOUR).toISOString();
+  // Earlier today, never yesterday: run just after midnight IST, "2 hours ago" was another day.
+  const todayStart = Date.parse(`${istDay(Date.now())}T00:00:00Z`) - 5.5 * HOUR;
+  const earlierToday = (ms: number) => new Date(Math.max(Date.now() - ms, todayStart + 1000)).toISOString();
+  const soldAt = earlierToday(2 * HOUR);
   const bill = (over: Record<string, unknown> = {}) => ({ clientRequestId: randomUUID(), deviceId: dev.id, seq: 1, soldAt, items: [{ productId: dolo, quantity: 2, unit: 'STRIP', price: 6700 }], payments: [{ mode: 'CASH', amount: 6700 }], ...over });
   const first = bill();
   const r1 = await cashier.post('/pos/offline/sales', first);
@@ -117,7 +120,7 @@ async function main() {
   const st = data<{ cash: { expected: number } | null }>(await owner.get('/day-close'));
   const closed = await owner.post('/day-close', { day: today, counted: st.cash?.expected ?? 0, takenOut: 0 });
   check('the owner closes today', closed.status === 201, code(closed));
-  const late = data<Saved>(await cashier.post('/pos/offline/sales', bill({ seq: 6, soldAt: new Date(Date.now() - 5 * 60_000).toISOString(), payments: [{ mode: 'CASH', amount: 6700 }] })));
+  const late = data<Saved>(await cashier.post('/pos/offline/sales', bill({ seq: 6, soldAt: earlierToday(5 * 60_000), payments: [{ mode: 'CASH', amount: 6700 }] })));
   check('a bill of today arriving after the close: saved, marked, the owner told the count missed its cash', late.offline?.afterClose === true && /already closed — its cash was not in that day’s count/.test((await NotificationModel.findOne({ shopId, key: `OFFLINE_SYNC:${late.billNumber}` }).lean())?.body ?? ''));
 
   section('7. Who and where');

@@ -403,3 +403,25 @@ export function monitorAlertEmail(items: { label: string; n: number; limit: numb
     text: `${BRAND} alert — last ${String(windowMin)} minutes\n\n${items.map((i) => `${i.label}: ${String(i.n)} (limit ${String(i.limit)})`).join('\n')}\n\nOpen: ${env.ADMIN_APP_URL}/health\nServer errors: pm2 logs pharma-api`,
   };
 }
+
+/** D114: a payslip to the person paid, the PDF attached; the shop's name leads, MedBox24 only sends it. */
+export function payslipEmail(r: { shop: string; name: string; month: string; net: string; day: string; mode: string; lines: [string, string][] }) {
+  const t = THEMES.shop;
+  return {
+    subject: `Payslip · ${r.month} · ${r.shop}`,
+    html: shell({
+      theme: t,
+      preheader: `${r.shop} paid you ${r.net} for ${r.month}.`,
+      eyebrow: 'Payslip',
+      title: `${r.net} for ${r.month}`,
+      intro: `${esc(r.name)}, ${esc(r.shop)} paid your salary on ${esc(r.day)} (${esc(r.mode)}). Your payslip is attached as a PDF.`,
+      body: `${rows([...r.lines, ['Paid to you', r.net]])}${note(`Questions about it? Ask at ${esc(r.shop)}. ${esc(BRAND)} only sends this email for the shop.`)}`,
+    }),
+    text: `${r.name}, ${r.shop} paid your salary for ${r.month}: ${r.net} on ${r.day} (${r.mode}).
+
+${r.lines.map(([k, v]) => `${k}: ${v}`).join('\n')}
+Paid to you: ${r.net}
+
+Your payslip is attached as a PDF. Questions? Ask at ${r.shop}.`,
+  };
+}

@@ -15,7 +15,11 @@ const employeeSchema = new Schema(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true },
     name: { type: String, required: true, trim: true },
+    /** Their app login in this shop, when they have one (Staff → Payroll). */
+    userId: { type: Schema.Types.ObjectId, ref: 'User' },
     phone: { type: String, default: '', trim: true },
+    /** Payslips go here when the salary is paid. */
+    email: { type: String, default: '', trim: true, lowercase: true },
     job: { type: String, default: '', trim: true },
     payKind: { type: String, enum: PAY_KINDS, required: true },
     /** Paise a month, or a day for day wages. */
@@ -34,6 +38,7 @@ const employeeSchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 employeeSchema.index({ shopId: 1, name: 1 });
+employeeSchema.index({ shopId: 1, userId: 1 }, { unique: true, partialFilterExpression: { userId: { $type: 'objectId' } } });
 employeeSchema.plugin(tenantScoped);
 export const EmployeeModel = model('Employee', employeeSchema);
 export type Employee = InferSchemaType<typeof employeeSchema> & { _id: Types.ObjectId };
@@ -76,6 +81,9 @@ const entrySchema = new Schema(
     fromDrawer: { type: Boolean, default: false },
     note: { type: String, default: '', trim: true },
     reference: { type: String, default: '', trim: true },
+    /** Salary: the payslip emailed, last time. */
+    mailedTo: { type: String },
+    mailedAt: { type: Date },
     expenseId: { type: Schema.Types.ObjectId, ref: 'Expense' },
     /** Salary: what it was worked out from, as shown when paid. */
     advanceCut: { type: Number, default: 0 },

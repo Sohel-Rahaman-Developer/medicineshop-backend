@@ -174,6 +174,21 @@ async function main() {
   staff.shopId = demo.shopId;
   check('…bills open, the staff list is the owner’s (403)', (await staff.get('/sales?limit=5')).status === 200 && (await staff.get('/staff')).status === 403);
 
+  // D114: the demo shows a payroll at work — its staff linked to their logins, a delivery boy, last month paid.
+  const istNow = new Date(Date.now() + 5.5 * 3_600_000);
+  const lastM = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const pm = data<{ rows: { employee: { name: string; userId: string | null }; paid: { amount: number } | null }[]; staff: unknown[]; pf: { due: number } }>(await demo.get(`/payroll/month?month=${lastM}`));
+  check('D114: demo payroll — Priya, Sunita and Ravi linked to their logins, Babu on a day wage, all paid last month, PF due', pm.rows.length === 4 && pm.rows.filter((r) => r.employee.userId).length === 3 && pm.rows.every((r) => r.paid) && pm.staff.length === 0 && pm.pf.due > 0, JSON.stringify(pm.rows.map((r) => [r.employee.name, Boolean(r.employee.userId), r.paid?.amount])));
+  // D114: payroll works in the demo, but no payslip ever leaves it by mail.
+  const { EmailJobModel } = await import('../src/services/mail-queue.js');
+  const ist = new Date(Date.now() + 5.5 * 3_600_000);
+  const last = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const ravi = data<{ id: string }>(await demo.post('/payroll/employees', { name: 'Test Helper', email: 'test.helper@gmail.com', payKind: 'month', pay: 1_000_000, weeklyOff: [], paidLeaves: 0, extraRate: null, pf: false, uan: '', joinedOn: '2025-01-01', leftOn: null, phone: '', job: 'Helper' })).id;
+  const net = data<{ rows: { employee: { id: string }; calc: { net: number } }[] }>(await demo.get(`/payroll/month?month=${last}`)).rows.find((r) => r.employee.id === ravi)?.calc.net ?? -1;
+  const paidDemo = await demo.post('/payroll/pay', { clientRequestId: crypto.randomUUID(), employeeId: ravi, month: last, advanceCut: 0, expect: net, note: '', paymentMode: 'CASH', fromDrawer: false, date: ist.toISOString().slice(0, 10) });
+  const slipId = (paidDemo.json.data as { id?: string; mailedTo?: string | null } | undefined);
+  check('D114: a salary paid in the demo shop sends no payslip mail; “Email payslip” → 403', paidDemo.status === 201 && slipId?.mailedTo === null && !(await EmailJobModel.exists({ kind: 'payslip', shopId })) && (await demo.post(`/payroll/entries/${slipId.id ?? ''}/email`, {})).status === 403, code(paidDemo));
+
   section('4. Ten wrong codes lock it; a new code signs every device out');
   const w = h.client();
   await w.post('/auth/otp/request', { email: 'demo@medbox24.in' });
@@ -196,11 +211,15 @@ async function main() {
   check('shop list marks it DEMO', list.some((x) => x.id === first.shop?.id && x.demo));
 
   section('6. Through the day the scheduler adds the bills as their time comes; reset makes it again');
+  // A demo made before payroll: its people come with the next top-up.
+  const { EmployeeModel } = await import('../src/modules/payroll/payroll.model.js');
+  await EmployeeModel.deleteMany({ shopId });
   await DemoModel.updateOne({ _id: 'demo' }, { $set: { filledTo: new Date(now.getTime() - 26 * 3_600_000) } });
   const before = await SaleModel.countDocuments({ shopId });
   const kind = await demoTick(new Date());
   const after = await SaleModel.countDocuments({ shopId });
   check('a tick fills the hours since the last fill', kind === 'topup' && after > before, `${String(kind)} ${String(before)} → ${String(after)}`);
+  check('D114: a demo with no payroll gets its people on that top-up', (await EmployeeModel.countDocuments({ shopId })) === 4);
   check('reset by support → allowed', (await helper.post('/admin/demo/reset', { reason: 'Client changed things' })).status === 200);
   check('a second reset while one runs → 409', (await root.post('/admin/demo/reset', { reason: 'Client changed things' })).status === 409);
   const again = await settled('reset');

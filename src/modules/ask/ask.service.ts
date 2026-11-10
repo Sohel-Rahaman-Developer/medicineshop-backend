@@ -1,3 +1,4 @@
+import { month as payrollMonth } from '../payroll/payroll.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { Types } from 'mongoose';
 import { z } from 'zod';
@@ -94,6 +95,13 @@ async function cardOf(t: TenantContext, userId: string, intent: Intent, v: Voice
         return C.cheaperCard(await F.buyPrices(t, intent.name, now), v);
       case 'busy':
         return C.busyCard(await F.busyHours(t, userId, intent.period, now), v);
+      case 'payroll': {
+        if (!t.features.includes('payroll')) return C.noteCard('', say(TEXT.notInPlan, v));
+        if (!can(t.permissions, 'payroll', 'view')) throw new F.NoAccess();
+        const ist = new Date(now.getTime() + 5.5 * 3_600_000);
+        const m = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - (intent.last ? 1 : 0), 1)).toISOString().slice(0, 7);
+        return C.payrollCard(await payrollMonth(t, m, now), v);
+      }
       case 'brief':
         if (!t.features.includes('brief')) return C.noteCard('', say(TEXT.notInPlan, v));
         if (!can(t.permissions, 'reports', 'view')) throw new F.NoAccess();

@@ -1083,5 +1083,11 @@
   "A UAN has 12 digits": "UAN-এ 12টি অঙ্ক থাকে",
   "Choose a mark": "হাজিরা বেছে নিন",
   "Say how and when it was paid": "বলুন টাকা কীভাবে আর কবে দেওয়া হয়েছে",
-  "Nothing to deposit": "জমা দেওয়ার মতো কিছু নেই"
+  "Nothing to deposit": "জমা দেওয়ার মতো কিছু নেই",
+  "Payslip not found — the salary may be undone": "Payslip পাওয়া যায়নি — হয়তো salary undo হয়ে গেছে",
+  "Payslip emailed to {mailedTo}": "Payslip {mailedTo}-এ ইমেল করা হচ্ছে",
+  "Add {name}’s email first": "আগে {name}-এর ইমেল যোগ করুন",
+  "That person is not on this shop’s staff": "এই ব্যক্তি এই দোকানের staff-এ নেই",
+  "Not on the staff": "staff-এ নেই",
+  "{name} is already on payroll": "{name} আগে থেকেই Payroll-এ আছেন"
 }

@@ -1083,5 +1083,11 @@
   "A UAN has 12 digits": "UAN में 12 अंक होते हैं",
   "Choose a mark": "हाज़िरी चुनिए",
   "Say how and when it was paid": "बताइए कि पैसे कैसे और कब दिए",
-  "Nothing to deposit": "जमा करने को कुछ नहीं है"
+  "Nothing to deposit": "जमा करने को कुछ नहीं है",
+  "Payslip not found — the salary may be undone": "Payslip नहीं मिली — शायद salary undo हो चुकी है",
+  "Payslip emailed to {mailedTo}": "Payslip {mailedTo} पर ईमेल हो रही है",
+  "Add {name}’s email first": "पहले {name} का ईमेल जोड़िए",
+  "That person is not on this shop’s staff": "यह व्यक्ति इस दुकान के staff में नहीं है",
+  "Not on the staff": "staff में नहीं",
+  "{name} is already on payroll": "{name} पहले से Payroll में हैं"
 }

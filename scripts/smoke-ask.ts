@@ -267,7 +267,7 @@ async function main() {
   const ai = await askAs(owner, 'Dolo kis kaam aati hai', { history: [{ role: 'user', text: 'aaj ki sale' }, { role: 'assistant', text: 'Sale — Aaj: ₹120' }] });
   check('answered by AI at once, a link to the product it looked up, 1 token (5 → 4)', ai.a.route === 'ai' && ai.a.text?.startsWith('Dolo 650 mein paracetamol') === true && ai.a.links?.[0]?.href === `/products/${dolo}` && ai.a.ai?.balance === 4, JSON.stringify(ai.a));
   const [first, second] = fake.seen;
-  check('Claude got Haiku 4.5, the 28 read-only tools, a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 28 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
+  check('Claude got Haiku 4.5, the 29 read-only tools (payroll, D114), a cached system prompt, max 500 out, no effort (Haiku 4.5 has none)', first?.model === 'claude-haiku-4-5-20251001' && first.tools.length === 29 && first.cached && first.maxTokens === 500 && !first.stream && first.effort === null, JSON.stringify({ m: first?.model, t: first?.tools.length, c: first?.cached, x: first?.maxTokens, e: first?.effort }));
   const lastMsg = first?.messages.at(-1)?.content;
   const sent = typeof lastMsg === 'string' ? lastMsg : '';
   const ownCount = await ProductModel.countDocuments({ shopId: shop, isActive: true });

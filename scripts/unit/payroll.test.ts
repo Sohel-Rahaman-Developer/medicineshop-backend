@@ -51,7 +51,7 @@ void test('D114: PF 12% each on pay up to ₹15,000, not on extra days or bonus'
   assert.equal(big.pfWage, 1_500_000);
   assert.equal(big.pfEmployee, 180_000);
   assert.equal(big.pfShop, 180_000);
-  assert.equal(big.net, big.gross - 180_000);
+  assert.equal(big.net, big.gross - 180_000 + big.roundOff, 'whole rupees');
   const small = salaryFor('2026-11', { ...ramesh, pf: true, paidLeaves: 0 }, marks({ '2026-11-03': 'absent' }), { dayBasis: 'thirty' });
   assert.equal(small.pfWage, 1_160_000);
   assert.equal(small.pfEmployee, 139_200);
@@ -71,4 +71,13 @@ void test('D114: an extra day at its own rate', () => {
   const s = salaryFor('2026-11', { ...ramesh, extraRate: 60_000 }, marks({ '2026-11-15': 'extra', '2026-11-22': 'extra' }), { dayBasis: 'thirty' });
   assert.equal(s.extraPay, 120_000);
   assert.equal(s.counts.off, 3);
+});
+
+void test('D114: paid in whole rupees — ₹20,000 ÷ 30 leaves paise, the round-off shows them', () => {
+  const s = salaryFor('2026-11', { ...ramesh, pay: 2_000_000 }, marks({ '2026-11-03': 'absent', '2026-11-04': 'absent', '2026-11-05': 'half' }), { dayBasis: 'thirty' });
+  assert.equal(s.dayRate, 66_667, '₹666.67');
+  assert.equal(s.cut, 100_001, '1.5 × ₹666.67 = ₹1,000.005 → ₹1,000.01');
+  assert.equal(s.earned, 1_899_999);
+  assert.equal(s.net, 1_900_000);
+  assert.equal(s.roundOff, 1);
 });

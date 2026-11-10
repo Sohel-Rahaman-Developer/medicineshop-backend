@@ -7,6 +7,8 @@ import { brief } from '../brief/brief.service';
 import { seesCost } from '../dashboard/dashboard.service';
 import * as C from './cards';
 import * as F from './facts';
+import { can } from '../rbac/permissions';
+import { month as payrollMonth } from '../payroll/payroll.service';
 
 // D81: what the AI may look up — the same facts as the free cards, read-only. The shop and the asker come from the
 // session (never from the model); the model only picks a tool and its words.
@@ -23,6 +25,7 @@ const none = z.object({}).strict();
 const compareInput = z.object({ period: z.enum(['today', 'week', 'month']) }).strict();
 const marginInput = periodInput.extend({ order: z.enum(['low', 'high']) }).strict();
 const gstInput = z.object({ month: z.enum(['this', 'last']) }).strict();
+const monthInput = z.object({ month: z.enum(['this', 'last']) }).strict();
 
 const toPeriod = (i: z.infer<typeof periodInput>): F.Period => (i.period === 'days' ? { key: 'days', n: i.days ?? 7 } : { key: i.period });
 
@@ -64,12 +67,30 @@ export const TOOLS = [
   tool({ name: 'not_selling', description: 'Products in stock that have not sold for N days (or never), with the money stuck in them.', input: daysInput, run: async (c, i) => { const d = await F.notSelling(c.t, i.days, c.now); return { data: d, href: C.deadCard(d, en).href }; } }),
   tool({ name: 'top_customers', description: 'The 10 customers who spent the most in a period.', input: periodInput, run: async (c, i) => { const d = await F.topCustomers(c.t, c.userId, toPeriod(i), c.now); return { data: d, href: C.customersCard(d, en).href }; } }),
   tool({ name: 'pay_modes', description: 'How the money came in for a period: cash, UPI, card, udhaar.', input: periodInput, run: async (c, i) => { const d = await F.payModes(c.t, c.userId, toPeriod(i), c.now); return { data: d, href: C.modesCard(d, en).href }; } }),
-  tool({ name: 'staff_sales', description: 'Who sold how much in a period: bills and amount by staff member.', input: periodInput, run: async (c, i) => { const d = await F.staffSales(c.t, toPeriod(i), c.now); return { data: d, href: C.staffCard(d, en).href }; } }),
+  tool({ name: 'staff_sales', description: 'Who sold how much in a period: bills and amount by each app user who bills. Not payroll — for employees, salary or attendance use payroll.', input: periodInput, run: async (c, i) => { const d = await F.staffSales(c.t, toPeriod(i), c.now); return { data: d, href: C.staffCard(d, en).href }; } }),
   tool({ name: 'expenses', description: 'Shop expenses for a period by category (rent, salary, electricity…).', input: periodInput, run: async (c, i) => { const d = await F.expensesIn(c.t, toPeriod(i), c.now); return { data: d, href: C.expensesCard(d, en).href }; } }),
   tool({ name: 'purchases', description: 'Purchases for a period: invoices, amount, paid, still to pay, returns to suppliers.', input: periodInput, run: async (c, i) => { const d = await F.purchasesIn(c.t, toPeriod(i), c.now); return { data: d, href: C.purchasesCard(d, en).href }; } }),
   tool({ name: 'price', description: 'MRP and GST of one product by name, by batch.', input: nameInput, run: async (c, i) => { const d = await F.priceOf(c.t, i.name); return { data: d, href: C.priceCard(d, en).href }; } }),
   tool({ name: 'gst_month', description: 'GST of this month or last month: on sales, on purchases, and the net to pay or credit.', input: gstInput, run: async (c, i) => { const d = await F.gstOf(c.t, i.month === 'last', c.now); return { data: d, href: C.gstCard(d, en).href }; } }),
   tool({ name: 'morning_brief', description: 'Today\'s brief: yesterday\'s sale against a usual day like it (same weekday, last 4 weeks), then today\'s jobs most urgent first — reorder (with how long stock lasts), expiry, supplier payments, udhaar, stock not selling.', input: none, run: async (c) => { if (!c.t.features.includes('brief') || !seesCost(c.t)) throw new F.NoAccess(); return { data: await brief(c.t, c.userId, c.now), href: '/brief' }; } }),
+  // D114: the people the shop pays; app logins (staff_sales) are another list.
+  tool({ name: 'payroll', description: 'Employees on payroll (people the shop pays, with or without an app login) and a month’s pay: each person’s pay, absent / half / extra days, earned, paid or still to pay, advance still to cut; totals and PF due. Use for "how many employees", salary, attendance, advance.', input: monthInput, run: async (c, i) => {
+    if (!c.t.features.includes('payroll') || !can(c.t.permissions, 'payroll', 'view')) throw new F.NoAccess();
+    const ist = new Date(c.now.getTime() + 5.5 * 3_600_000);
+    const m = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - (i.month === 'last' ? 1 : 0), 1)).toISOString().slice(0, 7);
+    const d = await payrollMonth(c.t, m, c.now);
+    return {
+      data: {
+        month: m,
+        people: d.rows.map((r) => ({ name: r.employee.name, job: r.employee.job, appLogin: Boolean(r.employee.userId), pay: r.employee.pay, payKind: r.employee.payKind, left: r.employee.leftOn, absent: r.calc.counts.absent, half: r.calc.counts.half, extra: r.calc.counts.extra, earned: r.calc.earned, paid: r.paid?.amount ?? null, due: r.paid ? 0 : r.calc.net, advance: r.advanceDue })),
+        total: d.totals.toPay,
+        paid: d.totals.paid,
+        staffNotOnPayroll: d.staff.map((x) => x.name),
+        pfDue: d.pf.due,
+      },
+      href: '/payroll',
+    };
+  } }),
   tool({ name: 'open_orders', description: 'Customer orders still waiting (booked, advance taken).', input: none, run: async (c) => { const d = await F.openOrders(c.t); return { data: d, href: C.ordersCard(d, en).href }; } }),
 ];
 
@@ -80,7 +101,7 @@ export const toolDefs = (): Anthropic.Tool[] =>
     return { name: t.name, description: t.description, input_schema: schema as Anthropic.Tool.InputSchema };
   });
 
-const MONEY = new Set(['netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points', 'mrp', 'advance', 'advanceHeld', 'paid', 'salesTaxable', 'outTax', 'inTax', 'net', 'grossProfit', 'cost', 'packCost', 'couldSave', 'average']);
+const MONEY = new Set(['pay', 'earned', 'pfDue', 'netSales', 'gross', 'returns', 'avgBill', 'amount', 'total', 'due', 'limit', 'mrpValue', 'value', 'opening', 'cashIn', 'cashOut', 'expected', 'revenue', 'cogs', 'overdue', 'dueWeek', 'points', 'mrp', 'advance', 'advanceHeld', 'paid', 'salesTaxable', 'outTax', 'inTax', 'net', 'grossProfit', 'cost', 'packCost', 'couldSave', 'average']);
 const ISO = /^\d{4}-\d{2}-\d{2}T/;
 const MAX = 3000;
 

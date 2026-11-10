@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
-import { needFeature, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { sendFile } from '../../core/export';
+import { payslipPdf } from './payroll.pdf';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
@@ -54,9 +56,28 @@ const money = (path: string, schema: Parameters<typeof validate>[0]['body'], run
 };
 money('/advances', advanceSchema, async (req) => svc.advance(tenantOf(req), await actorOf(req), req.body as AdvanceInput, new Date(), req.ip), 'Advance saved');
 money('/bonuses', bonusSchema, async (req) => svc.bonus(tenantOf(req), await actorOf(req), req.body as BonusInput, new Date(), req.ip), 'Bonus saved');
-money('/pay', paySchema, async (req) => svc.pay(tenantOf(req), await actorOf(req), req.body as PayInput, new Date(), req.ip), 'Salary paid');
+money(
+  '/pay',
+  paySchema,
+  async (req) => {
+    const actor = await actorOf(req);
+    const r = await svc.pay(tenantOf(req), actor, req.body as PayInput, new Date(), req.ip);
+    if (r.replayed) return r;
+    const mailed = await svc.mailIfEmail(tenantOf(req), actor, r.result.id, req.ip);
+    return { ...r, result: { ...r.result, mailedTo: mailed?.mailedTo ?? null, mailedAt: mailed?.mailedAt ?? null } };
+  },
+  'Salary paid',
+);
 money('/pf', pfSchema, async (req) => svc.depositPf(tenantOf(req), await actorOf(req), req.body as PfInput, new Date(), req.ip), 'PF deposit saved');
 
+payrollRouter.get('/entries/:id/pdf', view, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => {
+  const { pdf, name } = await payslipPdf(tenantOf(req), idOf(req));
+  sendFile(res, pdf, name, 'pdf');
+}));
+payrollRouter.post('/entries/:id/email', add, notInDemo, validate({ params: idParams }), asyncHandler(async (req: Request, res: Response) => {
+  const r = await svc.mailPayslip(tenantOf(req), await actorOf(req), idOf(req), req.ip);
+  sent(res, r, `Payslip emailed to ${r.mailedTo}`);
+}));
 payrollRouter.delete('/entries/:id', undo, validate({ params: idParams, body: removeSchema }), asyncHandler(async (req: Request, res: Response) => {
   sent(res, await svc.removeEntry(tenantOf(req), await actorOf(req), idOf(req), (req.body as { reason: string }).reason, req.ip), 'Undone');
 }));
