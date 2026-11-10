@@ -1,5 +1,6 @@
 // B8c checks: autopay (Razorpay Subscriptions), each charge once, refunds with credit notes, disputes.
 import { createHmac } from 'node:crypto';
+import { oldPriceList } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -29,6 +30,8 @@ const near = (a: string | Date, b: number) => Math.abs(new Date(a).getTime() - b
 
 async function main() {
   const h = await startHarness();
+  // Payment mechanics on the list before D113 (₹499 / ₹3,600, GST inside); the D113 list is smoke-plans'.
+  await oldPriceList();
   const { SubscriptionPaymentModel, AutopayModel, WebhookEventModel } = await import('../src/modules/subscription/billing.model.js');
   const { AdminUserModel, AdminAuditModel } = await import('../src/modules/admin/admin.model.js');
   const { AuditLogModel } = await import('../src/modules/audit/audit.model.js');

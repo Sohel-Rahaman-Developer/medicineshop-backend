@@ -1,5 +1,6 @@
 // B8a checks: the date moves the plan (trial → grace → read-only), Razorpay orders, signed verify and webhook, once only.
 import { createHmac, randomUUID } from 'node:crypto';
+import { oldPriceList } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -14,7 +15,7 @@ const shopBody = (name: string) => ({
   agree: true,
 });
 
-interface Sub { status: string; planCode: string; endDate: string; daysLeft: number; maxUsers: number; readOnly: boolean; plans: { code: string; price: number }[]; payments: string }
+interface Sub { status: string; planCode: string; next: { planCode: string; from: string } | null; endDate: string; daysLeft: number; maxUsers: number; readOnly: boolean; plans: { code: string; price: number }[]; payments: string }
 interface Order { orderId: string; amount: number; price: number; charge: { pct: number; amount: number } | null }
 interface Pay { invoiceNumber: string | null; status: string; replayed?: boolean; periodStart: string; periodEnd: string; id: string }
 
@@ -28,6 +29,8 @@ const near = (a: string | Date, b: number) => Math.abs(new Date(a).getTime() - b
 
 async function main() {
   const h = await startHarness();
+  // Payment mechanics on the list before D113 (₹499 / ₹3,600, GST inside); the D113 list is smoke-plans'.
+  await oldPriceList();
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { SubscriptionPaymentModel, WebhookEventModel } = await import('../src/modules/subscription/billing.model.js');
   const { fyOf } = await import('../src/utils/fy.js');
@@ -57,7 +60,7 @@ async function main() {
   check('trial, 30 days left, test payments on', s0.status === 'trial' && s0.daysLeft === 30 && s0.payments === 'test', JSON.stringify(s0));
   const plans = data<{ code: string; price: number; maxUsers: number }[]>(await h.client().get('/plans'));
   const pro = plans.find((p) => p.code === 'monthly');
-  check('plans without signing in: Pro Monthly ₹499 (5 users), Pro Yearly ₹3,600', plans.length === 2 && pro?.price === 49_900 && pro.maxUsers === 5 && plans.find((p) => p.code === 'yearly')?.price === 360_000);
+  check('plans without signing in: Pro Monthly ₹499, Pro Yearly ₹3,600 — 10 users, the Pro package’s (D113)', plans.length === 2 && pro?.price === 49_900 && pro.maxUsers === 10 && plans.find((p) => p.code === 'yearly')?.price === 360_000);
   check('manager sees the plan, can’t buy → 403; cashier → 403', (await manager.get('/subscription')).status === 200 && (await manager.post('/subscription/order', { planCode: 'monthly' })).status === 403 && (await cashier.get('/subscription')).status === 403);
 
   section('2. Order → Checkout signature → verify');
@@ -74,7 +77,7 @@ async function main() {
   const payId = 'pay_ABC123';
   const v1 = await owner.post('/subscription/verify', { orderId: o1.orderId, paymentId: payId, signature: sign(KEY, `${o1.orderId}|${payId}`) });
   const s1 = await sub();
-  check('signed verify → active Monthly, 30 days from today, 5 users', v1.status === 200 && s1.status === 'active' && s1.planCode === 'monthly' && s1.maxUsers === 5 && near(s1.endDate, Date.now() + 30 * DAY), `${code(v1)} ${JSON.stringify(s1)}`);
+  check('signed verify → active Monthly, 30 days from today, 10 users', v1.status === 200 && s1.status === 'active' && s1.planCode === 'monthly' && s1.maxUsers === 10 && near(s1.endDate, Date.now() + 30 * DAY), `${code(v1)} ${JSON.stringify(s1)}`);
   check(`GST invoice MS-${fy}-00001`, data<Pay>(v1).invoiceNumber === `MS-${fy}-00001`);
   const again = await owner.post('/subscription/verify', { orderId: o1.orderId, paymentId: payId, signature: sign(KEY, `${o1.orderId}|${payId}`) });
   check('the same verify again → 200, replayed, no extra days', again.status === 200 && data<Pay>(again).replayed === true && (await sub()).endDate === s1.endDate);
@@ -82,20 +85,21 @@ async function main() {
   check('another payment on a paid order → 409 ALREADY_PAID', other.status === 409 && reason(other) === 'ALREADY_PAID');
 
   section('3. The webhook (browser closed after paying)');
-  const o2 = data<Order>(await owner.post('/subscription/order', { planCode: 'yearly' }));
+  // The same plan again: another plan bought now starts after this one (D113, smoke-upgrade checks that).
+  const o2 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
   const hook = h.client({ origin: null });
   const event = (o: string, p: string, amount: number, type = 'payment.captured') => JSON.stringify({ event: type, payload: { payment: { entity: { id: p, order_id: o, amount, method: 'upi' } } } });
   const send = (raw: string, sig: string, id: string) => hook.raw('POST', '/webhooks/razorpay', raw, { 'x-razorpay-signature': sig, 'x-razorpay-event-id': id });
-  // ₹3,600 + 2% ₹72.
-  const raw2 = event(o2.orderId, 'pay_YEAR01', 367_200);
+  // ₹499 + 2% ₹9.98.
+  const raw2 = event(o2.orderId, 'pay_MONTH2', 50_898);
   const forged = await send(raw2, sign('wrong-secret', raw2), 'evt_1');
   check('forged signature → 400, logged as invalid, nothing paid', forged.status === 400 && (await WebhookEventModel.findOne({ eventId: 'evt_1' }).lean())?.signatureValid === false && (await sub()).planCode === 'monthly');
   const w2 = await send(raw2, sign(HOOK, raw2), 'evt_2');
   const s2 = await sub();
-  check('signed payment.captured → Yearly, added after the running month (30 + 365 days)', w2.status === 200 && s2.planCode === 'yearly' && s2.maxUsers === 10 && near(s2.endDate, new Date(s1.endDate).getTime() + 365 * DAY), `${code(w2)} ${s2.endDate}`);
+  check('signed payment.captured → another month, added after the running one (30 + 30 days)', w2.status === 200 && s2.planCode === 'monthly' && s2.next === null && s2.maxUsers === 10 && near(s2.endDate, new Date(s1.endDate).getTime() + 30 * DAY), `${code(w2)} ${s2.endDate}`);
   check(`invoice MS-${fy}-00002 (one series across shops)`, (await SubscriptionPaymentModel.findOne({ razorpayOrderId: o2.orderId }).lean())?.invoiceNumber === `MS-${fy}-00002`);
   const dup = await send(raw2, sign(HOOK, raw2), 'evt_2');
-  check('the same event again → duplicate, no extra year', dup.status === 200 && (dup.json.data as { result?: string } | undefined)?.result === 'duplicate' && (await sub()).endDate === s2.endDate);
+  check('the same event again → duplicate, no extra month', dup.status === 200 && (dup.json.data as { result?: string } | undefined)?.result === 'duplicate' && (await sub()).endDate === s2.endDate);
   const o3 = data<Order>(await owner.post('/subscription/order', { planCode: 'monthly' }));
   const raw3 = event(o3.orderId, 'pay_SHORT1', 100);
   const w3 = await send(raw3, sign(HOOK, raw3), 'evt_3');

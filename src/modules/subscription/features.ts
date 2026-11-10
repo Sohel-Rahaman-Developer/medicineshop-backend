@@ -25,6 +25,9 @@ export const REPORTS_SPLIT: readonly Feature[] = ['registers', ...REPORTS.map(re
 export const TIERS = ['basic', 'pro'] as const;
 export type Tier = (typeof TIERS)[number];
 
+/** D113 Basic: AI reading (no chat) and the everyday reports; the admin changes it any time. */
+export const BASIC_FEATURES: readonly Feature[] = ['ai', ...(['sales-register', 'sales-summary', 'stock-on-hand', 'expiry', 'expired', 'purchase-register', 'supplier-outstanding', 'customer-outstanding', 'expenses'] as const).map(reportFeature)];
+
 export const MODULE_NAMES: Record<PlanModule, string> = {
   analytics: 'Analytics',
   pnl: 'Profit & Loss and day book',

@@ -7,11 +7,11 @@ import { MembershipModel, type Membership } from '../../modules/memberships/memb
 import { effective, type Action, type Module, type Permissions, type Scopes, can } from '../../modules/rbac/permissions';
 import { RoleModel, type Role } from '../../modules/roles/role.model';
 import { ShopModel } from '../../modules/shops/shop.model';
-import { SubscriptionModel, graceEndOf, isReadOnly, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
+import { SubscriptionModel, graceEndOf, isReadOnly, planAt, statusAt, type SubscriptionStatus } from '../../modules/subscription/subscription.model';
 import { env } from '../../config/env';
 import { platform } from '../../modules/admin/platform';
 import { MODULE_NAMES, type Feature, type PlanModule } from '../../modules/subscription/features';
-import { featuresOf } from '../../modules/subscription/plan-access';
+import { featuresOf, packageOfPlan } from '../../modules/subscription/plan-access';
 
 export interface TenantContext {
   shopId: Types.ObjectId;
@@ -60,9 +60,13 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
   if (!shop || !role || !sub) throw AppError.forbidden('You do not have access to this shop');
   if (shop.status !== 'active') throw AppError.forbidden('This shop is not active. Please contact MedBox24 support.');
   // The date moves the plan along (trial → grace → expired); the nightly job does the same for shops nobody opens.
-  const status = statusAt(sub, new Date());
-  const features = await featuresOf(sub.planCode);
+  const now = new Date();
+  const status = statusAt(sub, now);
+  const plan = planAt(sub, now);
+  const [features, pack] = await Promise.all([featuresOf(sub, now), packageOfPlan(plan.planCode, now.getTime())]);
   if (status !== sub.status) await SubscriptionModel.updateOne({ shopId, _id: sub._id, status: sub.status }, { $set: { status, graceEndDate: graceEndOf(sub.endDate) } });
+  // D113: the plan paid for next (Pro → Basic) takes over on its day; the nightly job opens every shop, so none waits.
+  if (plan.rolled && sub.next) await SubscriptionModel.updateOne({ shopId, _id: sub._id, 'next.from': sub.next.from }, { $set: { planCode: plan.planCode, maxUsers: plan.maxUsers, kept: plan.kept }, $unset: { next: 1 } });
   const ctx: TenantContext = {
     shopId,
     shopName: shop.name,
@@ -72,7 +76,7 @@ export async function contextFor(shopId: Types.ObjectId, userId: Types.ObjectId)
     isOwner: role.systemKey === 'owner' && shop.ownerUserId.equals(userId),
     permissions: effective(role.permissions, membership.grants as Permissions, membership.denies as Permissions),
     scopes: role.scopes,
-    subscription: { status, endDate: sub.endDate, maxUsers: sub.maxUsers, planCode: sub.planCode },
+    subscription: { status, endDate: sub.endDate, maxUsers: pack ? Math.max(plan.maxUsers, pack.maxUsers) : plan.maxUsers, planCode: plan.planCode },
     features,
     demo: shop.demo === true,
   };

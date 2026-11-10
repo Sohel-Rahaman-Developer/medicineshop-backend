@@ -101,7 +101,8 @@ export function withOffer(price: number, o: Offer | null) {
 export async function evaluate(shopId: Types.ObjectId, now: Date, session?: ClientSession) {
   const r = await ReferralModel.findOne({ refereeShopId: shopId }).session(session ?? null);
   if (!r || r.status === 'qualified') return;
-  const paid = await SubscriptionPaymentModel.find({ shopId, status: 'paid' }).sort({ paidAt: 1, _id: 1 }).select('durationDays continued amount refunded').session(session ?? null).lean();
+  // An upgrade (D113) moves days already counted to Pro — it adds none to the streak.
+  const paid = await SubscriptionPaymentModel.find({ shopId, status: 'paid', kind: { $ne: 'upgrade' } }).sort({ paidAt: 1, _id: 1 }).select('durationDays continued amount refunded').session(session ?? null).lean();
   let streak = 0;
   for (const p of paid) streak = p.refunded >= p.amount ? 0 : (p.continued ? streak : 0) + p.durationDays;
   r.set({ streakDays: streak, ...(streak >= r.qualifyDays ? { status: 'qualified', qualifiedAt: now, reward: r.rewardPct > 0 ? 'ready' : 'none' } : {}) });

@@ -3,6 +3,7 @@
 import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { oldPriceList } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -59,6 +60,8 @@ async function main() {
   const fake = await startFakeRazorpay();
   process.env.RAZORPAY_BASE_URL = fake.url;
   const h = await startHarness();
+  // Payment mechanics on the list before D113 (₹499 / ₹3,600, GST inside); the D113 list is smoke-plans'.
+  await oldPriceList();
   const { AdminUserModel, AdminAuditModel } = await import('../src/modules/admin/admin.model.js');
   const { GatewaySettingsModel } = await import('../src/modules/subscription/gateway.js');
   const { SubscriptionPaymentModel } = await import('../src/modules/subscription/billing.model.js');

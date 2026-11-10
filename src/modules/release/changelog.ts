@@ -10,6 +10,24 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.53.0',
+    date: '2026-11-10',
+    title: 'Basic and Pro: two packages, prices before GST, upgrade for the days left',
+    shop: [
+      'Two packages. Basic: billing, stock, expiry, buying, udhaar, expenses, GST, AI reading and 9 everyday reports, for 3 users. Pro: everything, for 10 users.',
+      'Basic is ₹299 a month, or ₹199 a month billed yearly (₹2,388). Pro is ₹399 a month, or ₹299 a month billed yearly (₹3,588). 18% GST is added on top and shown before you pay.',
+      'On Basic with days left, “Upgrade to Pro now” opens Pro at once: you pay only the difference for the days already paid for, and the screen shows the working. Your end date stays the same; a Basic autopay stops, so turn autopay on again for Pro.',
+      'Paying for Basic while Pro runs no longer closes Pro at once: Basic starts when your Pro time ends.',
+      'Whatever your paid period opened stays open until it ends, even if MedBox24 changes a package.',
+    ],
+    admin: [
+      'Plans & pricing: the Basic and Pro packages — what each opens and how many users — and each plan’s price before GST in whole rupees, with the price with GST shown as you type.',
+      'The list prices became Basic ₹299 / ₹2,388 and Pro ₹399 / ₹3,588 before GST, and Basic went on sale. A plan you made keeps its price, its base rounded to the rupee.',
+      'A new alert: a Basic autopay Razorpay would not stop after an upgrade to Pro.',
+    ],
+    api: ['GET /plans gives basePrice, basePerMonth and months; features and maxUsers come from the plan’s package. New: GET /plans/packages, POST /subscription/upgrade (Basic → Pro for the days left), PUT /admin/packages (replaces PUT /admin/plans). GET /subscription adds tier, next (a plan paid for after this one) and upgrade. A payment has kind plan or upgrade. Buying another plan while one is paid for next, or while autopay runs for another, answers 409 NEXT_PLAN / AUTOPAY_ON.'],
+  },
+  {
     version: '1.52.0',
     date: '2026-11-10',
     title: 'Each report locks on its own; groundwork for Basic and Pro',

@@ -35,7 +35,7 @@ import { referralSettingsSchema, type ReferralSettings } from '../referral/refer
 import * as brand from '../branding/branding.service';
 import * as demo from '../demo/demo.service';
 import { FEATURES, TIERS } from '../subscription/features';
-import { allPlans } from '../subscription/subscription.service';
+import { allPlans, packageList } from '../subscription/subscription.service';
 import * as dom from '../owndomain/own-domain.service';
 import * as web from '../webaddress/web-address.service';
 import * as webPay from '../webaddress/web-address-pay';
@@ -48,7 +48,10 @@ const email = z.email('Enter a valid email').max(160);
 const reason = z.string().trim().min(5, 'Say why (5 letters at least)').max(300);
 const listQuery = z.object({ q: z.string().trim().max(80).optional(), status: z.enum(['trial', 'active', 'grace', 'expired', 'cancelled', 'suspended']).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
 const payQuery = z.object({ status: z.enum(['paid', 'failed']).optional(), cursor: z.string().max(400).optional(), limit: LIMIT }).strict();
-const planSchema = z.object({ code: z.string().regex(/^[a-z][a-z0-9-]{1,19}$/), name: z.string().trim().min(2).max(40), price: z.number().int().min(100).max(10_000_000), durationDays: z.number().int().min(1).max(1100), maxUsers: z.number().int().min(1).max(200), isActive: z.boolean(), tier: z.enum(TIERS), features: z.array(z.enum(FEATURES)).max(FEATURES.length).refine((f) => new Set(f).size === f.length, 'Each module once') }).strict();
+// D113: the package carries what it opens and its users; each plan its price before GST (whole rupees) and its days.
+const packageSchema = z.object({ tier: z.enum(TIERS), name: z.string().trim().min(2).max(20), maxUsers: z.number().int().min(1).max(200), features: z.array(z.enum(FEATURES)).max(FEATURES.length).refine((f) => new Set(f).size === f.length, 'Each feature once') }).strict();
+const planSchema = z.object({ code: z.string().regex(/^[a-z][a-z0-9-]{1,19}$/), name: z.string().trim().min(2).max(40), tier: z.enum(TIERS), basePrice: z.number().int().min(100).max(8_400_000).refine((n) => n % 100 === 0, 'Whole rupees before GST'), durationDays: z.number().int().min(1).max(1100), isActive: z.boolean() }).strict();
+const packagesBody = z.object({ packages: z.array(packageSchema).length(TIERS.length).refine((l) => new Set(l.map((p) => p.tier)).size === l.length, 'Basic and Pro once each'), plans: z.array(planSchema).min(1).max(8).refine((l) => new Set(l.map((p) => p.code)).size === l.length, 'Each plan code once'), reason }).strict();
 const settingsSchema = z
   .object({
     trialDays: z.number().int().min(1).max(90),
@@ -106,7 +109,8 @@ adminRouter.post('/shops/:id/autopay/stop', moneyRole, validate({ params: idPara
 adminRouter.post('/payments/manual', moneyRole, validate({ body: z.object({ shopId: objectId, planCode: z.string().min(2).max(20), reference: z.string().trim().min(3).max(80), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.manualPayment(adminOf(req), req.body as { shopId: string; planCode: string; reference: string; reason: string }, req.ip), 'Payment recorded'); }));
 
 adminRouter.get('/plans', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await allPlans()); }));
-adminRouter.put('/plans', superOnly, validate({ body: z.object({ plans: z.array(planSchema).min(1).max(8).refine((l) => new Set(l.map((p) => p.code)).size === l.length, 'Each plan code once'), reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { plans: z.infer<typeof planSchema>[]; reason: string }; sent(res, await svc.setPlans(adminOf(req), b.plans, b.reason, req.ip), 'Plans saved'); }));
+adminRouter.get('/packages', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await packageList()); }));
+adminRouter.put('/packages', superOnly, validate({ body: packagesBody }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as z.infer<typeof packagesBody>; sent(res, await svc.setPackages(adminOf(req), b.packages, b.plans, b.reason, req.ip), 'Packages and prices saved'); }));
 adminRouter.get('/settings', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.settings()); }));
 adminRouter.put('/settings', superOnly, validate({ body: z.object({ settings: settingsSchema, reason }).strict() }), asyncHandler(async (req: Request, res: Response) => { const b = req.body as { settings: z.infer<typeof settingsSchema>; reason: string }; sent(res, await svc.saveSettings(adminOf(req), b.settings, b.reason, req.ip), 'Platform settings saved'); }));
 

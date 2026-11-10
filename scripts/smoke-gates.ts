@@ -1,6 +1,6 @@
 // D113: every plan feature is refused by the API when the plan lacks it — each one has its probes here, so a feature
 // with no backend lock (a screen locked only in the app) fails this suite. The law's reports and the daily work never lock.
-import { seedBasic } from './lib/basic-plans';
+import { basicOpens, seedBasic } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Client, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -18,7 +18,6 @@ const shopBody = (name: string) => ({
 
 async function main() {
   const h = await startHarness();
-  const { PlanModel } = await import('../src/modules/subscription/billing.model.js');
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { FEATURES, REPORTS } = await import('../src/modules/subscription/features.js');
   // Written out, not read from the code: a change to the code must not move what this suite expects.
@@ -67,7 +66,7 @@ async function main() {
 
   section('3. A plan with nothing ticked: each feature refused, by name');
   await seedBasic();
-  await PlanModel.updateOne({ code: 'basic-monthly' }, { $set: { features: [] } });
+  await basicOpens([]);
   await SubscriptionModel.updateOne({ shopId: owner.shopId }, { $set: { planCode: 'basic-monthly', status: 'active', endDate: new Date(Date.now() + 30 * DAY) } });
   forgetPlanFeatures();
   check('context: no features', (await ctx()).features.length === 0);
@@ -95,19 +94,16 @@ async function main() {
   check('the report list stays open and marks each report: GST / H1 / X open, the rest locked', catalog.length === 25 && catalog.filter((r) => !r.locked).map((r) => r.key).sort().join() === [...OPEN_REPORTS].sort().join(), JSON.stringify(catalog.filter((r) => !r.locked)));
 
   section('5. One report ticked opens that report only');
-  await PlanModel.updateOne({ code: 'basic-monthly' }, { $set: { features: ['report:expiry'] } });
-  forgetPlanFeatures();
+  await basicOpens(['report:expiry']);
   check('Expiry answers', (await owner.get(`/reports/r/expiry?${range}`)).status === 200);
   check('…Expired stays locked', refusedFor(await owner.get(`/reports/r/expired?${range}`), 'report:expired'));
   check('…and the list unlocks just Expiry', data<{ key: string; locked: boolean }[]>(await owner.get('/reports/catalog')).filter((r) => !r.locked).length === OPEN_REPORTS.length + 1);
 
   section('5b. A bill read by AI needs both: bill import and AI');
-  await PlanModel.updateOne({ code: 'basic-monthly' }, { $set: { features: ['ai'] } });
-  forgetPlanFeatures();
+  await basicOpens(['ai']);
   check('AI on, bill import off: reading a bill with AI → refused for bill import', refusedFor(await owner.post('/purchases/import/ai', {}), 'bill-import'));
   check('…a prescription photo still goes to the AI (422 for the empty photo, not the plan)', (await owner.post('/pos/rx-read', {})).status === 422);
-  await PlanModel.updateOne({ code: 'basic-monthly' }, { $set: { features: ['bill-import'] } });
-  forgetPlanFeatures();
+  await basicOpens(['bill-import']);
   check('bill import on, AI off: a PDF or Word bill reads (422 for the empty body), AI reading → refused for AI', (await owner.post('/purchases/import/read', {})).status === 422 && refusedFor(await owner.post('/purchases/import/ai', {}), 'ai'));
   check('typing a purchase by hand is never locked: the purchase list answers', (await owner.get('/purchases')).status === 200);
 

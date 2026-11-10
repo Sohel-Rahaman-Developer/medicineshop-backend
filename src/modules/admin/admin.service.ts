@@ -6,9 +6,9 @@ import { env } from '../../config/env';
 import { audit } from '../audit/audit.model';
 import { MembershipModel } from '../memberships/membership.model';
 import { ShopModel } from '../shops/shop.model';
-import { PlanModel, SubscriptionPaymentModel } from '../subscription/billing.model';
+import { PackageModel, PlanModel, SubscriptionPaymentModel, withGst } from '../subscription/billing.model';
 import { autopayOf, refund, stopAutopay } from '../subscription/autopay';
-import { allPlans, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
+import { allPlans, packageList, plansFor, recordManual, shapePayment } from '../subscription/subscription.service';
 import { FEATURES, type Feature, type Tier } from '../subscription/features';
 import { forgetPlanFeatures } from '../subscription/plan-access';
 import { ShopTermsModel, setPrices } from '../subscription/terms';
@@ -255,12 +255,17 @@ export async function manualPayment(a: AdminActor, input: { shopId: string; plan
   return p;
 }
 
-export async function setPlans(a: AdminActor, list: { code: string; name: string; price: number; durationDays: number; maxUsers: number; isActive: boolean; tier: Tier; features: Feature[] }[], reason: string, ip?: string) {
-  const before = await allPlans();
-  for (const [i, p] of list.entries()) await PlanModel.updateOne({ code: p.code }, { $set: { ...p, sortOrder: i + 1, knows: [...FEATURES] } }, { upsert: true });
+/** D113: what Basic and Pro open, their users, and each plan's price before GST — saved together, used at once.
+ * A shop that already paid keeps what its period opened (subscription `kept`); a price change applies from the next payment. */
+export async function setPackages(a: AdminActor, packs: { tier: Tier; name: string; maxUsers: number; features: Feature[] }[], list: { code: string; name: string; tier: Tier; basePrice: number; durationDays: number; isActive: boolean }[], reason: string, ip?: string) {
+  const before = await packageList();
+  for (const p of packs) await PackageModel.updateOne({ _id: p.tier }, { $set: { name: p.name, maxUsers: p.maxUsers, features: p.features, knows: [...FEATURES] } }, { upsert: true });
+  for (const [i, p] of list.entries()) await PlanModel.updateOne({ code: p.code }, { $set: { ...p, price: withGst(p.basePrice), sortOrder: i + 1 } }, { upsert: true });
   forgetPlanFeatures();
-  await log(a, 'plans_update', reason, `changed plans: ${list.map((p) => `${p.name} (${p.tier}, ${String(p.features.length)} modules) ${inr(p.price)}${p.isActive ? '' : ' (off)'}`).join(', ')}`, undefined, { before, after: list }, ip);
-  return allPlans();
+  const packText = packs.map((p) => `${p.name}: ${String(p.features.length)} features, ${String(p.maxUsers)} users`).join('; ');
+  const planText = list.map((p) => `${p.name} ${inr(p.basePrice)} + GST = ${inr(withGst(p.basePrice))}${p.isActive ? '' : ' (off)'}`).join(', ');
+  await log(a, 'plans_update', reason, `changed packages and prices — ${packText}; ${planText}`, undefined, { before, after: { packages: packs, plans: list } }, ip);
+  return packageList();
 }
 
 export async function settings() {

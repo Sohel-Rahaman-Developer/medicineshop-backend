@@ -51,9 +51,9 @@ export async function counterLink(t: TenantContext) {
 
 /** Loyalty as the public sees it: only when the shop turned it on and its plan has it. */
 async function liveRules(shopId: Types.ObjectId, raw: unknown): Promise<LoyaltyRules | null> {
-  const sub = await SubscriptionModel.findOne({ shopId }).select('planCode').lean();
+  const sub = await SubscriptionModel.findOne({ shopId }).select('planCode maxUsers kept next').lean();
   const r = rulesOf(raw);
-  return r.enabled && sub && (await featuresOf(sub.planCode)).includes('loyalty') ? r : null;
+  return r.enabled && sub && (await featuresOf(sub)).includes('loyalty') ? r : null;
 }
 
 async function shopFace(s: { _id: Types.ObjectId; name: string; address?: { city?: string | null } | null; phone?: string | null }) {

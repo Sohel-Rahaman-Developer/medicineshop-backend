@@ -24,6 +24,8 @@ export const plansRouter = Router();
 plansRouter.get('/', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.plans()); }));
 // D113: the one list of what a plan can open — the admin checklist and the website read it from here.
 plansRouter.get('/features', (_req: Request, res: Response) => { fetched(res, featureCatalog()); });
+// D113: Basic and Pro — what each opens and its users, with the plans' prices.
+plansRouter.get('/packages', asyncHandler(async (_req: Request, res: Response) => { fetched(res, await svc.packageList({ onSale: true })); }));
 
 export const subscriptionRouter = Router();
 subscriptionRouter.use(shopAuth);
@@ -47,6 +49,8 @@ subscriptionRouter.get(
   }),
 );
 subscriptionRouter.post('/order', edit, validate({ body: orderSchema }), asyncHandler(async (req: Request, res: Response) => { created(res, await svc.order(tenantOf(req), await actorOf(req), (req.body as { planCode: string }).planCode), 'Order created'); }));
+// D113: Basic → Pro now, paying the difference for the days left.
+subscriptionRouter.post('/upgrade', edit, validate({ body: z.object({}).strict() }), asyncHandler(async (req: Request, res: Response) => { created(res, await svc.upgradeOrder(tenantOf(req), await actorOf(req)), 'Order created'); }));
 subscriptionRouter.post('/verify', edit, validate({ body: verifySchema }), asyncHandler(async (req: Request, res: Response) => { const r = await svc.verify(tenantOf(req), await actorOf(req), req.body as { orderId: string; paymentId: string; signature: string }); sent(res, r, r.confirming ? 'Payment received — confirming with the bank' : 'Payment received — thank you'); }));
 subscriptionRouter.post('/test-pay', edit, validate({ body: testPaySchema }), asyncHandler(async (req: Request, res: Response) => { sent(res, await svc.testPay(tenantOf(req), await actorOf(req), (req.body as { orderId: string }).orderId), 'Test payment received'); }));
 subscriptionRouter.get(

@@ -16,6 +16,10 @@ const subscriptionSchema = new Schema(
     graceEndDate: { type: Date },
     maxUsers: { type: Number, required: true },
     trialExtensions: { type: Number, default: 0 },
+    /** D113: what the paid period opened when it was paid; kept till `until` even if the admin unticks it. */
+    kept: { type: new Schema({ features: { type: [String], required: true }, until: { type: Date, required: true } }, { _id: false }) },
+    /** D113: another plan already paid for, starting when this one ends (Pro → Basic, Monthly → Yearly). */
+    next: { type: new Schema({ planCode: { type: String, required: true }, from: { type: Date, required: true }, until: { type: Date, required: true }, maxUsers: { type: Number, required: true }, features: { type: [String], required: true } }, { _id: false }) },
     cancelledAt: { type: Date },
     cancelReason: { type: String },
   },
@@ -42,6 +46,16 @@ export function statusAt(sub: { status: SubscriptionStatus; planCode: string; en
   return now.getTime() < sub.endDate.getTime() + graceDays * DAY ? 'grace' : 'expired';
 }
 export const graceEndOf = (endDate: Date) => new Date(endDate.getTime() + graceDays * DAY);
+
+interface Kept { features: string[]; until: Date }
+interface Next extends Kept { planCode: string; from: Date; maxUsers: number }
+export interface PlanState { planCode: string; maxUsers: number; kept?: Kept | null; next?: Next | null }
+/** D113: the plan in force at `now` — a next plan whose day has come takes over. */
+export function planAt(sub: PlanState, now: Date): { planCode: string; maxUsers: number; kept: Kept | null; next: Next | null; rolled: boolean } {
+  const n = sub.next;
+  if (n && now >= n.from) return { planCode: n.planCode, maxUsers: n.maxUsers, kept: { features: n.features, until: n.until }, next: null, rolled: true };
+  return { planCode: sub.planCode, maxUsers: sub.maxUsers, kept: sub.kept ?? null, next: n ?? null, rolled: false };
+}
 
 /** Read-only states (PLAN §5): browsing and download work, nothing can be written. */
 export function isReadOnly(status: SubscriptionStatus): boolean {

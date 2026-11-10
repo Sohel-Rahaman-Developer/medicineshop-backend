@@ -1,5 +1,6 @@
 // D80 checks: referral codes at signup, the new shop's discount, the referrer's reward after paid months in a row,
 // one discount per payment, and the admin setting the terms and the referrer.
+import { oldPriceList } from './lib/basic-plans';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- test helper: the caller names the shape
@@ -25,6 +26,8 @@ const DAY = 86_400_000;
 
 async function main() {
   const h = await startHarness();
+  // Payment mechanics on the list before D113 (₹499 / ₹3,600, GST inside); the D113 list is smoke-plans'.
+  await oldPriceList();
   const { ReferralModel } = await import('../src/modules/referral/referral.model.js');
   const { SubscriptionModel } = await import('../src/modules/subscription/subscription.model.js');
   const { SubscriptionPaymentModel } = await import('../src/modules/subscription/billing.model.js');

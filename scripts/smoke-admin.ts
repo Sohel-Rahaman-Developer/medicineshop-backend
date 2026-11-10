@@ -95,7 +95,7 @@ async function main() {
   const vee = (await login('vee@medshop.test')).c;
   check('viewer reads shops but can’t add days → 403', (await vee.get('/admin/shops')).status === 200 && (await vee.post(`/admin/shops/${shopId}/extend`, { days: 1, reason: 'trying it out' })).status === 403);
   check('support adds days, can’t see payments or record money → 403', (await sara.post(`/admin/shops/${shopId}/extend`, { days: 1, reason: 'support fix' })).status === 200 && (await sara.get('/admin/payments')).status === 403 && (await sara.post('/admin/payments/manual', { shopId, planCode: 'monthly', reference: 'UTR123', reason: 'bank transfer' })).status === 403);
-  check('only super changes plans, settings and the team', (await amit.put('/admin/plans', { plans: [], reason: 'x'.repeat(6) })).status === 403 && (await sara.get('/admin/team')).status === 403);
+  check('only super changes plans, settings and the team', (await amit.put('/admin/packages', { packages: [], plans: [], reason: 'x'.repeat(6) })).status === 403 && (await sara.get('/admin/team')).status === 403);
 
   section('6. Money taken by hand (accounts)');
   const man = await amit.post('/admin/payments/manual', { shopId, planCode: 'monthly', reference: 'UTR998877', reason: 'Bank transfer received' });
@@ -109,8 +109,11 @@ async function main() {
   check('overview: recent payments name the shop and the invoice', ov.recent[0]?.shopName === 'Shri Ram Medical Store' && ov.recent[0].invoiceNumber === pay?.invoiceNumber && Array.isArray(ov.ending));
 
   section('7. Plans and platform settings (super)');
-  const pl = await root.put('/admin/plans', { plans: [{ code: 'monthly', name: 'Pro Monthly', price: 99_900, durationDays: 30, maxUsers: 5, isActive: true, tier: 'pro', features: ALL_FEATURES }, { code: 'yearly', name: 'Pro Yearly', price: 999_000, durationDays: 365, maxUsers: 10, isActive: true, tier: 'pro', features: ALL_FEATURES }], reason: 'New price list for 2027' });
-  check('new price shows on the public plan list', pl.status === 200 && data<{ code: string; price: number }[]>(await h.client().get('/plans')).find((p) => p.code === 'monthly')?.price === 99_900, code(pl));
+  // D113: the packages carry the features and users; a plan its price before GST.
+  const packs = data<{ packages: { tier: string; name: string; maxUsers: number; features: string[] }[] }>(await root.get('/admin/packages')).packages;
+  const pl = await root.put('/admin/packages', { packages: packs.map((p) => ({ tier: p.tier, name: p.name, maxUsers: p.maxUsers, features: p.tier === 'pro' ? ALL_FEATURES : p.features })), plans: [{ code: 'monthly', name: 'Pro Monthly', tier: 'pro', basePrice: 99_900, durationDays: 30, isActive: true }, { code: 'yearly', name: 'Pro Yearly', tier: 'pro', basePrice: 999_000, durationDays: 365, isActive: true }], reason: 'New price list for 2027' });
+  // ₹999 × 1.18 = ₹1,178.82.
+  check('new price shows on the public plan list: ₹999 + 18% GST = ₹1,178.82', pl.status === 200 && data<{ code: string; price: number }[]>(await h.client().get('/plans')).find((p) => p.code === 'monthly')?.price === 117_882, code(pl));
   const st = await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', maintenance: { on: false, message: '' } }, reason: 'Longer trial for the launch' });
   check('settings saved', st.status === 200, code(st));
   await root.put('/admin/settings', { settings: { trialDays: 21, trialMaxUsers: 4, graceDays: 3, supportEmail: 'help@medshop.test', supportPhone: '1800 000 000', legalName: 'MedBox24 Test LLP', address: '12 Park Street, Kolkata 700016', grievanceOfficer: 'Rina Das', maintenance: { on: true, message: 'Upgrade tonight 11 pm' } }, reason: 'Planned upgrade window' });
@@ -166,7 +169,7 @@ async function main() {
   const planOf = async () => data<{ plans: { code: string; price: number; listPrice: number; upcoming: { price: number; from: string } | null }[] }>(await owner.get('/subscription')).plans.find((p) => p.code === 'monthly');
   const cut = await amit.put(`/admin/shops/${shopId}/prices`, { prices: [{ code: 'monthly', price: 59_900 }], reason: 'Launch discount for an early shop' });
   const m1 = await planOf();
-  check('a cut applies now: ₹599 (list ₹999)', cut.status === 200 && m1?.price === 59_900 && m1.listPrice === 99_900 && m1.upcoming === null, code(cut));
+  check('a cut applies now: ₹599 (list ₹1,178.82)', cut.status === 200 && m1?.price === 59_900 && m1.listPrice === 117_882 && m1.upcoming === null, code(cut));
   check('support can’t set prices → 403', (await sara.put(`/admin/shops/${shopId}/prices`, { prices: [{ code: 'monthly', price: 1000 }], reason: 'trying it out' })).status === 403);
   await amit.put(`/admin/shops/${shopId}/prices`, { prices: [{ code: 'monthly', price: 129_900 }], reason: 'Discount period over' });
   const m2 = await planOf();
@@ -222,7 +225,7 @@ async function main() {
   check('nothing new → no new email', a3.length === 0 && (await EmailJobModel.countDocuments({ kind: 'monitor_alert' })) === 2);
   check('an hour later the window is clear → quiet', (await checkAlerts(new Date(T.getTime() + 60 * 60_000))).length === 0);
   const sig = data<{ signals: { kind: string; last24h: number; limit: number }[] }>(await vee.get('/admin/health')).signals;
-  check('health lists every signal with its limit and 24-hour count', sig.length === 13 && sig.find((s) => s.kind === 'ai_paused')?.limit === 1 && sig.find((s) => s.kind === 'ai_credit_low')?.limit === 1 && sig.find((s) => s.kind === 'ai_fail')?.limit === 3 && sig.find((s) => s.kind === 'demo_locked')?.limit === 1 && sig.find((s) => s.kind === 'ask_budget')?.limit === 1 && (sig.find((s) => s.kind === 'admin_login_fail')?.last24h ?? 0) >= 1, JSON.stringify(sig));
+  check('health lists every signal with its limit and 24-hour count', sig.length === 14 && sig.find((s) => s.kind === 'autopay_stop_fail')?.limit === 1 && sig.find((s) => s.kind === 'ai_paused')?.limit === 1 && sig.find((s) => s.kind === 'ai_credit_low')?.limit === 1 && sig.find((s) => s.kind === 'ai_fail')?.limit === 3 && sig.find((s) => s.kind === 'demo_locked')?.limit === 1 && sig.find((s) => s.kind === 'ask_budget')?.limit === 1 && (sig.find((s) => s.kind === 'admin_login_fail')?.last24h ?? 0) >= 1, JSON.stringify(sig));
 
   section('12. Idle lock: PIN or authenticator to carry on (the session stays)');
   await AdminUserModel.create({ email: 'lock@medshop.test', name: 'Lena', role: 'support' });

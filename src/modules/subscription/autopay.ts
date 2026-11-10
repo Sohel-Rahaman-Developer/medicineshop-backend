@@ -11,7 +11,7 @@ import { audit } from '../audit/audit.model';
 import type { Actor } from '../user/actor';
 import { AUTOPAY_STATUSES, AutopayModel, PlatformCounterModel, RzpPlanModel, SubscriptionPaymentModel, type AutopayStatus } from './billing.model';
 import { SubscriptionModel, graceEndOf, statusAt } from './subscription.model';
-import { SUB_COLUMNS, billedTo, buyerOf, gstLines, issuerOf, markPaid, placeOf, plansFor, supplier } from './subscription.service';
+import { SUB_COLUMNS, billedTo, buyerOf, canBuy, gstLines, issuerOf, markPaid, placeOf, plansFor, supplier } from './subscription.service';
 import { billingInfo, gateway } from './gateway';
 import { gstOf, splitOf, withCharge } from './online-charge';
 import { platform } from '../admin/platform';
@@ -52,6 +52,7 @@ export async function startAutopay(t: TenantContext, actor: Actor, planCode: str
   const plan = (await plansFor(t.shopId, now)).find((p) => p.code === planCode);
   if (!plan) throw AppError.validation('Choose a plan', [{ field: 'body.planCode', message: 'Choose a plan' }]);
   if (await AutopayModel.exists({ shopId: t.shopId, status: { $in: RUNNING } })) throw AppError.conflict('Autopay is already on — stop it first to change the plan', { reason: 'AUTOPAY_ON' });
+  await canBuy(t.shopId, plan.code, now);
   const sub = await SubscriptionModel.findOne({ shopId: t.shopId }).lean();
   if (!sub) throw AppError.notFound('No subscription');
   // v1.51.0: Razorpay charges one fixed amount, so the online payment charge is inside it.
@@ -207,6 +208,12 @@ async function shiftEnd(shopId: Types.ObjectId, days: number, session: ClientSes
   await sub.save({ session });
 }
 
+/** D113: an upgrade's money back puts the shop back on the plan it came from; the days it had paid for stay. */
+async function undoUpgrade(p: { shopId: Types.ObjectId; planCode: string; upgrade?: { fromPlanCode: string; fromMaxUsers: number } | null }, session: ClientSession) {
+  if (!p.upgrade) return;
+  await SubscriptionModel.updateOne({ shopId: p.shopId, planCode: p.planCode }, { $set: { planCode: p.upgrade.fromPlanCode, maxUsers: p.upgrade.fromMaxUsers }, $unset: { kept: 1 } }, { session });
+}
+
 interface DaysTaken { refunds: { status: string; daysRemoved: number }[]; dispute?: { daysRemoved?: number | null } | null }
 const daysTaken = (p: DaysTaken) => p.refunds.filter((r) => r.status !== 'failed').reduce((s, r) => s + r.daysRemoved, 0) + (p.dispute?.daysRemoved ?? 0);
 
@@ -265,10 +272,12 @@ export async function settleRefund(paymentDocId: Types.ObjectId | string, refund
       return { ...base, settled: true, status: 'failed' as const, creditNote: '', days: 0, full: false };
     }
     const full = p.refunded >= p.amount;
-    const days = full || r.removeDays ? Math.max(0, p.durationDays - daysTaken(p)) : 0;
+    const upgrade = p.kind === 'upgrade';
+    const days = !upgrade && (full || r.removeDays) ? Math.max(0, p.durationDays - daysTaken(p)) : 0;
     r.set({ rzpRefundId: gw.id, status: gw.status, creditNote: await nextCreditNote(now, session), daysRemoved: days });
     await p.save({ session });
     await shiftEnd(p.shopId, -days, session);
+    if (upgrade && (full || r.removeDays)) await undoUpgrade(p, session);
     return { ...base, settled: true, status: gw.status, creditNote: r.creditNote ?? '', days, full };
   });
 }
@@ -327,7 +336,8 @@ export async function disputeEvent(type: string, e: DisputeEntity | undefined, n
     const p = await SubscriptionPaymentModel.findOne({ razorpayPaymentId: paymentId }).session(session);
     if (!p) return 'ignored: unknown payment';
     const before = p.dispute?.daysRemoved ?? 0;
-    const days = status === 'lost' ? Math.max(0, p.durationDays - daysTaken(p)) : 0;
+    const days = status === 'lost' && p.kind !== 'upgrade' ? Math.max(0, p.durationDays - daysTaken(p)) : 0;
+    if (status === 'lost' && p.kind === 'upgrade') await undoUpgrade(p, session);
     p.set({ dispute: { id: e.id ?? p.dispute?.id ?? '', status, amount: e.amount ?? p.dispute?.amount ?? p.amount, reason: e.reason_code ?? p.dispute?.reason ?? '', at: now, daysRemoved: before + days } });
     await p.save({ session });
     await shiftEnd(p.shopId, -days, session);
@@ -351,7 +361,7 @@ export async function creditNotePdf(t: TenantContext, paymentId: string, refundI
     meta: [['Credit note', r.creditNote], ['Date', day(r.at)], ['Against invoice', p.invoiceNumber ?? ''], ['Invoice date', p.paidAt ? day(p.paidAt) : ''], ['Place of supply', placeOf(to)]],
     issuer: issuerOf(from, support),
     logo: true,
-    parties: [billedTo(to), { label: 'Refund', lines: [`${rupees(r.amount)} of ${rupees(p.amount)} paid`, `Reason: ${r.reason}`, r.daysRemoved ? `${String(r.daysRemoved)} plan days removed` : 'Plan days unchanged'] }],
+    parties: [billedTo(to), { label: 'Refund', lines: [`${rupees(r.amount)} of ${rupees(p.amount)} paid`, `Reason: ${r.reason}`, r.daysRemoved ? `${String(r.daysRemoved)} plan days removed` : p.kind === 'upgrade' && (r.removeDays || p.refunded >= p.amount) ? `Back to ${p.upgrade?.fromName ?? 'Basic'}; plan days unchanged` : 'Plan days unchanged'] }],
     columns: SUB_COLUMNS,
     rows: [{ cells: ['1', `Refund — MedBox24 software subscription (${p.planName})`, (await billingInfo()).sac, rupees(r.amount - gst), '18%', rupees(r.amount)] }],
     totals: [{ label: 'Taxable value', value: rupees(r.amount - gst) }, ...gstLines(gst, from, to), { label: 'Refunded', value: rupees(r.amount), strong: true }],

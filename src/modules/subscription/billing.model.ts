@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
-import { FEATURES } from './features';
+import { BASIC_FEATURES, FEATURES, TIERS } from './features';
 
 // Platform-side records (PLAN §21.10). Payments carry shopId, but the webhook finds them by order id — so they are
 // not tenant-scoped; every shop-facing query still filters by shopId.
@@ -8,16 +8,18 @@ const planSchema = new Schema(
   {
     code: { type: String, required: true, unique: true },
     name: { type: String, required: true },
-    /** Paise, GST included. */
+    /** Paise, GST included: always `basePrice` × 1.18 once D113 set the base. */
     price: { type: Number, required: true },
+    /** D113: paise before GST, whole rupees — what the admin types. */
+    basePrice: { type: Number },
     durationDays: { type: Number, required: true },
-    maxUsers: { type: Number, required: true },
+    /** Before D113 users came with the plan; now with its package. */
+    maxUsers: { type: Number },
     isActive: { type: Boolean, required: true, default: true },
     sortOrder: { type: Number, required: true, default: 0 },
     tier: { type: String, enum: ['basic', 'pro'], required: true, default: 'pro' },
-    /** D87: the modules this plan opens; missing on plans saved before D87 = all of them. */
+    /** Before D113 (read once to make the packages): the modules this plan opened. */
     features: { type: [String], default: undefined },
-    /** Every module that existed when the plan was last saved: a newer one joins Pro plans by itself, never Basic. */
     knows: { type: [String], default: undefined },
   },
   { timestamps: true, versionKey: false },
@@ -25,10 +27,35 @@ const planSchema = new Schema(
 export const PlanModel = model('Plan', planSchema);
 export type Plan = InferSchemaType<typeof planSchema>;
 
-/** List prices for a fresh database (Nov 2026: ₹499 a month, ₹3,600 a year); the admin changes them any time. */
+/** D113: a price before GST in whole rupees → the price with 18% GST, exact to the paisa. */
+export const withGst = (basePaise: number) => (basePaise * 118) / 100;
+
+/** D113 list prices (10 Nov 2026), GST added on top; the admin changes them any time. */
+const listPlan = (code: string, name: string, tier: 'basic' | 'pro', base: number, durationDays: number, sortOrder: number) => ({ code, name, tier, basePrice: base, price: withGst(base), durationDays, sortOrder, isActive: true });
 export const DEFAULT_PLANS = [
-  { code: 'monthly', name: 'Pro Monthly', tier: 'pro', features: [...FEATURES], price: 49_900, durationDays: 30, maxUsers: 5, sortOrder: 3 },
-  { code: 'yearly', name: 'Pro Yearly', tier: 'pro', features: [...FEATURES], price: 360_000, durationDays: 365, maxUsers: 10, sortOrder: 4 },
+  listPlan('basic-monthly', 'Basic Monthly', 'basic', 29_900, 30, 1),
+  listPlan('basic-yearly', 'Basic Yearly', 'basic', 238_800, 365, 2),
+  listPlan('monthly', 'Pro Monthly', 'pro', 39_900, 30, 3),
+  listPlan('yearly', 'Pro Yearly', 'pro', 358_800, 365, 4),
+];
+
+/** D113: Basic and Pro — what each opens and how many people; its Monthly / Yearly plans only carry the price. */
+const packageSchema = new Schema(
+  {
+    _id: { type: String, enum: TIERS, required: true },
+    name: { type: String, required: true },
+    features: { type: [String], required: true, default: [] },
+    /** Every feature that existed when it was last saved: a newer one joins Pro by itself, never Basic. */
+    knows: { type: [String], required: true, default: [] },
+    maxUsers: { type: Number, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+export const PackageModel = model('Package', packageSchema);
+
+export const DEFAULT_PACKAGES = [
+  { _id: 'basic', name: 'Basic', features: [...BASIC_FEATURES], knows: [...FEATURES], maxUsers: 3 },
+  { _id: 'pro', name: 'Pro', features: [...FEATURES], knows: [...FEATURES], maxUsers: 10 },
 ];
 
 /** B8c: money back through Razorpay (or recorded, for a manual payment) — each one with its own GST credit note. */
@@ -59,6 +86,11 @@ const paymentSchema = new Schema(
     planName: { type: String, required: true },
     durationDays: { type: Number, required: true },
     maxUsers: { type: Number, required: true },
+    /** D113: a full period, or Basic → Pro for the days left (`upgrade` says from what). */
+    kind: { type: String, enum: ['plan', 'upgrade'], required: true, default: 'plan' },
+    upgrade: { type: new Schema({ fromPlanCode: { type: String, required: true }, fromName: { type: String, required: true }, fromMaxUsers: { type: Number, required: true }, days: { type: Number, required: true } }, { _id: false }) },
+    /** D113: what the package opened when this was paid — kept to the end of its period even if the admin unticks it. */
+    features: { type: [String], default: undefined },
     /** Snapshot at order time, GST included; `gst` is the 18% inside it. */
     amount: { type: Number, required: true },
     gst: { type: Number, required: true },
