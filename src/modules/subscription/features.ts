@@ -2,7 +2,7 @@
 // expenses, day close, GST, the H1 / X registers and choosing a doctor on a bill (the law needs them in every shop).
 // This file is the only list: the admin checklist, the shop app and the website read it through GET /plans/features.
 
-export const MODULES = ['analytics', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels', 'tally', 'registers', 'bill-import'] as const;
+export const MODULES = ['analytics', 'pnl', 'loyalty', 'doctors', 'orders', 'roles', 'ask', 'ai', 'clinic', 'brief', 'refills', 'labels', 'tally', 'registers', 'bill-import', 'payroll'] as const;
 /** Report-centre reports a plan may lock, one by one; P&L and the day book follow `pnl`. */
 export const REPORTS = ['sales-register', 'sales-summary', 'product-sales', 'batch-sales', 'staff', 'discounts', 'stock-on-hand', 'valuation', 'expiry', 'expired', 'dead', 'movements', 'purchase-register', 'supplier-ledger', 'supplier-outstanding', 'customer-outstanding', 'top-customers', 'loyalty', 'expenses'] as const;
 /** Reports the law needs in every shop: never locked. */
@@ -44,6 +44,7 @@ export const MODULE_NAMES: Record<PlanModule, string> = {
   tally: 'Tally export',
   registers: 'Sales, stock and purchase registers',
   'bill-import': 'Stock in from a supplier bill file (PDF, Word, Excel)',
+  payroll: 'Staff pay: attendance, advances, salary and PF',
 };
 
 /** A report's lock: its own feature, `pnl` for P&L and the day book, none for the law's reports.

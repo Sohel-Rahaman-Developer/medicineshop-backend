@@ -47,6 +47,7 @@ async function main() {
     refills: [(c) => c.get('/refills')],
     labels: [(c) => c.get('/labels/items')],
     tally: [(c) => c.get(`/reports/tally?month=${month}`), (c) => c.get(`/reports/tally/file?month=${month}&kind=vouchers`)],
+    payroll: [(c) => c.get(`/payroll/month?month=${month}`), (c) => c.get(`/payroll/day?day=${today}`), (c) => c.put('/payroll/attendance', {}), (c) => c.post('/payroll/employees', {}), (c) => c.post('/payroll/pay', {}), (c) => c.del('/payroll/entries/000000000000000000000000', {})],
     registers: [(c) => c.get(`/reports/registers/sales?${range}`), (c) => c.get(`/reports/registers/stock`), (c) => c.get(`/reports/registers/purchases/export?${range}&format=xlsx`)],
     ...Object.fromEntries(REPORTS.map((k) => [`report:${k}`, [(c: Client) => c.get(`/reports/r/${k}?${range}&month=${month}`), (c: Client) => c.get(`/reports/r/${k}/export?${range}&month=${month}&format=xlsx`)]])),
   };

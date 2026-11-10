@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.54.0',
+    date: '2026-11-10',
+    title: 'Payroll: attendance, advances, salary and PF — every payment an expense',
+    shop: [
+      'Money → Payroll (Pro): add the people the shop pays — monthly salary or daily wage, with or without an app login — with their weekly off, paid leave a month and PF if the shop has it.',
+      'Attendance in one tap: everyone is present unless marked Absent, Half day or Paid leave; work on a weekly off is an Extra day.',
+      'Each month is worked out on screen: a day’s pay (salary ÷ 30, or ÷ the days in the month), days missed after paid leave, extra days, bonus, PF and the advance cut.',
+      'An advance, a bonus paid now, a salary and a PF deposit each become an expense at once (from the drawer if paid from it); Expenses shows them as Payroll and they are changed or undone in Payroll only.',
+      'A paid month’s attendance locks; undo the payment with a reason to change it. The owner sees Payroll; anyone else only when their role gives it.',
+    ],
+    admin: ['Payroll is a new Pro feature in the package checklist; Basic does not have it unless ticked.'],
+    api: ['New /payroll: month, day, attendance, employees, advances, bonuses, pay, pf, entries (undo) and settings. The Owner role gets the payroll permission once at start-up. An expense carries source payroll and answers 409 FROM_PAYROLL to a change from Expenses.'],
+  },
+  {
     version: '1.53.0',
     date: '2026-11-10',
     title: 'Basic and Pro: two packages, prices before GST, upgrade for the days left',

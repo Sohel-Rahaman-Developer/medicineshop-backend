@@ -33,6 +33,7 @@ function shape(e: Lean) {
     vendor: e.vendor,
     referenceNumber: e.referenceNumber,
     status: e.status,
+    source: e.source?.kind ?? null,
     deleteReason: e.deleteReason ?? null,
     deletedBy: e.deletedBy ?? null,
     createdByName: e.createdByName,
@@ -54,20 +55,24 @@ async function assertOpenDay(t: TenantContext, date: Date, session?: ClientSessi
   }
 }
 
-export async function create(t: TenantContext, actor: Actor, input: ExpenseInput, ip?: string) {
+/** Inside the caller's transaction; Payroll writes its money this way (D114). */
+export async function addExpense(t: TenantContext, actor: Actor, input: ExpenseInput & { source?: { kind: 'payroll'; id: Types.ObjectId } }, session: ClientSession, ip?: string) {
   notFuture(input.date);
   const fromDrawer = input.paymentMode === 'CASH' && input.fromDrawer;
-  return once(t.shopId, 'expense', input.clientRequestId, async (session) => {
-    if (fromDrawer) await assertOpenDay(t, input.date, session);
-    const expenseNumber = await nextNumber(t.shopId, 'expense', input.date, session);
-    const [doc] = await ExpenseModel.create(
-      [{ shopId: t.shopId, fy: fyOf(input.date), clientRequestId: input.clientRequestId, expenseNumber, date: input.date, category: input.category, description: input.description, amount: input.amount, paymentMode: input.paymentMode, fromDrawer, vendor: input.vendor, referenceNumber: input.referenceNumber, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
-      { session },
-    );
-    if (!doc) throw AppError.internal();
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'expenses', entityId: String(doc._id), entityName: expenseNumber, text: `${actor.name} added ${expenseNumber} · ${input.category} · ${inr(input.amount)}${fromDrawer ? ' from the drawer' : ''}`, ip }, session);
-    return shape(doc.toObject<Lean>());
-  });
+  if (fromDrawer) await assertOpenDay(t, input.date, session);
+  const expenseNumber = await nextNumber(t.shopId, 'expense', input.date, session);
+  const [doc] = await ExpenseModel.create(
+    [{ shopId: t.shopId, fy: fyOf(input.date), clientRequestId: input.clientRequestId, expenseNumber, date: input.date, category: input.category, description: input.description, amount: input.amount, paymentMode: input.paymentMode, fromDrawer, vendor: input.vendor, referenceNumber: input.referenceNumber, source: input.source, createdBy: new Types.ObjectId(actor.id), createdByName: actor.name }],
+    { session },
+  );
+  if (!doc) throw AppError.internal();
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'expenses', entityId: String(doc._id), entityName: expenseNumber, text: `${actor.name} added ${expenseNumber} · ${input.category} · ${inr(input.amount)}${fromDrawer ? ' from the drawer' : ''}`, ip }, session);
+  return shape(doc.toObject<Lean>());
+}
+
+export async function create(t: TenantContext, actor: Actor, input: ExpenseInput, ip?: string) {
+  notFuture(input.date);
+  return once(t.shopId, 'expense', input.clientRequestId, (session) => addExpense(t, actor, input, session, ip));
 }
 
 export async function list(t: TenantContext, q: ExpenseListQuery) {
@@ -118,6 +123,7 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   return inTransaction(async (session) => {
     const doc = await ExpenseModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'active' }).session(session);
     if (!doc) throw AppError.notFound('Expense not found');
+    fromPayroll(doc);
     if (drawer(doc)) await assertOpenDay(t, doc.date, session);
     if (fromDrawer) await assertOpenDay(t, input.date, session);
     const before = { day: istIsoDay(doc.date), category: doc.category, amount: doc.amount, paymentMode: doc.paymentMode, fromDrawer: doc.fromDrawer, description: doc.description };
@@ -135,14 +141,31 @@ export async function update(t: TenantContext, actor: Actor, id: string, input: 
   });
 }
 
+const fromPayroll = (doc: { source?: { kind?: string | null } | null }) => {
+  if (doc.source?.kind === 'payroll') throw AppError.conflict('This came from Payroll — change or undo it there', { reason: 'FROM_PAYROLL' });
+};
+
 export async function remove(t: TenantContext, actor: Actor, id: string, reason: string, ip?: string) {
   return inTransaction(async (session) => {
     const doc = await ExpenseModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(id), status: 'active' }).session(session);
     if (!doc) throw AppError.notFound('Expense not found');
-    if (drawer(doc)) await assertOpenDay(t, doc.date, session);
-    doc.set({ status: 'deleted', deleteReason: reason, deletedBy: actor.name, deletedAt: new Date() });
-    await doc.save({ session });
-    await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'expenses', entityId: id, entityName: doc.expenseNumber, text: `${actor.name} removed ${doc.expenseNumber} · ${doc.category} · ${inr(doc.amount)} — ${reason}`, ip }, session);
-    return shape(doc.toObject<Lean>());
+    fromPayroll(doc);
+    return dropDoc(t, actor, doc, reason, session, ip);
   });
+}
+
+/** Payroll undoing its own money, inside its transaction. */
+export async function dropExpense(t: TenantContext, actor: Actor, id: Types.ObjectId, reason: string, session: ClientSession, ip?: string) {
+  const doc = await ExpenseModel.findOne({ shopId: t.shopId, _id: id, status: 'active' }).session(session);
+  if (!doc) return null;
+  return dropDoc(t, actor, doc, reason, session, ip);
+}
+
+async function dropDoc(t: TenantContext, actor: Actor, doc: InstanceType<typeof ExpenseModel>, reason: string, session: ClientSession, ip?: string) {
+  const id = String(doc._id);
+  if (drawer(doc)) await assertOpenDay(t, doc.date, session);
+  doc.set({ status: 'deleted', deleteReason: reason, deletedBy: actor.name, deletedAt: new Date() });
+  await doc.save({ session });
+  await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'expenses', entityId: id, entityName: doc.expenseNumber, text: `${actor.name} removed ${doc.expenseNumber} · ${doc.category} · ${inr(doc.amount)} — ${reason}`, ip }, session);
+  return shape(doc.toObject<Lean>());
 }

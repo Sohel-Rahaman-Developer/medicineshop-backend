@@ -3,7 +3,7 @@ import { AppError } from '../../core/errors';
 
 export const MODULES = [
   'dashboard', 'pos', 'sales', 'purchases', 'products', 'stock', 'suppliers', 'customers',
-  'loyalty', 'expenses', 'reports', 'staff', 'roles', 'settings', 'subscription', 'notifications',
+  'loyalty', 'expenses', 'reports', 'staff', 'roles', 'settings', 'subscription', 'notifications', 'payroll',
 ] as const;
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'approve'] as const;
 
@@ -29,7 +29,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, { name: string; color: string; 
   owner: {
     name: 'Owner',
     color: '#0fb5a8',
-    permissions: expand({ dashboard: 'V', pos: 'VC', sales: 'VCEDXA', purchases: 'VCEDXA', products: 'VCEDX', stock: 'VCEDXA', suppliers: 'VCEDX', customers: 'VCEDX', loyalty: 'VCEDX', expenses: 'VCEDX', reports: 'VX', staff: 'VCEDX', roles: 'VCED', settings: 'VCED', subscription: 'VCED', notifications: 'VE' }),
+    permissions: expand({ dashboard: 'V', pos: 'VC', sales: 'VCEDXA', purchases: 'VCEDXA', products: 'VCEDX', stock: 'VCEDXA', suppliers: 'VCEDX', customers: 'VCEDX', loyalty: 'VCEDX', expenses: 'VCEDX', reports: 'VX', staff: 'VCEDX', roles: 'VCED', settings: 'VCED', subscription: 'VCED', notifications: 'VE', payroll: 'VCED' }),
     scopes: {},
   },
   manager: {

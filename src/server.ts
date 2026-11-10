@@ -4,10 +4,13 @@ import { env, isProd } from './config/env';
 import { logger } from './config/logger';
 import { startScheduler, stopScheduler } from './modules/notifications/jobs';
 import { backfillFreeForLife } from './modules/webaddress/free-for-life';
+import { bringOwnersForward } from './modules/roles/roles.service';
 
 async function main() {
   await connectDb();
   await backfillFreeForLife().then((n) => { if (n) logger.info(`Free for life: ${String(n)} live web addresses took their places`); }, (err: unknown) => { logger.error({ err }, 'Free-for-life backfill failed'); });
+
+  await bringOwnersForward().then((n) => { if (n) logger.info(`Payroll: ${String(n)} owner roles can now use it`); }, (err: unknown) => { logger.error({ err }, 'Owner roles update failed'); });
 
   const app = createApp();
   const ready = () => {

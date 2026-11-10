@@ -83,3 +83,9 @@ export async function remove(t: TenantContext, actor: Actor, id: string, ip?: st
   await RoleModel.deleteOne({ shopId: t.shopId, _id: role._id });
   await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'delete', module: 'roles', entityId: id, entityName: role.name, text: `${actor.name} deleted role “${role.name}”`, ip });
 }
+
+/** D114: an Owner role saved before Payroll existed gets it, once; no other role gains anything. */
+export async function bringOwnersForward() {
+  const r = await RoleModel.updateMany({ systemKey: 'owner', 'permissions.payroll': { $exists: false } }, { $set: { 'permissions.payroll': ['view', 'create', 'edit', 'delete'] } }).setOptions({ crossTenant: true });
+  return r.modifiedCount;
+}

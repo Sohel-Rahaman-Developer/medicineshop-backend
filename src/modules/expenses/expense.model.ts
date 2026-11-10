@@ -22,6 +22,8 @@ const expenseSchema = new Schema(
     fromDrawer: { type: Boolean, required: true },
     vendor: { type: String, default: '', trim: true },
     referenceNumber: { type: String, default: '', trim: true },
+    /** D114: made by Payroll — changed or removed there only. */
+    source: { kind: { type: String, enum: ['payroll'] }, id: { type: Schema.Types.ObjectId } },
     status: { type: String, enum: ['active', 'deleted'], required: true, default: 'active' },
     deleteReason: { type: String },
     deletedBy: { type: String },
