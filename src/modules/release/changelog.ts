@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.55.1',
+    date: '2026-11-11',
+    title: 'Home page plans say it right',
+    shop: [
+      'Pricing: yearly saves “up to 33%” (Basic 33%, Pro 25%), and the saving is before GST like every price on the card — ₹1,200 a year.',
+      'Basic shows its daily work and its key reports; Pro shows all its reports and lists what sells it first: stock from the bill file, Ask your shop, Profit & Loss, Payroll.',
+      'Feature cards that are Pro say “Pro”; Payroll has its own card. Three new questions: Basic or Pro, moving to Pro later, after the trial — in English, Hindi and Bengali.',
+      'Search: a shorter description, offers with GST and billing period in the page data, and llms.txt says what each package opens.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.55.0',
     date: '2026-11-11',
     title: 'Payslips like a bill, staff linked to payroll, Ask knows payroll',
