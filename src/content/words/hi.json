@@ -1093,5 +1093,21 @@
   "Fill one purchase rate — before GST or with GST, not both": "खरीद रेट एक ही भरिए — GST से पहले या GST के साथ, दोनों नहीं",
   "Purchase rate with GST should be a price like 23.52": "GST के साथ खरीद रेट 23.52 जैसी क़ीमत होनी चाहिए",
   "At most 20 batches at a time": "एक बार में ज़्यादा से ज़्यादा 20 बैच",
-  "More batches come with the first batch": "बाक़ी बैच पहले बैच के साथ ही आते हैं"
+  "More batches come with the first batch": "बाक़ी बैच पहले बैच के साथ ही आते हैं",
+  "Only people who see costs can correct a batch": "बैच सिर्फ़ वही ठीक कर सकते हैं जो लागत देख सकते हैं",
+  "Someone else changed {name}. Reload to see the latest.": "{name} को किसी और ने बदल दिया है। ताज़ा देखने के लिए पेज दोबारा खोलिए।",
+  "name {name} → {name2}": "नाम {name} → {name2}",
+  "company “{company}” → “{company2}”": "कंपनी “{company}” → “{company2}”",
+  "GST {gstRate}% → {gstRate2}%": "GST {gstRate}% → {gstRate2}%",
+  "rack {defaultRack} → {defaultRack2}": "रैक {defaultRack} → {defaultRack2}",
+  "Stock has been sold or moved from this batch — change it with an adjustment": "इस बैच से माल बिक चुका है या हटाया जा चुका है — इसे एडजस्टमेंट से बदलिए",
+  "Quantity must be whole {sale}s": "मात्रा पूरे {sale} में होनी चाहिए",
+  "batch {batchNumber} → {batchNumber2}": "बैच {batchNumber} → {batchNumber2}",
+  "expiry changed": "एक्सपायरी बदली",
+  "quantity {units} → {units2}": "मात्रा {units} → {units2}",
+  "MRP {mrp} → {mrp2}": "MRP {mrp} → {mrp2}",
+  "rate {purchaseRate} → {purchaseRate2}": "रेट {purchaseRate} → {purchaseRate2}",
+  "Batch {batchNumber} with this expiry is already in stock": "इसी एक्सपायरी वाला बैच {batchNumber} पहले से स्टॉक में है",
+  "You can’t correct stock": "आप स्टॉक ठीक नहीं कर सकते",
+  "Changes saved": "बदलाव सेव हो गए"
 }

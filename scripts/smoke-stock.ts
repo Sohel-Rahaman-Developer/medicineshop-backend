@@ -357,7 +357,7 @@ async function main() {
   const dry = await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows });
   const dr = data<{ rows: { row: number; product: string; errors: string[]; warnings: string[] }[]; summary: { errors: number; newProducts: number } }>(dry);
   check('dry run → per-row result', dry.status === 200 && dr.rows.length === 4, code(dry));
-  check('row 4 has its errors listed', (dr.rows[3]?.errors.length ?? 0) >= 4, JSON.stringify(dr.rows[3]?.errors));
+  check('row 4 has its errors listed, each once (a bad expiry is not also “missing”)', dr.rows[3]?.errors.length === 3 && !dr.rows[3].errors.some((e) => e.startsWith('Expiry is missing')), JSON.stringify(dr.rows[3]?.errors));
   check('existing vs new products detected', dr.rows[0]?.product === 'existing' && dr.rows[1]?.product === 'new' && dr.summary.newProducts === 3);
   check('no units given → PIECE warning', dr.rows[2]?.warnings.some((w) => w.includes('PIECE')) === true);
   check('nothing written by a dry run', (await ProductModel.countDocuments({ shopId: shop1, nameLower: 'azithral 500' })) === 0);
@@ -472,6 +472,30 @@ async function main() {
   const both = data<{ rows: { errors: string[] }[] }>(await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ ...withGst, rate: '24', rateWithGst: '26.88' }] }));
   check('import: both rates on a row → asks for one', both.rows[0]?.errors.some((e) => e.includes('not both')) === true);
   check('import: rate with GST saves as before GST (26.88 at 12% → 24.00)', (await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows: [{ ...withGst, rateWithGst: '26.88' }] })).status === 200 && (await BatchModel.findOne({ shopId: shop1, batchNumber: 'GR1' }).lean())?.costPerBaseUnit === 2400);
+
+  section('18b. Edit grid — fix what was typed, never what has moved');
+  type GridBatch = { id: string; batchNumber: string; quantity: number; editable: boolean; locked: string | null };
+  type GridProduct = { id: string; version: number; name: string; batches: GridBatch[] };
+  const grid = data<{ products: GridProduct[]; more: boolean }>(await owner.get('/products/grid?q=multi%20batch'));
+  const mp = grid.products.find((x) => x.name === 'Multi Batch Pill');
+  const az2 = mp?.batches.find((b) => b.batchNumber === 'AZ2');
+  const first25 = mp?.batches.find((b) => b.batchNumber === '25443288');
+  check('grid: the product with its 3 batches, hand-typed ones open to fix', grid.products.length === 1 && mp?.batches.length === 3 && mp.batches.every((b) => b.editable && b.locked === null), JSON.stringify(grid));
+  check('cashier can’t open the grid → 403', (await cashier.get('/products/grid')).status === 403);
+  const adj = await owner.post('/stock/adjustments', { clientRequestId: randomUUID(), type: 'PHYSICAL_COUNT', reason: 'Count', lines: [{ batchId: first25?.id, expected: 30, counted: 27 }] });
+  const after = data<{ products: GridProduct[] }>(await owner.get('/products/grid?q=multi%20batch')).products[0];
+  check('a batch with a count after it is locked, with the reason', adj.status === 201 && after?.batches.find((b) => b.id === first25?.id)?.editable === false && /adjustment/.test(after.batches.find((b) => b.id === first25?.id)?.locked ?? ''), code(adj));
+  const lockedSave = await owner.put('/products/grid', { products: [], batches: [{ id: first25?.id, mrp: 9000 }] });
+  check('…and the server refuses to change it → 422 on batches.0', lockedSave.status === 422 && JSON.stringify(lockedSave.json.error?.details).includes('body.batches.0'), code(lockedSave));
+  const fix = await owner.put('/products/grid', { products: [{ id: mp?.id, version: mp?.version, name: 'Multi Batch Pill 500', sellPrice: 7000, defaultRack: 'g-1' }], batches: [{ id: az2?.id, batchNumber: 'az3', expiry: '2028-07', quantity: 36, mrp: 8100, purchaseRate: 3300 }] });
+  const az3 = await BatchModel.findOne({ shopId: shop1, _id: az2?.id }).lean();
+  const az3Move = await MovementModel.find({ shopId: shop1, batchId: az2?.id }).lean();
+  const renamed = await ProductModel.findOne({ shopId: shop1, _id: mp?.id }).lean();
+  check('fix saved: batch AZ3, 12 strips, MRP ₹81, cost 1100/tablet; the opening move says 36 too', fix.status === 200 && az3?.batchNumber === 'AZ3' && az3.quantity === 36 && az3.initialQuantity === 36 && az3.mrp === 8100 && az3.costPerBaseUnit === 1100 && az3Move.length === 1 && az3Move[0]?.quantity === 36 && az3Move[0].balanceAfter === 36, JSON.stringify([code(fix), az3, az3Move]));
+  check('product renamed, sell price ₹70, rack G-1 made', renamed?.name === 'Multi Batch Pill 500' && renamed.nameLower === 'multi batch pill 500' && renamed.sellPrice === 7000 && renamed.defaultRack === 'G-1' && renamed.stock.onHand === 27 + 36 + 6, JSON.stringify(renamed?.stock));
+  check('the same old version again → 422, nothing changed', (await owner.put('/products/grid', { products: [{ id: mp?.id, version: mp?.version, company: 'Other' }], batches: [] })).status === 422 && (await ProductModel.findOne({ shopId: shop1, _id: mp?.id }).lean())?.company === 'Generic');
+  const gridClash = await owner.put('/products/grid', { products: [], batches: [{ id: az2?.id, batchNumber: '25443288', expiry: '2028-01' }] });
+  check('a fix onto a batch already in stock → 422', gridClash.status === 422, code(gridClash));
 
   section('19. Fast product screens, and a new product set up like the last one');
   const queries = (r: Res) => Number(/db;dur=[\d.]+;desc="(\d+) queries"/.exec(r.headers.get('server-timing') ?? '')?.[1] ?? 999);

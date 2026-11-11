@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.58.0',
+    date: '2026-11-11',
+    title: 'Quick entry: edit your products in the sheet, clearer pack and rate',
+    shop: [
+      'Quick entry → Edit my products: every product and its batches in one sheet. Change name, company, GST, sell price or rack, and put right a batch you typed in (batch, expiry, qty, MRP, rate) until something is sold or moved from it — then it is locked and changes go through Adjustments. Changed cells turn yellow; Save changes saves them all together.',
+      'Quick entry pack: two plain cells, “In 1 pack” (15 tablets) and “In 1 box” (10 strips), with the kind’s own numbers greyed in; the line under the sheet works it out (1 box = 10 strips = 150 tablets). A bottle or a device shows “—”.',
+      'Rack cells offer your racks to pick from; a new one is still made when you type it.',
+      'Before GST / With GST is explained in your language with an example (₹100 + 12% = ₹112) on Quick entry, Add product and Add opening stock.',
+    ],
+    admin: [],
+    api: ['GET /products/grid (100 products a page, each with its batches and whether a batch can be put right) and PUT /products/grid (product fields and untouched opening batches, all or nothing).'],
+  },
+  {
     version: '1.57.0',
     date: '2026-11-11',
     title: 'Quick entry grid, more batches in one go, rate with or without GST',

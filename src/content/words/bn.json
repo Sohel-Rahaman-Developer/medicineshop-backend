@@ -1093,5 +1093,21 @@
   "Fill one purchase rate — before GST or with GST, not both": "পারচেজ রেট একটাই দিন — GST-র আগে বা GST সহ, দুটো নয়",
   "Purchase rate with GST should be a price like 23.52": "GST সহ পারচেজ রেট 23.52-এর মতো দাম হওয়া উচিত",
   "At most 20 batches at a time": "একবারে বেশি হলে 20টা ব্যাচ",
-  "More batches come with the first batch": "বাকি ব্যাচ প্রথম ব্যাচের সঙ্গেই আসে"
+  "More batches come with the first batch": "বাকি ব্যাচ প্রথম ব্যাচের সঙ্গেই আসে",
+  "Only people who see costs can correct a batch": "যাঁরা খরচ দেখতে পান শুধু তাঁরাই ব্যাচ ঠিক করতে পারেন",
+  "Someone else changed {name}. Reload to see the latest.": "{name} অন্য কেউ বদলেছেন। নতুনটা দেখতে পেজ আবার খুলুন।",
+  "name {name} → {name2}": "নাম {name} → {name2}",
+  "company “{company}” → “{company2}”": "কোম্পানি “{company}” → “{company2}”",
+  "GST {gstRate}% → {gstRate2}%": "GST {gstRate}% → {gstRate2}%",
+  "rack {defaultRack} → {defaultRack2}": "র‍্যাক {defaultRack} → {defaultRack2}",
+  "Stock has been sold or moved from this batch — change it with an adjustment": "এই ব্যাচ থেকে মাল বিক্রি বা সরানো হয়েছে — অ্যাডজাস্টমেন্ট দিয়ে বদলান",
+  "Quantity must be whole {sale}s": "পরিমাণ গোটা {sale}-এ হতে হবে",
+  "batch {batchNumber} → {batchNumber2}": "ব্যাচ {batchNumber} → {batchNumber2}",
+  "expiry changed": "মেয়াদ বদলানো হয়েছে",
+  "quantity {units} → {units2}": "পরিমাণ {units} → {units2}",
+  "MRP {mrp} → {mrp2}": "MRP {mrp} → {mrp2}",
+  "rate {purchaseRate} → {purchaseRate2}": "রেট {purchaseRate} → {purchaseRate2}",
+  "Batch {batchNumber} with this expiry is already in stock": "এই মেয়াদের ব্যাচ {batchNumber} আগে থেকেই স্টকে আছে",
+  "You can’t correct stock": "আপনি স্টক ঠিক করতে পারবেন না",
+  "Changes saved": "বদল সেভ হয়েছে"
 }

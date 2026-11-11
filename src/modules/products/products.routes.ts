@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
+import { AppError } from '../../core/errors';
+import { can } from '../rbac/permissions';
 import { requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
@@ -11,6 +13,7 @@ import { productsXlsx } from '../exports/exports.service';
 import { actorOf } from '../user/actor';
 import { importProgress, importRows, importSchema, importTemplate, type ImportInput } from './products.import';
 import { addWithStock } from './products.add';
+import { gridQuerySchema, gridRows, gridSaveSchema, saveGrid, type GridQuery, type GridSave } from './products.grid';
 import * as svc from './products.service';
 import { activeSchema, createProductSchema, listQuerySchema, pricesSchema, updateProductSchema, type CreateProductInput, type ListQuery, type PricesInput, type UpdateProductInput } from './products.validation';
 
@@ -52,6 +55,29 @@ productsRouter.get(
   requirePermission('products', 'create'),
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await svc.categoryDefaults(tenantOf(req)));
+  }),
+);
+
+// The edit grid: products with their batches, and their changes saved in one go.
+productsRouter.get(
+  '/grid',
+  requirePermission('products', 'edit'),
+  validate({ query: gridQuerySchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await gridRows(tenantOf(req), req.query as unknown as GridQuery));
+  }),
+);
+
+productsRouter.put(
+  '/grid',
+  requirePermission('products', 'edit'),
+  validate({ body: gridSaveSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as GridSave;
+    const t = tenantOf(req);
+    if (body.batches.length && !can(t.permissions, 'stock', 'edit')) throw AppError.forbidden('You can’t correct stock');
+    const out = await saveGrid(t, await actorOf(req), body, req.ip);
+    sent(res, out, 'Changes saved');
   }),
 );
 
