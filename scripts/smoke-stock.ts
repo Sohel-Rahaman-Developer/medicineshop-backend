@@ -390,7 +390,7 @@ async function main() {
   check('Your products: only the header is filled, 1,000 rows ready with the header frozen', (blankSheet.match(/<row /g) ?? []).length === 1001 && blankSheet.split('<row ').slice(2).every((r) => !/<v>|<is>/.test(r)) && blankSheet.includes('<pane '));
   check('…batch, expiry, barcode, HSN, rack stay text (Excel can’t turn 08/27 into a date)', /formatCode="@"/.test(styles) && /<c r="R500" s="\d+"\/>/.test(blankSheet) && /<c r="I500" s="\d+"\/>/.test(blankSheet));
   const { templateRows } = await import('../src/modules/products/products.import.js');
-  const KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'sellPrice', 'minPrice', 'rack'];
+  const KEYS = ['name', 'company', 'salt', 'strength', 'category', 'schedule', 'gst', 'hsn', 'barcode', 'saleUnit', 'baseUnit', 'pack', 'purchaseUnit', 'purchasePack', 'storage', 'hasExpiry', 'batch', 'expiry', 'quantity', 'mrp', 'rate', 'rateWithGst', 'sellPrice', 'minPrice', 'rack'];
   const sampleRows = templateRows().map((r) => Object.fromEntries(KEYS.map((k, i) => [k, r[i] ?? ''])));
   check(`every sample row has the template's ${String(KEYS.length)} columns`, templateRows().every((r) => r.length === KEYS.length), templateRows().map((r) => r.length).join());
   const fresh = await h.signIn('sample@stock1.test');
@@ -457,6 +457,21 @@ async function main() {
   check('non-medicine: no batch, no expiry, no rate → lot number, cost 0', soap.status === 201 && /^LOT-/.test(soapB?.batchNumber ?? '') && soapB?.costPerBaseUnit === 0, code(soap));
   check('cashier → 403', (await cashier.post('/products', azikem({}, { name: 'Cashier Pill' }))).status === 403);
   check('stock keeper can add with stock', (await keeper.post('/products', azikem({}, { name: 'Keeper Pill' }))).status === 201);
+  const more = [
+    { batchNumber: 'AZ2', expiry: '2028-06', quantity: 15, mrp: 7900, purchaseRate: 3000, rack: '' },
+    { batchNumber: '25443288', expiry: '2028-01', quantity: 6, mrp: 8000, purchaseRate: 0, rack: '' },
+  ];
+  const badMore = await owner.post('/products', { ...azikem({}, { name: 'Multi Batch Pill' }), moreStock: [more[0], { ...more[1], expiry: undefined }] });
+  check('a later batch without expiry → 422 on moreStock.1.expiry, nothing saved', badMore.status === 422 && JSON.stringify(badMore.json.error?.details).includes('body.moreStock.1.expiry') && !(await ProductModel.exists({ shopId: shop1, name: 'Multi Batch Pill' })), code(badMore));
+  const noStock = { ...azikem({}, { name: 'Multi Batch Pill' }), stock: undefined };
+  check('more batches without the first → 422', (await owner.post('/products', { ...noStock, moreStock: more })).status === 422);
+  const multi = await owner.post('/products', { ...azikem({}, { name: 'Multi Batch Pill' }), moreStock: more });
+  const mb = await BatchModel.find({ shopId: shop1, productId: data<{ id: string }>(multi).id }).sort({ batchNumber: 1 }).lean();
+  check('3 batches in one save: own expiry, MRP and rate; the same batch number with another MRP stays apart (-A)', multi.status === 201 && mb.length === 3 && mb.map((b) => b.batchNumber).join() === '25443288,25443288-A,AZ2' && mb.reduce((n, b) => n + b.quantity, 0) === 30 + 15 + 6 && mb.find((b) => b.batchNumber === 'AZ2')?.costPerBaseUnit === 1000, JSON.stringify(mb.map((b) => [b.batchNumber, b.quantity, b.mrp, b.costPerBaseUnit])));
+  const withGst = { name: 'Gst Rate Syrup', saleUnit: 'BOTTLE', baseUnit: 'BOTTLE', pack: '1', category: 'Syrup', gst: '12', batch: 'GR1', expiry: '08/29', quantity: '2', mrp: '40' };
+  const both = data<{ rows: { errors: string[] }[] }>(await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: true, rows: [{ ...withGst, rate: '24', rateWithGst: '26.88' }] }));
+  check('import: both rates on a row → asks for one', both.rows[0]?.errors.some((e) => e.includes('not both')) === true);
+  check('import: rate with GST saves as before GST (26.88 at 12% → 24.00)', (await owner.post('/products/import', { clientRequestId: randomUUID(), dryRun: false, rows: [{ ...withGst, rateWithGst: '26.88' }] })).status === 200 && (await BatchModel.findOne({ shopId: shop1, batchNumber: 'GR1' }).lean())?.costPerBaseUnit === 2400);
 
   section('19. Fast product screens, and a new product set up like the last one');
   const queries = (r: Res) => Number(/db;dur=[\d.]+;desc="(\d+) queries"/.exec(r.headers.get('server-timing') ?? '')?.[1] ?? 999);

@@ -10,6 +10,19 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.57.0',
+    date: '2026-11-11',
+    title: 'Quick entry grid, more batches in one go, rate with or without GST',
+    shop: [
+      'Products → Quick entry (computer screen): type products row by row like Excel — name, kind, pack, company, GST, batch, expiry, qty, MRP, rate, sell price, rack. The same name again is another batch of that product. Enter moves right, arrow keys move between rows, cells copied from Excel paste straight in. Check rows shows each mistake under its row; Save all saves everything. Unsaved rows stay on the computer if the laptop shuts.',
+      'Add product: “Another batch” adds the same product with another expiry, MRP or rate — every batch is saved together with the product.',
+      'Purchase rate: choose Before GST or With GST, as your bill shows it. With GST, MedBox24 works out the rate before GST on screen (₹26.88 at 12% = ₹24.00) and keeps that as your cost. The choice is remembered on this computer. Also in Add opening stock.',
+      'Excel import: a new optional column “Purchase rate with GST” — fill it instead of the rate before GST and the GST is taken out.',
+    ],
+    admin: [],
+    api: ['POST /products takes moreStock: up to 19 more batches saved with the first, all or nothing. Product import rows take rateWithGst.'],
+  },
+  {
     version: '1.56.2',
     date: '2026-11-11',
     title: 'Blog import: translations go live with their post',

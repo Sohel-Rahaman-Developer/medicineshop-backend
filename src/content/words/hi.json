@@ -1089,5 +1089,9 @@
   "Add {name}’s email first": "पहले {name} का ईमेल जोड़िए",
   "That person is not on this shop’s staff": "यह व्यक्ति इस दुकान के staff में नहीं है",
   "Not on the staff": "staff में नहीं",
-  "{name} is already on payroll": "{name} पहले से Payroll में हैं"
+  "{name} is already on payroll": "{name} पहले से Payroll में हैं",
+  "Fill one purchase rate — before GST or with GST, not both": "खरीद रेट एक ही भरिए — GST से पहले या GST के साथ, दोनों नहीं",
+  "Purchase rate with GST should be a price like 23.52": "GST के साथ खरीद रेट 23.52 जैसी क़ीमत होनी चाहिए",
+  "At most 20 batches at a time": "एक बार में ज़्यादा से ज़्यादा 20 बैच",
+  "More batches come with the first batch": "बाक़ी बैच पहले बैच के साथ ही आते हैं"
 }

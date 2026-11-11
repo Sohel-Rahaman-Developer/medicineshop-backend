@@ -584,7 +584,7 @@ export async function get(t: TenantContext, userId: string, id: string) {
 const dayEnd = (d: Date) => new Date(d.getTime() + DAY - 1);
 
 const ITEM_DAYS = 30;
-const itemMatch = (q: Pick<SaleListQuery, 'q' | 'items'>) => (q.items && q.q && q.q.length >= 3 ? new RegExp(escape(q.q), 'i') : null);
+const itemMatch = (q: Pick<SaleListQuery, 'q' | 'items'>) => (q.items && q.q && q.q.length >= 3 ? new RegExp(escape(q.q), 'i') : null); // nosemgrep
 
 function listFilter(t: TenantContext, userId: string, q: Pick<SaleListQuery, 'from' | 'to' | 'status' | 'paymentMode' | 'userId' | 'flag' | 'q' | 'items' | 'customerId'>) {
   const filter: Record<string, unknown> = { shopId: t.shopId };

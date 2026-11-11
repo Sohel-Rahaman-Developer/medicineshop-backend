@@ -7,7 +7,7 @@ import { once } from '../../core/idempotency';
 import { clientRequestId, istDay, monthEnd, objectId, paise } from '../../core/zod';
 import type { Actor } from '../user/actor';
 import { insertProduct, prepareProduct } from '../products/products.service';
-import { createProductSchema } from '../products/products.validation';
+import { productBodySchema } from '../products/products.validation';
 import { readBillFile, readRows } from './bill-read';
 import { savePurchase } from './purchases.service';
 import { purchaseLineObject, type PurchaseInput } from './purchases.validation';
@@ -170,7 +170,7 @@ export async function rememberAliases(shopId: Types.ObjectId, supplierId: Types.
 const importLineSchema = purchaseLineObject
   .extend({
     productId: objectId.optional(),
-    newProduct: createProductSchema.omit({ stock: true }).optional(),
+    newProduct: productBodySchema.omit({ stock: true, moreStock: true }).optional(),
     /** The bill's own name and pack, remembered for this supplier. */
     billName: z.string().trim().max(120).default(''),
     billPack: z.string().trim().max(40).default(''),

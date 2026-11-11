@@ -75,7 +75,11 @@ export const firstStockSchema = z
   })
   .strict();
 
-export const createProductSchema = z.object({ ...fields, stock: firstStockSchema.optional() }).strict();
+/** More batches of the new product (another expiry, MRP or rate), saved with the first. */
+export const moreStockSchema = z.array(firstStockSchema.omit({ clientRequestId: true })).max(19, 'At most 20 batches at a time');
+
+export const productBodySchema = z.object({ ...fields, stock: firstStockSchema.optional(), moreStock: moreStockSchema.optional() }).strict();
+export const createProductSchema = productBodySchema.refine((b) => !b.moreStock?.length || b.stock, { message: 'More batches come with the first batch', path: ['moreStock'] });
 export const updateProductSchema = z.object({ ...fields, version: z.number().int().nonnegative() }).strict();
 /** D111: the product's sell price (null = MRP) and, when sent, the lowest price on every batch in stock (null = none). */
 export const pricesSchema = z.object({ sellPrice: paise('Sell price').min(1, 'Sell price must be more than ₹0').nullable(), minPrice: paise('Lowest price').nullable().optional() }).strict();
@@ -102,6 +106,7 @@ export const listQuerySchema = z
 export type UnitsBody = z.infer<typeof unitsSchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type FirstStockInput = z.infer<typeof firstStockSchema>;
+export type MoreStockInput = z.infer<typeof moreStockSchema>;
 export type PricesInput = z.infer<typeof pricesSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type ListQuery = z.infer<typeof listQuerySchema>;

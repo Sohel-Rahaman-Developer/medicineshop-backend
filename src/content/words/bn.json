@@ -1089,5 +1089,9 @@
   "Add {name}’s email first": "আগে {name}-এর ইমেল যোগ করুন",
   "That person is not on this shop’s staff": "এই ব্যক্তি এই দোকানের staff-এ নেই",
   "Not on the staff": "staff-এ নেই",
-  "{name} is already on payroll": "{name} আগে থেকেই Payroll-এ আছেন"
+  "{name} is already on payroll": "{name} আগে থেকেই Payroll-এ আছেন",
+  "Fill one purchase rate — before GST or with GST, not both": "পারচেজ রেট একটাই দিন — GST-র আগে বা GST সহ, দুটো নয়",
+  "Purchase rate with GST should be a price like 23.52": "GST সহ পারচেজ রেট 23.52-এর মতো দাম হওয়া উচিত",
+  "At most 20 batches at a time": "একবারে বেশি হলে 20টা ব্যাচ",
+  "More batches come with the first batch": "বাকি ব্যাচ প্রথম ব্যাচের সঙ্গেই আসে"
 }
