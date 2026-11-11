@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.56.1',
+    date: '2026-11-11',
+    title: 'Blog: import a pack of finished posts',
+    shop: [],
+    admin: ['Blog → Import posts: pick a pack file and every post goes in with its cover, pictures and category — day 0 posts go live at once, the rest one a day from a date you choose. Posts already on the blog are skipped, so the same file can be run again safely.', 'Post editor: after you set a link the cursor moves past it, so pressing Enter no longer wipes the linked words.'],
+    api: [],
+  },
+  {
     version: '1.56.0',
     date: '2026-11-11',
     title: 'A blog on medbox24.in — written in the console, scheduled, with ads',
