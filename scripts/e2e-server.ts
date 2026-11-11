@@ -6,6 +6,7 @@ import { startFakeClaude } from './lib/fake-claude';
 import { crash, startHarness } from './lib/harness';
 import { MA_AI } from './lib/ma-bill';
 import { fillFreeForLife, offBasic, seedBasic } from './lib/basic-plans';
+import type { PostInput } from '../src/modules/blog/blog.validation';
 
 const API_PORT = Number(process.env.E2E_API_PORT ?? 5000);
 const HELPER_PORT = Number(process.env.E2E_HELPER_PORT ?? 5099);
@@ -164,17 +165,40 @@ async function main() {
     await OwnDomainModel.updateOne({ shopId: shop._id, status: { $in: ['requested', 'active', 'stopped'] } }, { $set: { domain: b.name, kind: b.kind === 'buy' ? 'buy' : 'own', status: b.approve ? 'active' : 'requested', dnsOk: true, requestedAt: new Date(), requestedByName: 'Shop Owner' } }, { upsert: true });
     own.forgetLiveDomains();
   };
+  /** Blog suites (D115): two categories, a cover, live posts in English and Hindi, a draft, a scheduled post; ads on if asked. */
+  const blog = await import('../src/modules/blog/blog.service.js');
+  const { BlogPostModel } = await import('../src/modules/blog/blog.model.js');
+  const seedBlog = async (b: { ads?: boolean }) => {
+    if (await BlogPostModel.exists({})) return;
+    const sharp = (await import('sharp')).default;
+    const root = { id: '000000000000000000000001', name: 'E2E Root', email: 'root@e2e.test', role: 'super' as const };
+    const gst = await blog.saveCategory(root, null, { slug: 'gst', names: { en: 'GST and tax', hi: 'GST और टैक्स', bn: 'GST আর ট্যাক্স' }, order: 1 });
+    const stock = await blog.saveCategory(root, null, { slug: 'stock', names: { en: 'Stock and expiry', hi: '', bn: '' }, order: 2 });
+    const pic = await blog.uploadImage(root, `data:image/png;base64,${(await sharp({ create: { width: 1200, height: 630, channels: 3, background: { r: 6, g: 95, b: 120 } } }).png().toBuffer()).toString('base64')}`);
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const h2 = (text: string) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text }] });
+    const long = 'Every medicine carries an HSN code and a GST rate. Most medicines are taxed at 12 per cent, some life-saving drugs at 5 per cent, and a few items at 18 per cent. ';
+    const post = (o: Pick<PostInput, 'slug' | 'title' | 'content'> & Partial<PostInput>): PostInput => ({ lang: 'en', description: 'Which GST rate applies to which medicine, the HSN codes, and how a medical store splits CGST and SGST on every bill.', categoryId: gst.id, coverId: null, coverAlt: '', tags: ['gst'], author: 'MedBox24 team', featured: false, status: 'published', publishedAt: new Date(Date.now() - 86_400_000), ...o });
+    const content = { type: 'doc' as const, content: [h2('The rates'), p(long.repeat(4)), { type: 'bulletList', content: [{ type: 'listItem', content: [p('5% — life-saving drugs')] }, { type: 'listItem', content: [p('12% — most medicines')] }] }, h2('HSN codes'), { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [p('Item')] }, { type: 'tableHeader', content: [p('HSN')] }] }, { type: 'tableRow', content: [{ type: 'tableCell', content: [p('Tablets')] }, { type: 'tableCell', content: [p('3004')] }] }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Try the free GST calculator', marks: [{ type: 'link', attrs: { href: '/tools/medicine-gst-calculator' } }] }] }, { type: 'image', attrs: { src: `media:${pic.id}`, alt: 'A GST bill on the counter' } }, h2('Splitting the tax'), p(long.repeat(3))] };
+    await blog.createPost(root, post({ slug: 'gst-on-medicines', title: 'GST on medicines: rates and HSN codes', content, coverId: pic.id, coverAlt: 'A GST bill on the counter', tags: ['gst', 'hsn'], featured: true }));
+    await blog.createPost(root, post({ slug: 'gst-on-medicines', lang: 'hi', title: 'दवाओं पर GST: रेट और HSN कोड', description: 'किस दवा पर कितना GST लगता है, HSN कोड क्या हैं, और मेडिकल स्टोर हर बिल पर CGST और SGST कैसे बाँटता है।', content: { type: 'doc' as const, content: [h2('रेट'), p('दवा पर GST '.repeat(60))] } }));
+    await blog.createPost(root, post({ slug: 'expiry-returns', title: 'Returning near-expiry medicines to the supplier', categoryId: stock.id, tags: ['expiry'], content: { type: 'doc' as const, content: [h2('Before it expires'), p(long.repeat(3))] }, publishedAt: new Date(Date.now() - 2 * 86_400_000) }));
+    await blog.createPost(root, post({ slug: 'stock-audit-checklist', title: 'A stock audit checklist for a medical store', categoryId: stock.id, tags: ['stock'], content: { type: 'doc' as const, content: [h2('Count by rack'), p(long.repeat(3))] }, publishedAt: new Date(Date.now() - 3 * 86_400_000) }));
+    await blog.createPost(root, post({ slug: 'draft-post', title: 'A draft nobody should see yet', status: 'draft', publishedAt: null, content: { type: 'doc' as const, content: [p(long.repeat(2))] } }));
+    await blog.createPost(root, post({ slug: 'coming-soon', title: 'A post scheduled for next week', publishedAt: new Date(Date.now() + 7 * 86_400_000), content: { type: 'doc' as const, content: [p(long.repeat(2))] } }));
+    if (b.ads) await blog.saveAds(root, { adsOn: true, adClient: 'ca-pub-1234567890123456', slotList: '1234567890', slotArticle: '', reason: 'Ads for the e2e suite' });
+  };
   const lastMail = async (b: { email: string }) => (await EmailJobModel.findOne({ to: b.email }).sort({ _id: -1 }).lean())?.text ?? '';
 
   const helper = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain', '/backdate', '/ai-next'].includes(req.url ?? '')) {
+    if (req.method !== 'POST' || !['/otp', '/admin', '/support', '/idle', '/ai', '/chat', '/demo', '/plan', '/mail', '/category', '/field', '/field-otp', '/web', '/domain', '/backdate', '/ai-next', '/blog'].includes(req.url ?? '')) {
       res.writeHead(404).end();
       return;
     }
     let raw = '';
     req.on('data', (c: Buffer) => (raw += c.toString()));
     req.on('end', () => {
-      const body = JSON.parse(raw) as { email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number; days?: number };
+      const body = JSON.parse(raw) as { ads?: boolean; email: string; code: string; kind?: string; shopName?: string; minutes?: number; coins?: number; planCode?: string; chatOff?: boolean; name?: string; draftFor?: string; trialDays?: number; approve?: boolean; price?: number; yearPrice?: number; days?: number };
       // D105: the next AI answer (a prescription read), then the usual bill answer again.
       if (req.url === '/ai-next') {
         claude.queue.push({ bill: (JSON.parse(raw) as { answer: unknown }).answer, input: 2600, output: 700 });
@@ -188,7 +212,7 @@ async function main() {
         );
         return;
       }
-      (req.url === '/backdate' ? seedBackdate({ shopName: body.shopName, days: body.days }) : req.url === '/domain' ? seedDomain(body) : req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
+      (req.url === '/blog' ? seedBlog(body) : req.url === '/backdate' ? seedBackdate({ shopName: body.shopName, days: body.days }) : req.url === '/domain' ? seedDomain(body) : req.url === '/web' ? seedWeb(body) : req.url === '/field' ? seedField(body) : req.url === '/field-otp' ? h.seedOtp(body.email, body.code, 'field') : req.url === '/category' ? seedCategory({ shopName: body.shopName, name: body.name }) : req.url === '/plan' ? seedPlan(body) : req.url === '/demo' ? seedDemo(body) : req.url === '/chat' ? seedChat() : req.url === '/ai' ? seedAi(body) : req.url === '/admin' ? seedAdmin(body) : req.url === '/support' ? seedSupport(body) : req.url === '/idle' ? seedIdle(body) : h.seedOtp(body.email, body.code)).then(
         () => res.writeHead(204).end(),
         (err: unknown) => res.writeHead(500).end(String(err)),
       );

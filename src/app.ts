@@ -45,6 +45,7 @@ import { refillsRouter } from './modules/refills/refills.routes';
 import { payrollRouter } from './modules/payroll/payroll.routes';
 import { labelsRouter } from './modules/labels/labels.routes';
 import { adminRouter, platformRouter, supportAccessRouter } from './modules/admin/admin.routes';
+import { blogRouter } from './modules/blog/blog.routes';
 import { brandRouter } from './modules/branding/branding.routes';
 import { publicRouter } from './modules/public/public.routes';
 import { webAddressRouter } from './modules/webaddress/web-address.routes';
@@ -65,6 +66,8 @@ const BILL_PATH = /^\/purchases\/import\/read$/;
 const AI_BILL_PATH = /^\/purchases\/import\/ai$/;
 // A logo upload — the platform's from the admin console or a shop's own (≤ 600 KB image).
 const BRAND_PATH = /^\/(admin\/brand|shop\/logo)$/;
+// D115: a blog post (the editor's document) and its pictures.
+const BLOG_PATH = /^\/admin\/blog\/(?:posts|posts\/[a-f0-9]{24}|images)$/;
 // Routes that build a PDF or an Excel file.
 const FILE_PATH = /\/(export|pdf|invoice|template|credit-notes\/[^/]+)$/;
 
@@ -123,7 +126,7 @@ export function createApp() {
   const photoJson = express.json({ limit: '850kb' });
   const aiJson = express.json({ limit: '6mb' });
   app.use(env.API_PREFIX, (req, res, next) => {
-    if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path) || BRAND_PATH.test(req.path)) photoJson(req, res, next);
+    if (PHOTO_PATH.test(req.path) || BILL_PATH.test(req.path) || BRAND_PATH.test(req.path) || BLOG_PATH.test(req.path)) photoJson(req, res, next);
     else if (AI_BILL_PATH.test(req.path)) aiJson(req, res, next);
     else next();
   });
@@ -138,7 +141,8 @@ export function createApp() {
   });
   // A minute at a time per person (or IP), files a smaller allowance on top; health stays open for uptime monitors.
   app.use(env.API_PREFIX, (req, res, next) => {
-    if (req.path === '/health') return next();
+    // D115: blog pictures never change (cached a year) and a page may hold many — no per-minute count.
+    if (req.path === '/health' || req.path.startsWith('/blog/img/')) return next();
     apiLimiter(req, res, (err?: unknown) => {
       if (err !== undefined || !FILE_PATH.test(req.path)) return next(err);
       fileLimiter(req, res, next);
@@ -198,6 +202,7 @@ export function createApp() {
   app.use(`${env.API_PREFIX}/field`, fieldRouter);
   app.use(`${env.API_PREFIX}/platform`, platformRouter);
   app.use(`${env.API_PREFIX}/brand`, brandRouter);
+  app.use(`${env.API_PREFIX}/blog`, blogRouter);
   app.use(`${env.API_PREFIX}/public`, publicRouter);
   app.use(`${env.API_PREFIX}/web-address`, webAddressRouter);
   app.use(`${env.API_PREFIX}/branches`, branchesRouter);

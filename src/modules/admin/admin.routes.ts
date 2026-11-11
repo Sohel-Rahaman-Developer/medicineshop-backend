@@ -33,6 +33,7 @@ import * as field from '../field/field.service';
 import { ASK_ROUTES } from '../ask/ask.model';
 import { referralSettingsSchema, type ReferralSettings } from '../referral/referral.service';
 import * as brand from '../branding/branding.service';
+import { blogAdminRouter } from '../blog/blog.routes';
 import * as demo from '../demo/demo.service';
 import { FEATURES, TIERS } from '../subscription/features';
 import { allPlans, packageList } from '../subscription/subscription.service';
@@ -82,6 +83,7 @@ adminRouter.use(requireAdmin);
 const shopsRole = requireAdminRole('super', 'support');
 const moneyRole = requireAdminRole('super', 'accounts');
 const superOnly = requireAdminRole('super');
+adminRouter.use('/blog', blogAdminRouter);
 
 adminRouter.get('/me', asyncHandler(async (req: Request, res: Response) => { fetched(res, await meOf(adminOf(req).id)); }));
 adminRouter.put('/me/pin', otpVerifyLimiter, validate({ body: z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN is 4 to 6 digits'), code: z.string().regex(/^\d{6}$/, 'Six digits from your authenticator') }).strict() }), asyncHandler(async (req: Request, res: Response) => {

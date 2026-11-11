@@ -5,8 +5,8 @@ import { join, relative } from 'node:path';
 import ts from 'typescript';
 
 const ROOT = join(__dirname, '..', 'src');
-// Server-only text (env checks) and the platform team's console stay English.
-const SKIP = [/^config[\\/]/, /^modules[\\/]admin[\\/](?!field|support)/];
+// Server-only text (env checks) and the platform team's console (blog included) stay English.
+const SKIP = [/^config[\\/]/, /^modules[\\/]admin[\\/](?!field|support)/, /^modules[\\/]blog[\\/]/];
 const ZOD = new Set(['min', 'max', 'length', 'regex', 'email', 'uuid', 'url', 'refine', 'int', 'positive', 'nonnegative', 'nonempty', 'number', 'string', 'boolean', 'array', 'date', 'iso', 'enum', 'startsWith', 'endsWith', 'gt', 'gte', 'lt', 'lte', 'multipleOf', 'finite', 'safe']);
 
 const files = (dir: string): string[] =>

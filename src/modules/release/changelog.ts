@@ -10,6 +10,23 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.56.0',
+    date: '2026-11-11',
+    title: 'A blog on medbox24.in — written in the console, scheduled, with ads',
+    shop: [
+      'medbox24.in/blog in English, Hindi and Bengali: featured posts on top, topics, newest first, pages; each post with its cover, contents box, tables and pictures, share buttons, other languages and three posts to read next.',
+      'Search: every post has its own title, summary, share card and article data for Google; categories and posts are in the sitemap, an RSS feed per language, and llms.txt lists the newest posts. Tag pages and empty lists stay out of search.',
+      'Ads (Google AdSense) show on blog pages only, and only once turned on in the console — never on the home page, the prices or inside the app.',
+      'The web address offer no longer shows “50 places left” while most places are open; the count shows once 15 or fewer remain.',
+    ],
+    admin: [
+      'Blog: write in a word-processor box (headings, bold, lists, quotes, links, pictures, tables), pick a category, tags and a cover, and see the Google preview and a search check as you type.',
+      'Save as a draft, publish now, or schedule a time — the post goes live by itself. Feature a post with one tap; delete with a reason (its pictures go with it unless another post uses them).',
+      'Categories with names in three languages; Ads: publisher id, optional ad units, on or off — ads.txt is served for you.',
+    ],
+    api: ['Admin: /admin/blog/posts (+ /:id, /:id/featured), /admin/blog/categories, /admin/blog/images, /admin/blog/ads — reads for every admin, writes for the super admin, all audited. Public: GET /blog/posts?lang&page&category&tag, /blog/posts/:lang/:slug (with translations and related), /blog/index, /blog/ads, /blog/img/:id.webp (cached a year). A post body is editor JSON, cleaned on save (only known blocks; web, mail, phone and own links; own or https pictures).'],
+  },
+  {
     version: '1.55.1',
     date: '2026-11-11',
     title: 'Home page plans say it right',
