@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.56.2',
+    date: '2026-11-11',
+    title: 'Blog import: translations go live with their post',
+    shop: [],
+    admin: ['Blog → Import posts: a Hindi or Bengali copy of a post already on the blog takes that post’s date — live at once if it is live, otherwise on the same day it goes live. The dialog shows how many are translations, and each log line shows the language and the date.'],
+    api: [],
+  },
+  {
     version: '1.56.1',
     date: '2026-11-11',
     title: 'Blog: import a pack of finished posts',
