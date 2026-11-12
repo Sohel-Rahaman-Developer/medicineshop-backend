@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.58.1',
+    date: '2026-11-12',
+    title: 'Quick entry: rack codes show in full',
+    shop: ['Quick entry: a rack like A-1-3 showed as “A-1” because the list arrow took the room. The arrow now shows only while you type in the cell, and the Rack column is wider.'],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.58.0',
     date: '2026-11-11',
     title: 'Quick entry: edit your products in the sheet, clearer pack and rate',
