@@ -441,8 +441,10 @@ export const UNDO_MS = 24 * 60 * 60 * 1000;
 /** Undo within 24 hours of saving: the purchase cancelled, cash paid on the spot back, the products it made put away. */
 export async function undo(t: TenantContext, actor: Actor, id: string, mayAny: boolean, ip?: string) {
   return inTransaction(async (session) => {
-    const p = await PurchaseModel.findOne({ shopId: t.shopId, _id: oid(id) }).select('createdAt createdBy supplierId paidAmount madeProductIds status purchaseNumber').session(session).lean();
+    const p = await PurchaseModel.findOne({ shopId: t.shopId, _id: oid(id) }).select('createdAt createdBy supplierId paidAmount madeProductIds status purchaseNumber source').session(session).lean();
     if (!p) throw AppError.notFound('Purchase not found');
+    // Only the stock chat's purchases: any other is cancelled, which needs the approve permission.
+    if (p.source !== 'chat') throw AppError.conflict('Only purchases added from the stock chat can be undone — cancel this one instead', { reason: 'NOT_CHAT' });
     if (Date.now() - p.createdAt.getTime() > UNDO_MS) throw AppError.conflict('Undo is open for 24 hours after saving — cancel the purchase instead', { reason: 'UNDO_CLOSED' });
     if (!mayAny && String(p.createdBy) !== actor.id) throw AppError.forbidden('Only the person who added it can undo it');
     const out = await cancelIn(t, actor, id, 'Undone within 24 hours', session, ip);

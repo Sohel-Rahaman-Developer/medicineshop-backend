@@ -1139,5 +1139,6 @@
   "Only the person who added it can undo it": "जिसने जोड़ा था, वही undo कर सकता है",
   "Adding stock with AI is off — turn it on first": "AI से स्टॉक जोड़ना बंद है — पहले इसे चालू कीजिए",
   "Adding stock with AI is on for 15 minutes": "AI से स्टॉक जोड़ना 15 मिनट के लिए चालू है",
-  "Adding stock with AI is off": "AI से स्टॉक जोड़ना बंद है"
+  "Adding stock with AI is off": "AI से स्टॉक जोड़ना बंद है",
+  "Only purchases added from the stock chat can be undone — cancel this one instead": "सिर्फ़ स्टॉक चैट से जोड़ी गई purchase ही undo होती है — इसे cancel कीजिए"
 }

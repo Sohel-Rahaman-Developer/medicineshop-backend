@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.59.1',
+    date: '2026-11-13',
+    title: 'Undo is only for purchases from the stock chat',
+    shop: ['Undo (within 24 hours) now works only on purchases added from the stock chat. Any other purchase is cancelled as before, by someone who may approve purchases.'],
+    admin: [],
+    api: ['POST /purchases/:id/undo answers 409 NOT_CHAT for a purchase not made from the stock chat.'],
+  },
+  {
     version: '1.59.0',
     date: '2026-11-13',
     title: 'Add stock by chat — typed or spoken, with an AI lock',

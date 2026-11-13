@@ -159,6 +159,9 @@ async function main() {
   await PurchaseModel.collection.updateOne({ shopId: shop, _id: new Types.ObjectId(again.id) }, { $set: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
   const late = await owner.post(`/purchases/${again.id}/undo`, {});
   check('after 24 hours Undo is closed → 409, cancel the purchase instead', late.status === 409 && JSON.stringify(late.json.error?.details).includes('UNDO_CLOSED'), code(late));
+  const plain = data<{ id: string }>(await owner.post('/purchases/import', { clientRequestId: randomUUID(), market: true, invoiceNumber: 'MKT-3', invoiceDate: new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10), lines: [{ productId: dolo, billName: '', billPack: '', batchNumber: 'DL80', expiry: '2028-09', quantity: 1, freeQuantity: 0, unit: 'STRIP', rate: 2500, discountPercent: 0, mrp: 3300, gstRate: 12, rack: '' }], paid: { mode: 'CASH', fromDrawer: false } }));
+  const notChat = await owner.post(`/purchases/${plain.id}/undo`, {});
+  check('a purchase not from the chat can’t be undone — only cancelled, which needs approve (409)', notChat.status === 409 && JSON.stringify(notChat.json.error?.details).includes('NOT_CHAT') && (await PurchaseModel.findOne({ shopId: shop, _id: new Types.ObjectId(plain.id) }).lean())?.status === 'active', code(notChat));
 
   await fake.close();
   await h.close();
