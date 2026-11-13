@@ -4,26 +4,29 @@ import { ShopModel } from '../shops/shop.model';
 import { istMonth } from '../../utils/date';
 import { PROVIDER_NAME, aiSettings, priceOf } from './ai-settings';
 import { AI_MODELS, AI_PROVIDERS, AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, PACK_NET, type AiProvider } from './ai.model';
-import { PAGE_IN, PAGE_OUT, checks, coinValue, roomOf, tokensFor } from './guard';
+import { PAGE_IN, PAGE_OUT, checks, coinValue, perToken, roomOf, tokensFor } from './guard';
 
 // D97: the admin's money view of AI — is every price safe, what margin it really makes, and which shop (and who in it)
 // spends how much against what it paid.
 
 const DAY = 86_400_000;
-const GST = 1.18;
 const AI_ROUTES = { $in: ['ai', 'off_topic'] };
 
-type Sum = { _id: Types.ObjectId; cost: number; done: number; failed: number; coins: number; month: number };
+type Sum = { _id: Types.ObjectId; cost: number; done: number; failed: number; coins: number; tenCoins: number; month: number };
 type UserSum = { _id: { shop: Types.ObjectId; user: string }; cost: number; n: number };
 
 export async function aiMoney(now = new Date()) {
   const s = await aiSettings();
   const since = new Date(now.getTime() - 30 * DAY);
   const coin = coinValue(s);
+  // Tokens taken before ₹0.01 tokens were ₹0.10 ones.
+  const ten = s.tenCoinPaise ?? coin;
+  const paiseAt = s.paiseAt ?? new Date(8.64e15);
+  const tenCoins = { $sum: { $cond: [{ $and: [{ $not: ['$refunded'] }, { $lt: ['$createdAt', paiseAt] }] }, '$coins', 0] } };
   const month = (field: string) => ({ $sum: { $cond: [{ $gte: ['$createdAt', since] }, field, 0] } });
   const [reads, asks, readUsers, askUsers, paid, gifts, avgRead, avgAsk] = await Promise.all([
-    AiReadModel.aggregate<Sum>([{ $group: { _id: '$shopId', cost: { $sum: '$costPaise' }, done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, month: month('$costPaise') } }]),
-    AskQuestionModel.aggregate<Sum>([{ $match: { route: AI_ROUTES } }, { $group: { _id: '$shopId', cost: { $sum: '$costPaise' }, done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, month: month('$costPaise') } }]),
+    AiReadModel.aggregate<Sum>([{ $group: { _id: '$shopId', cost: { $sum: '$costPaise' }, done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, tenCoins, month: month('$costPaise') } }]),
+    AskQuestionModel.aggregate<Sum>([{ $match: { route: AI_ROUTES } }, { $group: { _id: '$shopId', cost: { $sum: '$costPaise' }, done: { $sum: { $cond: [{ $eq: ['$status', 'done'] }, 1, 0] } }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } }, coins: { $sum: { $cond: ['$refunded', 0, '$coins'] } }, tenCoins, month: month('$costPaise') } }]),
     AiReadModel.aggregate<UserSum>([{ $group: { _id: { shop: '$shopId', user: '$userName' }, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } }]),
     AskQuestionModel.aggregate<UserSum>([{ $match: { route: AI_ROUTES } }, { $group: { _id: { shop: '$shopId', user: '$userName' }, cost: { $sum: '$costPaise' }, n: { $sum: 1 } } }]),
     CoinOrderModel.aggregate<{ _id: Types.ObjectId; net: number; month: number }>([{ $match: { status: 'paid' } }, { $group: { _id: '$shopId', net: { $sum: PACK_NET }, month: { $sum: { $cond: [{ $gte: ['$paidAt', since] }, PACK_NET, 0] } } } }]),
@@ -57,7 +60,8 @@ export async function aiMoney(now = new Date()) {
     const burned = (r?.cost ?? 0) + (a?.cost ?? 0);
     // The guard's own sum (D97, D109): bought + given + the free AI used.
     const allowance = (await roomOf(oid, s)).allowancePaise;
-    const earned = ((r?.coins ?? 0) + (a?.coins ?? 0)) * coin;
+    const tenTaken = (r?.tenCoins ?? 0) + (a?.tenCoins ?? 0);
+    const earned = Math.floor(((r?.coins ?? 0) + (a?.coins ?? 0) - tenTaken) * coin + tenTaken * ten);
     return {
       shopId: id,
       shopName: shopNames.get(id) ?? '',
@@ -90,7 +94,7 @@ export async function aiMoney(now = new Date()) {
   return {
     targetMargin: s.targetMargin,
     usdInr: s.usdInr,
-    coin: { paise: coin, packs: s.packs.map((k) => ({ name: k.name, coins: k.coins, price: k.price, perCoin: Math.floor(k.price / GST / Math.max(1, k.coins)) })) },
+    coin: { paise: coin, packs: s.packs.map((k) => ({ name: k.name, coins: k.coins, price: k.price, perCoin: perToken(k) })) },
     read: { ...read, model: s.model, coinsPerJob: read.coins, tokensIn: PAGE_IN, tokensOut: PAGE_OUT, price: { input: Math.max(pr.input, pr.cacheWrite), output: pr.output }, avgPaise: perPage, usualCoins: perPage === null ? null : tokensFor(s, perPage) },
     chat: { ...chat, model: s.chat.model, coinsPerJob: chat.coins, tokensIn: s.chat.capIn, tokensOut: s.chat.capOut, price: { input: Math.max(pc.input, pc.cacheWrite), output: pc.output }, avgPaise: perQuestion, usualCoins: perQuestion === null ? null : tokensFor(s, perQuestion) },
     month: { costPaise: monthCost, salesPaise: monthSales, margin: monthCost ? Math.round((monthSales / monthCost) * 10) / 10 : null },

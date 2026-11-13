@@ -76,6 +76,11 @@ const settingsSchema = new Schema(
     /** D109: when tokens became ₹0.10 each, and what one old token was worth then (GST out) — older gifts count at that. */
     tokensAt: { type: Date },
     oldCoinPaise: { type: Number },
+    /** When tokens became ₹0.01 each (₹1 = 100 tokens), and what a ₹0.10 token was worth then (GST out). */
+    paiseAt: { type: Date },
+    tenCoinPaise: { type: Number },
+    /** True only while tokens move to ₹0.01: no AI job and no pack order starts. */
+    tokensMoving: { type: Boolean },
     /** What coins should bring in against the AI cost (1.5 = $20 of AI sold for $30); suggestions aim at it (D97). */
     targetMargin: { type: Number, required: true, default: 1.5 },
     /** Rupees for one US dollar, for the real cost of each read. */
@@ -91,12 +96,12 @@ const settingsSchema = new Schema(
 );
 export const AiSettingsModel = model('AiSettings', settingsSchema);
 
-/** D109: one token is ₹0.10 with GST — a pack's tokens are its price ÷ 10 paise. */
-export const TOKEN_PRICE_PAISE = 10;
+/** One token is ₹0.01 with GST (₹1 = 100 tokens) — a pack's tokens are its price in paise. */
+export const TOKEN_PRICE_PAISE = 1;
 export const DEFAULT_PACKS = [
-  { code: 'c25', name: 'Starter', coins: 2_990, price: 29_900 },
-  { code: 'c100', name: 'Shop', coins: 9_990, price: 99_900 },
-  { code: 'c500', name: 'Busy shop', coins: 44_990, price: 449_900 },
+  { code: 'c25', name: 'Starter', coins: 29_900, price: 29_900 },
+  { code: 'c100', name: 'Shop', coins: 99_900, price: 99_900 },
+  { code: 'c500', name: 'Busy shop', coins: 449_900, price: 449_900 },
 ];
 
 const walletSchema = new Schema(
@@ -112,6 +117,8 @@ const walletSchema = new Schema(
     freeTotalPaise: { type: Number, required: true, default: 0, min: 0 },
     /** Old free tokens (before ₹0.10 tokens) taken back by D109 — the guard no longer counts them as given. */
     oldFreeGone: { type: Number, required: true, default: 0, min: 0 },
+    /** 1 once this wallet's tokens moved to ₹0.01 each; unset before. */
+    tokenPaise: { type: Number },
     /** Free chat questions used before v1.22.3 (when every answer became a token) — still counted as a gift (D97). */
     askFree: { type: Number, required: true, default: 0, min: 0 },
     /** When the welcome coins were given — once per shop. */
@@ -194,6 +201,8 @@ const orderSchema = new Schema(
     packCode: { type: String, required: true },
     packName: { type: String, required: true },
     coins: { type: Number, required: true },
+    /** 1 for ₹0.01 tokens; unset for an order made before tokens moved to ₹0.01. */
+    tokenPaise: { type: Number },
     /** Snapshot at order time, GST included; `gst` is the 18% inside it. */
     amount: { type: Number, required: true },
     gst: { type: Number, required: true },

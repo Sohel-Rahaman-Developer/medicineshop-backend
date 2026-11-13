@@ -1140,5 +1140,7 @@
   "Adding stock with AI is off — turn it on first": "AI से स्टॉक जोड़ना बंद है — पहले इसे चालू कीजिए",
   "Adding stock with AI is on for 15 minutes": "AI से स्टॉक जोड़ना 15 मिनट के लिए चालू है",
   "Adding stock with AI is off": "AI से स्टॉक जोड़ना बंद है",
-  "Only purchases added from the stock chat can be undone — cancel this one instead": "सिर्फ़ स्टॉक चैट से जोड़ी गई purchase ही undo होती है — इसे cancel कीजिए"
+  "Only purchases added from the stock chat can be undone — cancel this one instead": "सिर्फ़ स्टॉक चैट से जोड़ी गई purchase ही undo होती है — इसे cancel कीजिए",
+  "AI is being updated — try again in a minute. No tokens were taken": "AI अपडेट हो रहा है — एक मिनट बाद फिर कोशिश कीजिए। कोई टोकन नहीं कटा",
+  "Tokens are being updated — try again in a minute": "टोकन अपडेट हो रहे हैं — एक मिनट बाद फिर कोशिश कीजिए"
 }

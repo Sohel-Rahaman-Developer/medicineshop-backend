@@ -43,7 +43,7 @@ export async function chatOverview(now = new Date()) {
   const coinPaise = coinValue(s);
   // D109: a question takes its real cost × margin in tokens — chargePaise is what its worst case would bring in.
   const mostCoins = tokensFor(s, worstPaise);
-  const chargePaise = mostCoins * coinPaise;
+  const chargePaise = Math.floor(mostCoins * coinPaise);
   const avgPaise = last30[0]?.n ? Math.round(last30[0].cost / last30[0].n) : null;
   const ratio = (cost: number | null) => (cost ? Math.round((chargePaise / cost) * 10) / 10 : null);
   const suggest = tokensFor(s, avgPaise ?? worstPaise);

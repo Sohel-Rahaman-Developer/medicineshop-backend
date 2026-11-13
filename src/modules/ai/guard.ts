@@ -17,8 +17,13 @@ export const MAX_OUT = 64_000;
 
 const paise = (tokensIn: number, tokensOut: number, p: Price, usdInr: number) => Math.ceil(((tokensIn * Math.max(p.input, p.cacheWrite) + tokensOut * p.output) * usdInr * 100) / 1_000_000);
 
-/** The least a coin brings in: the cheapest pack's price per coin, 18% GST taken out. */
-export const coinValue = (s: Pick<AiSettings, 'packs'>) => Math.min(...s.packs.map((k) => Math.floor(k.price / GST / Math.max(1, k.coins))));
+/** What a pack's token brings in, 18% GST out, rounded down — to the paisa, or to 0.01 paise under one (₹0.01 → 0.84). */
+export const perToken = (k: { price: number; coins: number }) => {
+  const v = k.price / GST / Math.max(1, k.coins);
+  return v >= 1 ? Math.floor(v) : Math.floor(v * 100) / 100;
+};
+/** The least a token brings in: the cheapest pack's. */
+export const coinValue = (s: Pick<AiSettings, 'packs'>) => Math.min(...s.packs.map(perToken));
 
 /** Worst cost of one bill page and of one chat question, in paise — input at the dearer of input and cache-write. */
 export const worstPage = (s: AiSettings, model: AiModelId = s.model) => paise(PAGE_IN, PAGE_OUT, priceOf(s, model), s.usdInr);
@@ -46,7 +51,8 @@ export function checks(s: AiSettings): [Check, Check] {
   const coin = coinValue(s);
   const one = (feature: Check['feature'], on: boolean, worstPaise: number) => {
     const coins = tokensFor(s, worstPaise);
-    return { feature, on, worstPaise, coins, chargePaise: coins * coin, safe: coins * coin >= worstPaise };
+    const chargePaise = Math.floor(coins * coin);
+    return { feature, on, worstPaise, coins, chargePaise, safe: chargePaise >= worstPaise };
   };
   return [one('read', s.enabled, worstPage(s)), one('chat', s.chat.enabled, worstQuestion(s))];
 }
@@ -81,19 +87,22 @@ export interface Room {
  */
 export async function roomOf(shopId: Types.ObjectId, s: AiSettings): Promise<Room> {
   const coin = coinValue(s);
-  const old = s.oldCoinPaise ?? coin;
+  const ten = s.tenCoinPaise ?? coin;
+  const old = s.oldCoinPaise ?? ten;
   const since = s.tokensAt ?? new Date(8.64e15);
+  const paiseAt = s.paiseAt ?? new Date(8.64e15);
   const [paid, gifts, wallet, reads, asks] = await Promise.all([
     CoinOrderModel.aggregate<{ net: number }>([{ $match: { shopId, status: 'paid' } }, { $group: { _id: null, net: { $sum: PACK_NET } } }]),
-    CoinEntryModel.aggregate<{ _id: boolean; coins: number }>([{ $match: { shopId, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: { $lt: ['$createdAt', since] }, coins: { $sum: '$coins' } } }]),
+    // Gifts at the token of their day: before ₹0.10 tokens, ₹0.10 tokens, ₹0.01 tokens.
+    CoinEntryModel.aggregate<{ _id: 'old' | 'ten' | 'now'; coins: number }>([{ $match: { shopId, kind: { $in: ['grant', 'welcome'] } } }, { $group: { _id: { $cond: [{ $lt: ['$createdAt', since] }, 'old', { $cond: [{ $lt: ['$createdAt', paiseAt] }, 'ten', 'now'] }] }, coins: { $sum: '$coins' } } }]),
     CoinWalletModel.findOne({ shopId }).select('askFree freeTotalPaise oldFreeGone').lean(),
     AiReadModel.aggregate<{ cost: number; runningPages: number }>([{ $match: { shopId } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, runningPages: { $sum: { $cond: [{ $eq: ['$status', 'running'] }, '$pages', 0] } } } }]),
     AskQuestionModel.aggregate<{ cost: number; running: number }>([{ $match: { shopId, route: { $in: ['ai', 'off_topic'] } } }, { $group: { _id: null, cost: { $sum: '$costPaise' }, running: { $sum: { $cond: [{ $eq: ['$status', 'running'] }, 1, 0] } } } }]),
   ]);
   const paidPaise = paid[0]?.net ?? 0;
-  const before = Math.max(0, (gifts.find((g) => g._id)?.coins ?? 0) - (wallet?.oldFreeGone ?? 0));
-  const after = Math.max(0, gifts.find((g) => !g._id)?.coins ?? 0);
-  const giftedPaise = after * coin + (before + (wallet?.askFree ?? 0)) * old + (wallet?.freeTotalPaise ?? 0);
+  const of = (era: 'old' | 'ten' | 'now') => gifts.find((g) => g._id === era)?.coins ?? 0;
+  const before = Math.max(0, of('old') - (wallet?.oldFreeGone ?? 0));
+  const giftedPaise = Math.floor(Math.max(0, of('now')) * coin + Math.max(0, of('ten')) * ten + (before + (wallet?.askFree ?? 0)) * old) + (wallet?.freeTotalPaise ?? 0);
   const burnedPaise = (reads[0]?.cost ?? 0) + (reads[0]?.runningPages ?? 0) * worstPage(s) + (asks[0]?.cost ?? 0) + (asks[0]?.running ?? 0) * worstQuestion(s);
   const allowancePaise = paidPaise + giftedPaise;
   return { paidPaise, giftedPaise, allowancePaise, burnedPaise, leftPaise: allowancePaise - burnedPaise };

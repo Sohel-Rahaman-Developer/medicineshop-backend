@@ -264,7 +264,7 @@ async function main() {
   await tick(ist('2026-11-25T12:00:00'));
   await tick(ist('2026-11-25T12:20:00'));
   const notices = await EmailJobModel.find({ kind: 'ai_price' }).lean();
-  check('the scheduler moves packs to ₹0.10 tokens first, then emails the super admin once: ⌈1,584 × 1.5 ÷ 8⌉ = 297 tokens (₹23.76), still never a loss', notices.length === 1 && notices[0]?.to === 'root@gem.test' && notices[0].text.includes('takes up to 297 tokens (₹23.76)') && notices[0].text.includes('still never a loss'), JSON.stringify(notices.map((n) => [n.to, n.subject, n.text])));
+  check('the scheduler moves packs to ₹0.10, then ₹0.01 tokens, then emails the super admin once: ⌈1,584 × 1.5 ÷ 0.84⌉ = 2,829 tokens (₹23.76), still never a loss', notices.length === 1 && notices[0]?.to === 'root@gem.test' && notices[0].text.includes('takes up to 2829 tokens (₹23.76)') && notices[0].text.includes('still never a loss'), JSON.stringify(notices.map((n) => [n.to, n.subject, n.text])));
   const dec2 = await aiSettings(ist('2026-12-02T09:00:00'));
   check('2 Dec: Argon counted at $4 / $20 on its own (cache write $5) — bill reading still runs, shops pay the new price', priceOf(dec2, 'gemini-4-argon').input === 4 && priceOf(dec2, 'gemini-4-argon').output === 20 && priceOf(dec2, 'gemini-4-argon').cacheWrite === 5 && safeNow(dec2, 'read'));
   check('prices saved before the day (today) → the rise still comes in', (await root.put('/admin/ai/prices', { prices: (await aiSettings()).prices, reason: 'prices as Google lists them' })).status === 200 && priceOf(await aiSettings(ist('2026-12-02T09:00:00')), 'gemini-4-argon').input === 4);

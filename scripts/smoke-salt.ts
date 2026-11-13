@@ -69,7 +69,7 @@ async function main() {
   check('without a yes → “confirm” with what it may take; Claude not called, nothing set aside', q.route === 'confirm' && (q.most ?? 0) >= 1 && q.need === q.most && q.balance === 0 && fake.seen.length === 0, JSON.stringify(q));
   const none = await owner.post('/pos/find-salt', { name: 'Crocin Advance', confirm: true });
   check('yes with 0 tokens (no free AI) → 409 buy tokens, nothing asked', none.status === 409 && reason(none) === 'NOT_ENOUGH_COINS' && fake.seen.length === 0, code(none));
-  await root.post(`/admin/shops/${shopId}/coins`, { coins: 20, reason: 'tokens for the salt test' });
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 200, reason: 'tokens for the salt test' });
   fake.queue.push({ say: JSON.stringify({ known: true, salt: 'Paracetamol', strength: '650mg' }), input: 180, output: 30 });
   const r1 = await owner.post('/pos/find-salt', { name: 'Crocin Advance', confirm: true });
   const a1 = data<Found>(r1);
@@ -77,17 +77,17 @@ async function main() {
   check('yes → Paracetamol 650mg, and Dolo 650 + Calpol 650 in stock to pick', r1.status === 200 && a1.route === 'ai' && a1.known === true && a1.salt === 'Paracetamol' && a1.strength === '650mg' && (a1.options ?? []).map((o) => o.name).sort().join() === 'Calpol 650,Dolo 650 Tablet', `${code(r1)} ${JSON.stringify(a1)}`);
   check('one short job: the chat’s model, a JSON answer, at most 1,024 tokens out, no tools', sent?.model === 'claude-haiku-4-5-20251001' && sent.schema && sent.maxTokens === 1024 && sent.tools.length === 0 && sent.system.includes('Never guess'), JSON.stringify(sent));
   const w1 = await CoinWalletModel.findOne({ shopId: shop }).lean();
-  check('what it used was taken (1 token), the rest of the hold back; one ledger line', a1.ai?.coins === 1 && w1?.balance === 19 && w1.held === 0 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'ask', coins: -1, text: 'AI looked up a medicine’s salt' })), JSON.stringify(w1));
+  check('what it used was taken (its 3 paise × 1.5 ÷ ₹0.0084 = 6 tokens), the rest of the hold back; one ledger line', a1.ai?.coins === 6 && w1?.balance === 194 && w1.held === 0 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'ask', coins: -6, text: 'AI looked up a medicine’s salt' })), JSON.stringify(w1));
   check('…recorded as an AI question (salt), done, with its real cost', Boolean(await AskQuestionModel.exists({ shopId: shop, intent: 'salt', status: 'done', costPaise: { $gt: 0 } })));
   const seen1 = fake.seen.length;
   const again = data<Found>(await owner.post('/pos/find-salt', { name: '  crocin   ADVANCE ' }));
-  check('the same name again (any case or spaces) → saved, free: no AI, no token', again.route === 'saved' && again.salt === 'Paracetamol' && (again.options ?? []).length === 2 && fake.seen.length === seen1 && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.balance === 19);
+  check('the same name again (any case or spaces) → saved, free: no AI, no token', again.route === 'saved' && again.salt === 'Paracetamol' && (again.options ?? []).length === 2 && fake.seen.length === seen1 && (await CoinWalletModel.findOne({ shopId: shop }).lean())?.balance === 194);
   check('…another shop doesn’t get this shop’s answer (asks its own yes)', data<Found>(await other.post('/pos/find-salt', { name: 'Crocin Advance' })).route !== 'saved');
 
   section('3. Not sure, or not reached');
   fake.queue.push({ say: JSON.stringify({ known: false, salt: '', strength: '' }), input: 170, output: 20 });
   const u = data<Found>(await owner.post('/pos/find-salt', { name: 'Xyzzy 12', confirm: true }));
-  check('the AI isn’t sure → says so, nothing to pick; its work is paid (1 token)', u.route === 'ai' && u.known === false && (u.options ?? []).length === 0 && u.ai?.coins === 1, JSON.stringify(u));
+  check('the AI isn’t sure → says so, nothing to pick; its work is paid (6 tokens)', u.route === 'ai' && u.known === false && (u.options ?? []).length === 0 && u.ai?.coins === 6, JSON.stringify(u));
   check('…and kept, so asking again is free', data<Found>(await owner.post('/pos/find-salt', { name: 'xyzzy 12', confirm: true })).route === 'saved');
   fake.queue.push({ status: 400, type: 'invalid_request_error', message: 'bad' });
   const before = (await CoinWalletModel.findOne({ shopId: shop }).lean())?.balance;

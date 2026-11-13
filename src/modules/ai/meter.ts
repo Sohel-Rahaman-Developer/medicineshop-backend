@@ -5,7 +5,8 @@ import { inTransaction } from '../../core/transaction';
 import { logger } from '../../config/logger';
 import { istMonth } from '../../utils/date';
 import { aiSettings, readyFor, type AiSettings } from './ai-settings';
-import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinWalletModel, TOKEN_PRICE_PAISE, type CoinKind } from './ai.model';
+import { AskQuestionModel } from '../ask/ask.model';
+import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 import { checks, coinValue, tokensFor } from './guard';
 
 // D109: AI is paid by what it really used — its cost × the margin, at what a token brings in (GST out), rounded up.
@@ -80,6 +81,7 @@ export type ShopAi = Awaited<ReturnType<typeof shopAi>>;
 
 /** Sets aside a job's worst case, free AI first; too few tokens → NOT_ENOUGH, and nothing is set aside. */
 export async function holdJob(shopId: Types.ObjectId, s: AiSettings, worstPaise: number, session: ClientSession, now = new Date()): Promise<Hold> {
+  if (await AiSettingsModel.exists({ _id: 'ai', tokensMoving: true }).session(session)) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'AI is being updated — try again in a minute. No tokens were taken');
   const month = istMonth(now);
   await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0 } }, { upsert: true, session });
   await CoinWalletModel.updateOne({ shopId, freeMonth: { $ne: month } }, { $set: { freeMonth: month, freeUsedPaise: 0 } }, { session });
@@ -141,7 +143,7 @@ export async function tokensToTenPaise(now = new Date()) {
   // Never saved: the shops bought from the packs that were the default before D109.
   const old = stored?.packs?.length ? stored.packs.map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 })) : LEGACY_PACKS;
   const oldCoin = coinValue({ packs: old });
-  const packs = old.map((p) => ({ ...p, coins: Math.round(p.price / TOKEN_PRICE_PAISE) }));
+  const packs = old.map((p) => ({ ...p, coins: Math.round(p.price / 10) }));
   const newCoin = coinValue({ packs });
   const bought = await CoinEntryModel.aggregate<{ _id: Types.ObjectId; coins: number }>([{ $match: { shopId: { $exists: true }, kind: 'purchase' } }, { $group: { _id: '$shopId', coins: { $sum: '$coins' } } }]);
   const wallets = await CoinWalletModel.find({ shopId: { $exists: true }, balance: { $gt: 0 } }).lean();
@@ -160,4 +162,60 @@ export async function tokensToTenPaise(now = new Date()) {
   await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { packs, welcomeCoins: 0, tokensAt: now, oldCoinPaise: oldCoin } }, { upsert: true });
   logger.info({ wallets: changed, oldCoin, newCoin }, 'AI tokens are now ₹0.10 each');
   return changed;
+}
+
+/** Jobs younger than this may still be running (a read can take 4 min × 3 tries); older "running" ones died. */
+const LIVE_MS = 20 * 60_000;
+
+/** One wallet to ₹0.01 tokens: balance, held tokens of dead jobs and unpaid orders × 10. False while a job still runs. */
+async function walletToPaise(shopId: Types.ObjectId, cutoff: Date) {
+  return inTransaction(async (session) => {
+    const w = await CoinWalletModel.findOne({ shopId }).session(session).lean();
+    if (!w || w.tokenPaise === 1) return true;
+    const dead = { shopId: w.shopId, status: 'running' as const, createdAt: { $lt: cutoff }, hold: { $exists: true } };
+    const reads = await AiReadModel.find(dead).select('hold').session(session).lean();
+    const asks = await AskQuestionModel.find(dead).select('hold').session(session).lean();
+    if ([...reads, ...asks].reduce((t, d) => t + (d.hold?.coins ?? 0), 0) !== w.held) return false;
+    const r = await CoinWalletModel.updateOne({ shopId, _id: w._id, balance: w.balance, held: w.held, tokenPaise: { $ne: 1 } }, { $set: { balance: w.balance * 10, held: w.held * 10, tokenPaise: 1 } }, { session });
+    if (!r.modifiedCount) return false;
+    await AiReadModel.updateMany(dead, { $mul: { 'hold.coins': 10, coins: 10 } }, { session });
+    await AskQuestionModel.updateMany(dead, { $mul: { 'hold.coins': 10, coins: 10 } }, { session });
+    await CoinOrderModel.updateMany({ shopId: w.shopId, status: 'created', tokenPaise: { $ne: 1 } }, { $mul: { coins: 10 }, $set: { tokenPaise: 1 } }, { session });
+    if (w.balance > 0) {
+      const text = `Tokens are now ₹0.01 each (₹1 = 100 tokens): ${String(w.balance)} tokens = ${String(w.balance * 10)} tokens, the same money`;
+      await CoinEntryModel.create([{ shopId: w.shopId, kind: 'convert', coins: w.balance * 9, balance: w.balance * 10, text, ref: 'paise', byName: 'MedBox24' }], { session });
+    }
+    return true;
+  });
+}
+
+/**
+ * Once, after ₹0.10 tokens: tokens become ₹0.01 each (₹1 = 100 tokens). Every balance, held token, unpaid order and
+ * pack × 10, so no shop gains or loses a paisa. Meanwhile no AI job and no pack order starts; a wallet with a job
+ * still running waits for the next minute. The packs change last, once every wallet has moved.
+ */
+export async function tokensToOnePaise(now = new Date()) {
+  const st = await AiSettingsModel.findById('ai').select('tokensAt paiseAt packs').lean();
+  if (!st?.tokensAt || st.paiseAt) return 0;
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { tokensMoving: true } });
+  // An unpaid order from a shop with no wallet yet: a wallet to move it with.
+  const unpaid = { shopId: { $exists: true }, status: 'created' as const, tokenPaise: { $ne: 1 } };
+  for (const shopId of await CoinOrderModel.distinct('shopId', unpaid)) {
+    await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0 } }, { upsert: true });
+  }
+  const cutoff = new Date(now.getTime() - LIVE_MS);
+  let moved = 0;
+  const left = { shopId: { $exists: true }, tokenPaise: { $ne: 1 } };
+  for (const w of await CoinWalletModel.find(left).select('shopId').lean()) {
+    if (await walletToPaise(w.shopId, cutoff)) moved += 1;
+  }
+  if ((await CoinWalletModel.exists(left)) || (await CoinOrderModel.exists(unpaid))) {
+    logger.info({ moved }, 'AI tokens moving to ₹0.01: a job is still running, the rest next minute');
+    return moved;
+  }
+  const old = (st.packs ?? []).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 }));
+  const packs = old.map((p) => ({ ...p, coins: p.coins * 10 }));
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { packs, paiseAt: now, tenCoinPaise: old.length ? coinValue({ packs: old }) : null }, $unset: { tokensMoving: 1 } });
+  logger.info({ moved }, 'AI tokens are now ₹0.01 each');
+  return moved;
 }

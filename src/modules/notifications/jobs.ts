@@ -29,7 +29,7 @@ import { brief } from '../brief/brief.service';
 import { can } from '../rbac/permissions';
 import { demoTick } from '../demo/demo.service';
 import { welcomeMissing } from '../ai/welcome';
-import { tokensToTenPaise } from '../ai/meter';
+import { tokensToOnePaise, tokensToTenPaise } from '../ai/meter';
 import { lowCredits } from '../ai/credits';
 import { aiSettings } from '../ai/ai-settings';
 import { noticesDue } from '../ai/price-changes';
@@ -224,6 +224,13 @@ export async function tick(now = new Date()) {
       return 0;
     });
     if (moved) ran.push(`tokens:${String(moved)}`);
+    // Once, after that: ₹0.01 tokens (₹1 = 100 tokens) — every balance × 10, the same money.
+    const paise = await tokensToOnePaise(now).catch(async (err: unknown) => {
+      logger.error({ err }, 'Moving AI tokens to ₹0.01 failed');
+      await signal('job_fail', now);
+      return 0;
+    });
+    if (paise) ran.push(`paise:${String(paise)}`);
     // D96: shops made before the welcome coins get theirs too (none while welcomeCoins is 0, D109).
     const welcomed = await welcomeMissing().catch(async (err: unknown) => {
       logger.error({ err }, 'Welcome coins failed');

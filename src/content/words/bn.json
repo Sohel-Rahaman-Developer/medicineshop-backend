@@ -1140,5 +1140,7 @@
   "Adding stock with AI is off — turn it on first": "AI দিয়ে স্টক যোগ করা বন্ধ — আগে চালু করুন",
   "Adding stock with AI is on for 15 minutes": "AI দিয়ে স্টক যোগ করা 15 মিনিটের জন্য চালু",
   "Adding stock with AI is off": "AI দিয়ে স্টক যোগ করা বন্ধ",
-  "Only purchases added from the stock chat can be undone — cancel this one instead": "শুধু স্টক চ্যাট থেকে যোগ করা purchase-ই undo হয় — এটা cancel করুন"
+  "Only purchases added from the stock chat can be undone — cancel this one instead": "শুধু স্টক চ্যাট থেকে যোগ করা purchase-ই undo হয় — এটা cancel করুন",
+  "AI is being updated — try again in a minute. No tokens were taken": "AI আপডেট হচ্ছে — এক মিনিট পরে আবার চেষ্টা করুন। কোনো টোকেন কাটা হয়নি",
+  "Tokens are being updated — try again in a minute": "টোকেন আপডেট হচ্ছে — এক মিনিট পরে আবার চেষ্টা করুন"
 }

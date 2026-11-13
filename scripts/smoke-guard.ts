@@ -163,7 +163,7 @@ async function main() {
   const mails = await EmailJobModel.find({ kind: 'ai_credit' }).lean();
   check('the scheduler emails the super admin once a day — “Time to top up”, Claude about $… left', mails.length === 1 && mails[0]?.to === 'root@guard.test' && mails[0].subject.includes('top up AI credit: Claude about $'), JSON.stringify(mails.map((m) => [m.to, m.subject])));
   fake.queue.push({ status: 400, type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' });
-  await root.post(`/admin/shops/${shopId}/coins`, { coins: 150, reason: 'coins for the credit test' });
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 15_000, reason: 'coins for the credit test (₹0.01 tokens since the scheduler ran)' });
   const empty = await readAi(owner, PHOTO, 'image/jpeg', 'bill.jpg');
   check('Anthropic says the credit is used up → the read fails, coins back, and an alert of its own', empty.status === 503 && Boolean(await SignalModel.exists({ kind: 'ai_credit_low' })), code(empty));
 

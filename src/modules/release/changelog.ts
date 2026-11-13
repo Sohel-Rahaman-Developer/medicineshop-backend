@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.60.0',
+    date: '2026-11-13',
+    title: 'One token is ₹0.01 — ₹1 is 100 tokens',
+    shop: [
+      'Tokens are now ₹0.01 each: ₹1 = 100 tokens, a ₹299 pack = 29,900 tokens. Every shop’s tokens were multiplied by 10 once — the same money, nothing gained or lost — with a line in its token history saying so.',
+      'What AI takes reads the same in rupees: a page that took up to 149 tokens (₹14.90) now takes up to 1,415 (₹14.15) — a ₹0.10 token was counted as ₹0.08 after GST, a ₹0.01 one as ₹0.0084, closer to its real worth.',
+    ],
+    admin: ['A token’s worth shows to ₹0.0001 (₹0.01 less GST = ₹0.0084). A token under a paisa is valued to 0.01 paise; at a paisa or more still to the paisa, rounded down.'],
+    api: ['Once, by the scheduler: wallets, held tokens of dead jobs, unpaid orders and packs × 10; meanwhile AI jobs and pack orders answer 503 (a wallet with a job still running waits a minute). AiSettings.paiseAt / tenCoinPaise; the guard values gifts by the token of their day.'],
+  },
+  {
     version: '1.59.1',
     date: '2026-11-13',
     title: 'Undo is only for purchases from the stock chat',

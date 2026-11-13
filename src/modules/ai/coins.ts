@@ -16,7 +16,7 @@ import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
 import { aiOffer, aiSettings, readyFor } from './ai-settings';
 import { shopAi } from './meter';
-import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
+import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 
 const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
 
@@ -106,10 +106,12 @@ export async function orderCoins(t: TenantContext, actor: Actor, packCode: strin
   if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add tokens');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
+  const unit = await AiSettingsModel.findById('ai').select('paiseAt tokensMoving').lean();
+  if (unit?.tokensMoving) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Tokens are being updated — try again in a minute');
   const { amount, gst, charge } = await onlineCharge(pack.price);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
   const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
-  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, amount, gst, charge, razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
+  await CoinOrderModel.create({ shopId: t.shopId, packCode: pack.code, packName: pack.name, coins: pack.coins, ...(unit?.paiseAt ? { tokenPaise: 1 } : {}), amount, gst, charge, razorpayOrderId: orderId, source: g.mode === 'test' ? 'test' : 'razorpay', createdBy: new Types.ObjectId(actor.id), createdByName: actor.name });
   return { orderId, ...splitOf(amount, charge), currency: 'INR', packName: `${pack.name} · ${String(pack.coins)} tokens`, keyId: g.mode === 'razorpay' ? g.keyId : null, mode: g.mode, shopName: t.shopName };
 }
 
