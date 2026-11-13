@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { afterCursor, page } from '../../core/cursor';
 import { AppError } from '../../core/errors';
 import { once } from '../../core/idempotency';
@@ -32,7 +32,7 @@ export function fyStart(at: Date) {
 }
 
 /** Capitals of the name, like the sandbox: Sharma Distributors → SD. */
-const codeOf = (name: string) => name.replace(/[^A-Z]/g, '').slice(0, 4) || name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'SUP';
+export const codeOf = (name: string) => name.replace(/[^A-Z]/g, '').slice(0, 4) || name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'SUP';
 
 async function load(t: TenantContext, id: string) {
   const s = await SupplierModel.findOne({ shopId: t.shopId, _id: oid(id) }).lean();
@@ -260,7 +260,11 @@ export async function pay(t: TenantContext, actor: Actor, id: string, input: Pay
 
 /** The supplier hands back advance they hold (an expiry credit with nothing to set it against) in cash or to the bank. */
 export async function moneyBack(t: TenantContext, actor: Actor, id: string, input: MoneyBackInput, ip?: string) {
-  return once(t.shopId, 'supplier-refund', input.clientRequestId, async (session) => {
+  return once(t.shopId, 'supplier-refund', input.clientRequestId, async (session) => refundIn(t, actor, id, input, session, ip));
+}
+
+/** Money a supplier holds coming back, inside the caller's transaction. */
+export async function refundIn(t: TenantContext, actor: Actor, id: string, input: MoneyBackInput, session: ClientSession, ip?: string) {
     const s = await SupplierModel.findOne({ shopId: t.shopId, _id: oid(id) }).session(session).lean();
     if (!s) throw AppError.notFound('Supplier not found');
     if (input.amount > s.advance) {
@@ -295,7 +299,6 @@ export async function moneyBack(t: TenantContext, actor: Actor, id: string, inpu
     );
     await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'create', module: 'suppliers', entityId: id, entityName: s.name, text: `${actor.name} recorded ${inr(input.amount)} back from ${s.name} · ${input.mode}`, ip }, session);
     return { id: String(id2), refundNumber, amount: input.amount, advanceLeft: s.advance - input.amount };
-  });
 }
 
 /** Every invoice with money still due, oldest first — the order a payment is spread in. */

@@ -18,6 +18,7 @@ import { lotOf } from '../stock/stock.domain';
 import { mergeTarget, mrpDiffers, receiveBatch } from '../stock/stock.service';
 import { chargeInvoice, credit, reverseInvoice } from '../suppliers/supplier.ledger';
 import { SupplierModel } from '../suppliers/supplier.model';
+import { refundIn } from '../suppliers/suppliers.service';
 import type { Actor } from '../user/actor';
 import { purchaseLine, purchaseTotals } from './purchase.domain';
 import { PurchaseModel, PurchaseReturnModel, SupplierPaymentModel, type PayMode } from './purchase.model';
@@ -161,6 +162,7 @@ export async function savePurchase(t: TenantContext, actor: Actor, input: Purcha
   }
   const tt = purchaseTotals(lines.map((l) => ({ gross: l.grossAmount, discount: l.discountAmount, taxable: l.taxableAmount, cgst: l.cgst, sgst: l.sgst })));
   const pay = input.payment;
+  const paying = pay.full && pay.mode !== 'CREDIT' ? tt.grandTotal : pay.amount;
   if (pay.amount > tt.grandTotal) throw AppError.validation(`Paid can’t be more than the total ${inr(tt.grandTotal)}`, [{ field: 'body.payment.amount', message: `Paid can’t be more than the total ${inr(tt.grandTotal)}` }]);
 
   const dupInvoice = (err: unknown): never => {
@@ -204,9 +206,9 @@ export async function savePurchase(t: TenantContext, actor: Actor, input: Purcha
   ).catch(dupInvoice);
   const fromAdvance = await chargeInvoice(t.shopId, sup._id, purchaseId, tt.grandTotal, now, session);
   let payment = null;
-  if (pay.amount > 0) {
+  if (paying > 0) {
     const mode: PayMode = pay.mode === 'CREDIT' ? 'CASH' : pay.mode;
-    payment = await recordPayment(t, actor, sup, { amount: pay.amount, mode, fromDrawer: mode === 'CASH' ? pay.fromDrawer : false, reference: pay.reference, notes: `With ${number}`, clientRequestId: input.clientRequestId }, now, session, purchaseId);
+    payment = await recordPayment(t, actor, sup, { amount: paying, mode, fromDrawer: mode === 'CASH' ? pay.fromDrawer : false, reference: pay.reference, notes: `With ${number}`, clientRequestId: input.clientRequestId }, now, session, purchaseId);
   }
   // New stock may bring a new sell price: one per product, the last line wins.
   const sells = new Map(input.lines.filter((l) => l.sellPrice !== undefined).map((l) => [l.productId, l.sellPrice ?? null]));
@@ -376,6 +378,9 @@ export async function get(t: TenantContext, id: string) {
     notes: p.notes,
     createdByName: p.createdByName,
     canCancel: p.status === 'active' && cancellable(p.lines, batches, p._id),
+    source: p.source,
+    // Added from the stock chat: Undo is offered until 24 hours after saving, while nothing of it is used.
+    undoUntil: p.source === 'chat' && p.status === 'active' && cancellable(p.lines, batches, p._id) ? new Date(p.createdAt.getTime() + UNDO_MS) : null,
   };
 }
 
@@ -391,7 +396,10 @@ function cancellable(lines: readonly { batchId: Types.ObjectId; quantityInBase: 
 }
 
 export async function cancel(t: TenantContext, actor: Actor, id: string, reason: string, ip?: string) {
-  return inTransaction(async (session) => {
+  return inTransaction(async (session) => cancelIn(t, actor, id, reason, session, ip));
+}
+
+async function cancelIn(t: TenantContext, actor: Actor, id: string, reason: string, session: ClientSession, ip?: string) {
     const now = new Date();
     const p = await PurchaseModel.findOne({ shopId: t.shopId, _id: oid(id) }).session(session).lean();
     if (!p) throw AppError.notFound('Purchase not found');
@@ -426,5 +434,35 @@ export async function cancel(t: TenantContext, actor: Actor, id: string, reason:
       session,
     );
     return { purchaseNumber: p.purchaseNumber, advanceLeft: p.paidAmount };
+}
+
+export const UNDO_MS = 24 * 60 * 60 * 1000;
+
+/** Undo within 24 hours of saving: the purchase cancelled, cash paid on the spot back, the products it made put away. */
+export async function undo(t: TenantContext, actor: Actor, id: string, mayAny: boolean, ip?: string) {
+  return inTransaction(async (session) => {
+    const p = await PurchaseModel.findOne({ shopId: t.shopId, _id: oid(id) }).select('createdAt createdBy supplierId paidAmount madeProductIds status purchaseNumber').session(session).lean();
+    if (!p) throw AppError.notFound('Purchase not found');
+    if (Date.now() - p.createdAt.getTime() > UNDO_MS) throw AppError.conflict('Undo is open for 24 hours after saving — cancel the purchase instead', { reason: 'UNDO_CLOSED' });
+    if (!mayAny && String(p.createdBy) !== actor.id) throw AppError.forbidden('Only the person who added it can undo it');
+    const out = await cancelIn(t, actor, id, 'Undone within 24 hours', session, ip);
+    let moneyBack = 0;
+    const sup = await SupplierModel.findOne({ shopId: t.shopId, _id: p.supplierId }).select('market advance').session(session).lean();
+    if (sup?.market && p.paidAmount > 0 && sup.advance >= p.paidAmount) {
+      // A cash buy undone: the money comes back the way it went — into the drawer only if it left the drawer.
+      const paid = await SupplierPaymentModel.findOne({ shopId: t.shopId, supplierId: p.supplierId, 'applied.purchaseId': p._id }).select('paymentMode fromDrawer').session(session).lean();
+      const mode = paid?.paymentMode ?? 'CASH';
+      await refundIn(t, actor, String(p.supplierId), { clientRequestId: `undo-${id}`, amount: p.paidAmount, mode, toDrawer: mode === 'CASH' && paid?.fromDrawer === true, reference: '', notes: `Undo of ${p.purchaseNumber}` }, session, ip);
+      moneyBack = p.paidAmount;
+    }
+    let putAway = 0;
+    for (const pid of p.madeProductIds) {
+      if (await BatchModel.exists({ shopId: t.shopId, productId: pid, status: { $ne: 'returned' } }).session(session)) continue;
+      const made = await ProductModel.findOneAndUpdate({ shopId: t.shopId, _id: pid, isActive: true }, { $set: { isActive: false }, $inc: { version: 1 } }, { session }).select('name').lean();
+      if (!made) continue;
+      putAway += 1;
+      await audit({ shopId: t.shopId, userId: actor.id, userName: actor.name, action: 'update', module: 'products', entityId: String(pid), entityName: made.name, text: `${actor.name} put away ${made.name} — added by ${p.purchaseNumber}, which was undone`, ip }, session);
+    }
+    return { ...out, moneyBack, putAway };
   });
 }

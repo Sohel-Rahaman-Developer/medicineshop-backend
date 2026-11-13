@@ -89,6 +89,10 @@ const purchaseSchema = new Schema(
     /** Paid amount that went back to the supplier's advance when this was cancelled. */
     advanceLeft: { type: Number },
     hasPhoto: { type: Boolean, required: true, default: false },
+    /** Made from the AI stock chat: Undo is offered for 24 hours. */
+    source: { type: String, enum: ['', 'chat'], default: '' },
+    /** Products this purchase created, put away again if it is undone. */
+    madeProductIds: { type: [Schema.Types.ObjectId], default: [] },
     notes: { type: String, default: '' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },

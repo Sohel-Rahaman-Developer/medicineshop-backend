@@ -29,6 +29,9 @@ import {
   type ReturnListQuery,
 } from './purchases.validation';
 import * as rsvc from './returns.service';
+import { can } from '../rbac/permissions';
+import { stockChat, stockChatSchema, type StockChatInput } from '../ai/stock-chat';
+import { setSwitch, switchOf } from '../ai/stock-switch';
 
 export const photoSchema = z.object({ photo: z.string().max(820_000, 'That photo is too large') }).strict();
 
@@ -109,6 +112,39 @@ purchasesRouter.post(
   }),
 );
 
+// The person's own lock on adding stock with AI: off unless turned on, off again after 15 minutes without use.
+purchasesRouter.get(
+  '/import/chat/switch',
+  create,
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await switchOf(tenantOf(req), await actorOf(req)));
+  }),
+);
+purchasesRouter.put(
+  '/import/chat/switch',
+  create,
+  billImport,
+  needFeature('ai'),
+  validate({ body: z.object({ on: z.boolean() }).strict() }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const on = (req.body as { on: boolean }).on;
+    sent(res, await setSwitch(tenantOf(req), await actorOf(req), on, req.ip), on ? 'Adding stock with AI is on for 15 minutes' : 'Adding stock with AI is off');
+  }),
+);
+
+// Bought stock told to the AI in words — typed or spoken: it asks for what is missing, nothing is saved.
+purchasesRouter.post(
+  '/import/chat',
+  create,
+  billImport,
+  needFeature('ai'),
+  validate({ body: stockChatSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const lang = langOf(req);
+    fetched(res, sayNotes(lang, await stockChat(tenantOf(req), await actorOf(req), req.body as StockChatInput, lang)));
+  }),
+);
+
 // D77: what a supplier bill would do, line by line — nothing is saved.
 purchasesRouter.post(
   '/import/preview',
@@ -148,6 +184,18 @@ purchasesRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const out = await purchasePdf(tenantOf(req), idOf(req));
     sendFile(res, out.pdf, out.name, 'pdf');
+  }),
+);
+
+// Undo within 24 hours of saving: the person who added it, or anyone who may cancel purchases.
+purchasesRouter.post(
+  '/:id/undo',
+  create,
+  validate({ params: idParams }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const t = tenantOf(req);
+    const out = await svc.undo(t, await actorOf(req), idOf(req), can(t.permissions, 'purchases', 'approve'), req.ip);
+    sent(res, out, `${out.purchaseNumber} undone`);
   }),
 );
 

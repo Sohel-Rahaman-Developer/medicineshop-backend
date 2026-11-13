@@ -10,6 +10,20 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.59.0',
+    date: '2026-11-13',
+    title: 'Add stock by chat — typed or spoken, with an AI lock',
+    shop: [
+      'Purchases → By chat (and from Ask AI): say or type what you bought — from a supplier on a bill, or for cash from the market or another shop. The AI fills the lines and asks for anything missing (batch, expiry, quantity, MRP, price paid, pack, GST). It saves nothing: Review & add opens the bill review screen, you check every line and save there.',
+      'AI add lock: off until you turn it on, and off again by itself after 15 minutes without use. While it is off the AI chat is refused and nothing it filled can be saved.',
+      'Market buys: paid in full on the spot (from the counter cash or not), no GST input claimed, the price paid is the cost — under one “Market / local shop” supplier.',
+      'Undo within 24 hours for a purchase made from the chat: its stock comes off, cash paid on the spot comes back, new products it added are put away.',
+      'Free AI is shown as tokens: “Free tokens this month: 177 of 177 left”.',
+    ],
+    admin: [],
+    api: ['POST /purchases/import/chat (read only), GET/PUT /purchases/import/chat/switch, POST /purchases/:id/undo; POST /purchases/import takes market: true, paid {mode, fromDrawer} and source "chat"; free {tokens, tokensLeft} on /ai/meter, /ai/offer, /ask/offer and /pos/settings.'],
+  },
+  {
     version: '1.58.2',
     date: '2026-11-13',
     title: 'Short forms in your own language only',

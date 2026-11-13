@@ -78,7 +78,7 @@ async function main() {
   const a1 = data<{ ai: { coins: number; freePaise: number; balance: number } }>(r1).ai;
   check('a read with 0 tokens → done on the free AI: its ₹2.68 from the ₹10, 0 tokens', r1.status === 200 && a1.coins === 0 && a1.freePaise === 268 && a1.balance === 0, code(r1));
   const w1 = await wallet();
-  check('…₹2.68 of this month used, the month noted; one ledger line, 0 tokens, saying the free AI paid', w1?.freeUsedPaise === 268 && w1.freeTotalPaise === 268 && w1.freeMonth === istMonth(new Date()) && w1.held === 0 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'read', coins: 0, text: { $regex: '₹2.68 of this month’s free AI' } })));
+  check('…₹2.68 of this month used, the month noted; one ledger line, 0 tokens, saying the free tokens paid', w1?.freeUsedPaise === 268 && w1.freeTotalPaise === 268 && w1.freeMonth === istMonth(new Date()) && w1.held === 0 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'read', coins: 0, text: { $regex: '[0-9]+ of this month’s free tokens' } })));
   const o1 = await offer();
   check('₹7.32 free left: the next page needs ⌈(₹7.92 − ₹7.32) × 1.5 ÷ ₹0.08⌉ = 12 tokens', o1.free.leftPaise === 732 && o1.coinsPerPage === 12, JSON.stringify(o1));
   const r2 = await read();

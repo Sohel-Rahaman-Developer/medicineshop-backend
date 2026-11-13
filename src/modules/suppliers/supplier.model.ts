@@ -22,6 +22,8 @@ const supplierSchema = new Schema(
     totalPurchases: { type: Number, required: true, default: 0 },
     lastPurchaseAt: { type: Date, default: null },
     isActive: { type: Boolean, required: true, default: true },
+    /** Stock bought for cash from the market, a wholesaler or another shop — one per shop, paid on the spot. */
+    market: { type: Boolean, default: false },
     notes: { type: String, trim: true, default: '' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     createdByName: { type: String, required: true },

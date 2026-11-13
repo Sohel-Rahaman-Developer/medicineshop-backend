@@ -11,6 +11,9 @@ import { productBodySchema } from '../products/products.validation';
 import { readBillFile, readRows } from './bill-read';
 import { savePurchase } from './purchases.service';
 import { purchaseLineObject, type PurchaseInput } from './purchases.validation';
+import { PAY_MODES, PurchaseModel } from './purchase.model';
+import { marketSupplier } from './market';
+import { needSwitch } from '../ai/stock-switch';
 import { inr } from '../../utils/money';
 import { readPack } from '../../utils/units';
 import { ProductModel } from '../products/product.model';
@@ -75,7 +78,7 @@ export const billLineSchema = z
     productId: objectId.optional(),
   })
   .strict();
-export const billPreviewSchema = z.object({ supplierId: objectId, lines: z.array(billLineSchema).min(1, 'The bill has no lines').max(300, 'At most 300 lines in one bill') }).strict();
+export const billPreviewSchema = z.object({ supplierId: objectId.optional(), lines: z.array(billLineSchema).min(1, 'The bill has no lines').max(300, 'At most 300 lines in one bill') }).strict();
 export type BillLine = z.infer<typeof billLineSchema>;
 export type BillPreviewInput = z.infer<typeof billPreviewSchema>;
 
@@ -87,12 +90,19 @@ const SUGGEST = 0.34;
 
 /** Every bill line with what saving it would do — nothing is written. */
 export async function previewBill(t: TenantContext, input: BillPreviewInput) {
+  // No supplier yet (a cash buy from the market): matched by name only.
+  if (!input.supplierId) return previewLines(t, null, input.lines);
   const supplierId = new Types.ObjectId(input.supplierId);
   if (!(await SupplierModel.exists({ shopId: t.shopId, _id: supplierId }))) throw AppError.notFound('Supplier not found');
-  const aliases = await BillAliasModel.find({ shopId: t.shopId, supplierId, key: { $in: input.lines.map((l) => aliasKey(l.name, l.pack)) } }).lean();
+  return previewLines(t, supplierId, input.lines);
+}
+
+/** The lines against the shop's products (and the supplier's remembered names, when there is a supplier). */
+export async function previewLines(t: TenantContext, supplierId: Types.ObjectId | null, lines: BillLine[]) {
+  const aliases = supplierId ? await BillAliasModel.find({ shopId: t.shopId, supplierId, key: { $in: lines.map((l) => aliasKey(l.name, l.pack)) } }).lean() : [];
   const byKey = new Map(aliases.map((a) => [a.key, a.productId]));
   const out = [];
-  for (const [i, line] of input.lines.entries()) out.push({ index: i, ...(await previewLine(t, line, line.productId ? new Types.ObjectId(line.productId) : byKey.get(aliasKey(line.name, line.pack)))) });
+  for (const [i, line] of lines.entries()) out.push({ index: i, ...(await previewLine(t, line, line.productId ? new Types.ObjectId(line.productId) : byKey.get(aliasKey(line.name, line.pack)))) });
   return { lines: out, counts: countOf(out.map((l) => l.status)) };
 }
 
@@ -181,21 +191,34 @@ const importLineSchema = purchaseLineObject
 export const billImportSchema = z
   .object({
     clientRequestId,
-    supplierId: objectId,
+    supplierId: objectId.optional(),
+    /** A cash buy from the market: the shop's "Market / local shop" supplier, made on this save if it isn't there yet. */
+    market: z.literal(true).optional(),
     invoiceNumber: z.string().trim().min(1, 'Invoice number is required').max(40),
     invoiceDate: istDay,
     dueDate: istDay.optional(),
     lines: z.array(importLineSchema).min(1, 'The bill has no lines').max(300, 'At most 300 lines in one purchase'),
     notes: z.string().trim().max(500).default(''),
+    /** Paid in full on the spot (a market buy); left out = on credit. */
+    paid: z.object({ mode: z.enum(PAY_MODES), fromDrawer: z.boolean() }).strict().optional(),
+    /** Made from the AI stock chat. */
+    source: z.enum(['chat']).optional(),
   })
   .strict()
+  .refine((v) => Boolean(v.supplierId) !== Boolean(v.market), { message: 'Choose the supplier', path: ['supplierId'] })
   .refine((v) => v.invoiceDate.getTime() <= Date.now() + 24 * 60 * 60 * 1000, { message: 'Invoice date is in the future', path: ['invoiceDate'] });
 export type BillImportInput = z.infer<typeof billImportSchema>;
 
 /** Confirm & Save: new products, then the purchase as if typed by hand, then the names to remember — all or nothing. */
 export async function importBill(t: TenantContext, actor: Actor, input: BillImportInput, ip?: string) {
+  // Lines the AI filled are saved only while the person's own "add with AI" switch is on.
+  if (input.source === 'chat') await needSwitch(t, actor);
   for (const l of input.lines) if (l.newProduct) await prepareProduct(t, l.newProduct);
+  const sup = input.supplierId ? await SupplierModel.findOne({ shopId: t.shopId, _id: new Types.ObjectId(input.supplierId) }).select('market').lean() : null;
+  // A cash buy from the market carries no GST bill: no input tax is claimed, the price paid is the cost.
+  const market = input.market === true || sup?.market === true;
   return once(t.shopId, 'purchase', input.clientRequestId, async (session) => {
+    const supplierId = input.market ? (await marketSupplier(t, actor, session)).id : (input.supplierId ?? '');
     const made = new Map<string, Types.ObjectId>();
     const productIds: string[] = [];
     for (const [i, l] of input.lines.entries()) {
@@ -219,21 +242,25 @@ export async function importBill(t: TenantContext, actor: Actor, input: BillImpo
     }
     const purchase: PurchaseInput = {
       clientRequestId: input.clientRequestId,
-      supplierId: input.supplierId,
+      supplierId,
       invoiceNumber: input.invoiceNumber,
       invoiceDate: input.invoiceDate,
       dueDate: input.dueDate,
-      lines: input.lines.map(({ newProduct: _np, billName: _bn, billPack: _bp, ...l }, i) => ({ ...l, productId: productIds[i] ?? '' })),
-      payment: { mode: 'CREDIT', amount: 0, fromDrawer: true, reference: '' },
+      lines: input.lines.map(({ newProduct: _np, billName: _bn, billPack: _bp, ...l }, i) => ({ ...l, productId: productIds[i] ?? '', ...(market ? { gstRate: 0 } : {}) })),
+      payment: input.paid ? { mode: input.paid.mode, amount: 0, fromDrawer: input.paid.fromDrawer, reference: '', full: true } : { mode: 'CREDIT', amount: 0, fromDrawer: true, reference: '', full: false },
       notes: input.notes,
     };
     const out = await savePurchase(t, actor, purchase, session, ip);
-    await rememberAliases(
-      t.shopId,
-      new Types.ObjectId(input.supplierId),
-      input.lines.flatMap((l, i) => (l.billName ? [{ name: l.billName, pack: l.billPack, productId: new Types.ObjectId(productIds[i]) }] : [])),
-      session,
-    );
+    await PurchaseModel.updateOne({ shopId: t.shopId, _id: new Types.ObjectId(out.id) }, { $set: { source: input.source ?? '', madeProductIds: [...made.values()] } }, { session });
+    // Names are learnt per supplier; the market is many shops, so nothing is learnt there.
+    if (!market) {
+      await rememberAliases(
+        t.shopId,
+        new Types.ObjectId(supplierId),
+        input.lines.flatMap((l, i) => (l.billName ? [{ name: l.billName, pack: l.billPack, productId: new Types.ObjectId(productIds[i]) }] : [])),
+        session,
+      );
+    }
     return { ...out, newProducts: made.size };
   });
 }
@@ -270,7 +297,7 @@ async function supplierCheckOf(t: TenantContext, supplierId: string, gstins: str
 }
 
 /** Lines read by any reader (file, sheet or AI) → the preview the shop confirms. */
-export async function previewRead(t: TenantContext, supplierId: string, read: ReturnType<typeof readRows>) {
+export async function previewRead(t: TenantContext, supplierId: string | null, read: ReturnType<typeof readRows>) {
   const usable: { read: (typeof read.lines)[number]; line: BillLine }[] = [];
   const skipped = [...read.skipped];
   for (const r of read.lines) {
@@ -279,11 +306,11 @@ export async function previewRead(t: TenantContext, supplierId: string, read: Re
     else skipped.push(`${r.name} — ${ok.error.issues[0]?.message ?? 'not readable'}`);
   }
   if (!usable.length) throw AppError.validation('No item lines could be read from this bill', [{ field: 'body.data', message: skipped.slice(0, 3).join(' | ') || 'No lines' }]);
-  const preview = await previewBill(t, { supplierId, lines: usable.map((u) => u.line) });
+  const preview = await previewBill(t, { ...(supplierId ? { supplierId } : {}), lines: usable.map((u) => u.line) });
   return {
     meta: read.meta,
     billCheck: read.billCheck,
-    supplierCheck: await supplierCheckOf(t, supplierId, read.meta.gstins),
+    supplierCheck: supplierId ? await supplierCheckOf(t, supplierId, read.meta.gstins) : null,
     header: read.header,
     skipped,
     counts: preview.counts,

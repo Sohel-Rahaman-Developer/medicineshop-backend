@@ -36,6 +36,9 @@ export function quote(s: Pricing & Pick<AiSettings, 'freeMonthPaise'>, w: FreeSt
 
 const DAY = 86_400_000;
 
+/** This month's free AI shown as the tokens it covers: a job takes the same tokens from it as it would from bought ones. */
+const freeTokens = (s: Pricing, paise: number) => (paise > 0 ? tokensFor(s, paise) : 0);
+
 /** When this IST month's free AI comes back: midnight IST on the 1st. */
 const resetsOn = (now: Date) => {
   const [y = 0, m = 1] = istMonth(now).split('-').map(Number);
@@ -49,7 +52,7 @@ export async function meterOf(shopId: Types.ObjectId, now = new Date()) {
   return {
     on: (s.enabled && readyFor(s, s.model)) || (s.chat.enabled && readyFor(s, s.chat.model)),
     balance: w?.balance ?? 0,
-    free: { usedPaise: s.freeMonthPaise - left, leftPaise: left, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now) },
+    free: { usedPaise: s.freeMonthPaise - left, leftPaise: left, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now), tokens: freeTokens(s, s.freeMonthPaise), tokensLeft: freeTokens(s, left) },
   };
 }
 
@@ -68,7 +71,7 @@ export async function shopAi(shopId: Types.ObjectId, now = new Date()) {
   const per = avg[0]?.pages ? Math.ceil(avg[0].cost / avg[0].pages) : null;
   return {
     balance: w?.balance ?? 0,
-    free: { leftPaise: free, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now) },
+    free: { leftPaise: free, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now), tokens: freeTokens(s, s.freeMonthPaise), tokensLeft: freeTokens(s, free) },
     page: { need: quote(s, w, read.worstPaise, now).coins, most: read.coins, usual: per === null ? null : tokensFor(s, per) },
     question: { need: quote(s, w, chat.worstPaise, now).coins, most: chat.coins },
   };
@@ -106,7 +109,8 @@ export async function settleJob(shopId: Types.ObjectId, s: Pricing, hold: Hold, 
   ).lean();
   const balance = w?.balance ?? 0;
   if (coins || freePaise) {
-    const free = freePaise ? ` · ₹${(freePaise / 100).toFixed(2)} of this month’s free AI` : '';
+    const freeN = freeTokens(s, freePaise);
+    const free = freeN ? ` · ${String(freeN)} of this month’s free tokens` : '';
     await CoinEntryModel.create([{ shopId, kind: line.kind, coins: -coins, balance, text: `${line.text}${free}`, ref: line.ref, byName: line.byName }], { session });
   }
   return { coins, freePaise, balance };

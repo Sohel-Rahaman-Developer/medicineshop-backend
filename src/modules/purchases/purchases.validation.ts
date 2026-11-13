@@ -50,9 +50,11 @@ export const purchaseSchema = z
         amount: paise('Paid', 1_000_000_000).default(0),
         fromDrawer: z.boolean().default(true),
         reference: z.string().trim().max(60).default(''),
+        /** Paid in full now: the amount is the grand total the server works out. */
+        full: z.boolean().default(false),
       })
       .strict()
-      .default({ mode: 'CREDIT', amount: 0, fromDrawer: true, reference: '' }),
+      .default({ mode: 'CREDIT', amount: 0, fromDrawer: true, reference: '', full: false }),
     notes: z.string().trim().max(500).default(''),
     /** Ignored: the server works every total out itself (SECURITY §6 B3). */
     grandTotal: z.number().optional(),
