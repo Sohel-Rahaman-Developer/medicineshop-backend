@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.58.2',
+    date: '2026-11-13',
+    title: 'Short forms in your own language only',
+    shop: ['Prescription short forms (beside How to take, and in Help) show the English meaning plus only the language you chose — no longer Hindi and Bengali together.'],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.58.1',
     date: '2026-11-12',
     title: 'Quick entry: rack codes show in full',
