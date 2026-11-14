@@ -14,7 +14,7 @@ import { fits, safeNow, worstQuestion } from '../ai/guard';
 import { outOfCredit } from '../ai/credits';
 import { CoinWalletModel } from '../ai/ai.model';
 import { moveCoins } from '../ai/coins';
-import { freeLeft, holdJob, quote, settleJob, shopAi, type Hold } from '../ai/meter';
+import { ensurePaise, freeLeft, holdJob, quote, settleJob, shopAi, type Hold } from '../ai/meter';
 import { audit } from '../audit/audit.model';
 import { brief } from '../brief/brief.service';
 import { can } from '../rbac/permissions';
@@ -153,6 +153,7 @@ async function stopOf(t: TenantContext, s: AiSettings, w: Wallet, now: Date): Pr
 
 /** What the chat shows up top: is AI on for this person, what a question takes at most (D109), tokens and free AI left. */
 export async function offer(t: TenantContext, now = new Date()) {
+  await ensurePaise(t.shopId);
   const [s, w, mine] = await Promise.all([aiSettings(), CoinWalletModel.findOne({ shopId: t.shopId }).lean(), shopAi(t.shopId, now)]);
   const stop = await stopOf(t, s, w, now);
   return {
@@ -202,6 +203,7 @@ export async function ask(t: TenantContext, actor: Actor, input: AskInput, now =
 
   // No ready answer: straight to the AI, a token a question (given back when it is not about the shop or fails).
   const s = await aiSettings();
+  await ensurePaise(t.shopId);
   const stop = await stopOf(t, s, await CoinWalletModel.findOne({ shopId: t.shopId }).lean(), now);
   const provider = providerOf(s.chat.model);
   const key = stop ? null : await apiKey(provider);
@@ -285,7 +287,7 @@ export async function settleStuckQuestions(now = new Date()) {
     await inTransaction(async (session) => {
       const claimed = await AskQuestionModel.updateOne({ _id: q._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished', coins: 0 } }, { session });
       if (!claimed.modifiedCount) return;
-      if (q.hold) await settleJob(q.shopId, s, { coins: q.hold.coins ?? 0, freePaise: q.hold.freePaise ?? 0, month: q.hold.month ?? '' }, 0, { kind: 'ask', text: '', byName: 'MedBox24', ref: String(q._id) }, session);
+      if (q.hold) await settleJob(q.shopId, s, { coins: q.hold.coins ?? 0, freePaise: q.hold.freePaise ?? 0, month: q.hold.month ?? '', tokenPaise: q.hold.tokenPaise ?? null }, 0, { kind: 'ask', text: '', byName: 'MedBox24', ref: String(q._id) }, session);
       else if (q.free) await CoinWalletModel.updateOne({ shopId: q.shopId, askFree: { $gt: 0 } }, { $inc: { askFree: -1 } }, { session });
       else await moveCoins(q.shopId, 'refund', q.coins, 'Back: AI question — it stopped before it finished', 'MedBox24', String(q._id), session);
     });

@@ -11,6 +11,7 @@ import { GeminiError, modelInfo } from '../../services/gemini';
 import { PROVIDER_NAME, aiSettings, apiKey, clearApiKey, providerOf, readyFor, saveAiSettings, setApiKey, setGeminiPaid, type AiSettingsInput } from './ai-settings';
 import type { AiModelId, AiProvider } from './ai.model';
 import { AiReadModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, PACK_AMOUNT, PACK_GST } from './ai.model';
+import { ensurePaise } from './meter';
 import { moveCoins } from './coins';
 import { upcomingPrices } from './price-changes';
 import { aiStatus, type Feature } from './status';
@@ -66,6 +67,7 @@ export async function coinOrders(q: { cursor?: string; limit: number }) {
 /** A shop's coins for the admin shop page. */
 export async function shopCoins(shopId: string) {
   const id = new Types.ObjectId(shopId);
+  await ensurePaise(id);
   const [w, entries] = await Promise.all([CoinWalletModel.findOne({ shopId: id }).lean(), CoinEntryModel.find({ shopId: id }).sort({ createdAt: -1, _id: -1 }).limit(30).lean()]);
   return { balance: w?.balance ?? 0, entries: entries.map((e) => ({ id: String(e._id), kind: e.kind, coins: e.coins, balance: e.balance, text: e.text, byName: e.byName, at: e.createdAt })) };
 }

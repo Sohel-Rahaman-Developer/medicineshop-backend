@@ -24,8 +24,8 @@ async function main() {
   const h = await startHarness({ freeMonthPaise: 1000 });
   const { AdminUserModel } = await import('../src/modules/admin/admin.model.js');
   const { AiReadModel, AiSettingsModel, CoinEntryModel, CoinOrderModel, CoinWalletModel } = await import('../src/modules/ai/ai.model.js');
-  const { moveCoins } = await import('../src/modules/ai/coins.js');
-  const { tokensToOnePaise, tokensToTenPaise } = await import('../src/modules/ai/meter.js');
+  const { coinsPaid, moveCoins } = await import('../src/modules/ai/coins.js');
+  const { settleJob, tokensToOnePaise, tokensToTenPaise } = await import('../src/modules/ai/meter.js');
   const { settleStuckReads } = await import('../src/modules/ai/bill-ai.js');
   const { coinValue, roomOf } = await import('../src/modules/ai/guard.js');
   const { aiSettings } = await import('../src/modules/ai/ai-settings.js');
@@ -100,53 +100,61 @@ async function main() {
   const r4 = await read();
   check('the month’s first read starts from 0: ₹2.68 used this month', r4.status === 200 && (await wallet())?.freeUsedPaise === 268 && (await wallet())?.freeMonth === istMonth(new Date()) && (await wallet())?.freeTotalPaise === 801, code(r4));
 
-  section('4. Once: tokens become ₹0.01 each (₹1 = 100 tokens) — every balance × 10, the same money');
-  // Room for one more page while a dead read still counts at its worst.
+  section('4. Once: tokens become ₹0.01 each (₹1 = 100 tokens) — every balance × 10, the same money, AI never paused');
+  // Room for one more page while a stopped read still counts at its worst.
   await give(shop, 'grant', 200);
   const sBefore = await aiSettings();
   const roomBefore = await roomOf(shop, sBefore);
   const bal = (await wallet())?.balance ?? 0;
   const old = new Date(Date.now() - 30 * 60_000);
   const month = istMonth(new Date());
-  // A read that died 30 minutes ago still holding 5 tokens; a read on the other shop still running.
+  const readDoc = (id: InstanceType<typeof Types.ObjectId>, s: InstanceType<typeof Types.ObjectId>, coins: number, at: Date) => ({ _id: id, shopId: s, shopName: 'Shop', userId: new Types.ObjectId(), userName: 'Rohit', supplierName: 'M.A. Pharma', fileName: 'bill.jpg', fileType: 'image', kind: 'bill', pages: 1, coins, hold: { coins, freePaise: 0, month }, model: 'claude-sonnet-5-5', status: 'running', refunded: false, lines: 0, costPaise: 0, inputTokens: 0, outputTokens: 0, createdAt: at, updatedAt: at });
+  // A read that stopped 30 minutes ago still holding 5 tokens, and 2 more held that no job accounts for.
   const deadId = new Types.ObjectId();
-  await AiReadModel.collection.insertOne({ _id: deadId, shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'Rohit', supplierName: 'M.A. Pharma', fileName: 'bill.jpg', fileType: 'image', kind: 'bill', pages: 1, coins: 5, hold: { coins: 5, freePaise: 0, month }, model: 'claude-sonnet-5-5', status: 'running', refunded: false, lines: 0, costPaise: 0, inputTokens: 0, outputTokens: 0, createdAt: old, updatedAt: old });
-  // …and 2 more held that no job accounts for: they must not stop the move.
+  await AiReadModel.collection.insertOne(readDoc(deadId, shop, 5, old));
   await CoinWalletModel.updateOne({ shopId: shop }, { $inc: { held: 7 } });
+  // A read still running on the other shop, holding 3.
   await give(otherShop, 'grant', 40);
   const liveId = new Types.ObjectId();
-  await AiReadModel.collection.insertOne({ _id: liveId, shopId: otherShop, shopName: 'Mina Medical', userId: new Types.ObjectId(), userName: 'Mina', supplierName: 'X', fileName: 'bill.jpg', fileType: 'image', kind: 'bill', pages: 1, coins: 3, hold: { coins: 3, freePaise: 0, month }, model: 'claude-sonnet-5-5', status: 'running', refunded: false, lines: 0, costPaise: 0, inputTokens: 0, outputTokens: 0, createdAt: new Date(), updatedAt: new Date() });
+  await AiReadModel.collection.insertOne(readDoc(liveId, otherShop, 3, new Date()));
   await CoinWalletModel.updateOne({ shopId: otherShop }, { $inc: { balance: -3, held: 3 } });
-  // An order started for a ₹299 pack (2,990 tokens) and not yet paid.
+  // An order for a ₹299 pack made in ₹0.10 tokens (2,990), paid after the move.
   await CoinOrderModel.collection.insertOne({ shopId: shop, packCode: 'c25', packName: 'Starter', coins: 2990, amount: 29_900, gst: 4561, razorpayOrderId: 'order_paise_1', status: 'created', source: 'test', createdBy: new Types.ObjectId(), createdByName: 'Rohit', createdAt: new Date(), updatedAt: new Date() });
+  // A shop the old move (v1.60.0–1.60.3) had already moved — its wallet and its stopped read's hold × 10 — while AI stayed paused.
+  const third = new Types.ObjectId();
+  await CoinWalletModel.collection.insertOne({ shopId: third, balance: 500, held: 50, tokenPaise: 1, freeUsedPaise: 0, freeTotalPaise: 0, oldFreeGone: 0, askFree: 0, askAi: false, createdAt: old, updatedAt: old });
+  const thirdRead = new Types.ObjectId();
+  await AiReadModel.collection.insertOne(readDoc(thirdRead, third, 50, old));
+  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { tokensMoving: true } });
 
   const firstRun = await tokensToOnePaise();
-  const w4 = await wallet();
-  const st4 = await AiSettingsModel.findById('ai').lean();
-  check(`this shop: ${String(bal)} tokens → ${String(bal * 10)}, its 7 held → 70 (the dead read’s 5 → 50), the unpaid order’s 2,990 → 29,900`, firstRun === 1 && w4?.balance === bal * 10 && w4.held === 70 && w4.tokenPaise === 1 && (await AiReadModel.findById(deadId).lean())?.hold?.coins === 50 && (await CoinOrderModel.findOne({ razorpayOrderId: 'order_paise_1' }).lean())?.coins === 29_900, JSON.stringify(w4));
-  check('…one “convert” line: the same money', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'convert', coins: bal * 9, balance: bal * 10, text: { $regex: 'the same money' } })));
-  const ow = await wallet(otherShop);
-  check('the other shop has a read still running: not moved yet, the packs not changed, AI paused for now', ow?.balance === 37 && ow.held === 3 && ow.tokenPaise === undefined && st4?.tokensMoving === true && !st4.paiseAt && st4.packs?.[0]?.coins === 2990, JSON.stringify([ow, st4?.packs?.[0]]));
-  const paused = await read();
-  check('while tokens move no AI job starts → 503, nothing taken', paused.status === 503 && (await wallet())?.balance === bal * 10 && (await wallet())?.held === 70, code(paused));
-
-  // The running read ends: its 3 come back.
-  await AiReadModel.updateOne({ _id: liveId }, { $set: { status: 'failed', refunded: true } });
-  await CoinWalletModel.updateOne({ shopId: otherShop }, { $inc: { balance: 3, held: -3 } });
-  const secondRun = await tokensToOnePaise();
   const sAfter = await aiSettings();
-  check('next minute: the other shop 40 → 400, then the packs × 10 — ₹299 = 29,900 tokens; AI on again', secondRun === 1 && (await wallet(otherShop))?.balance === 400 && sAfter.packs.map((p) => p.coins).join() === '29900,99900,449900' && sAfter.paiseAt !== null && !sAfter.tokensMoving && sAfter.tenCoinPaise === 8, JSON.stringify(sAfter.packs));
+  check('at once: the packs × 10 — ₹299 = 29,900 tokens — and AI is not paused', sAfter.packs.map((p) => p.coins).join() === '29900,99900,449900' && sAfter.paiseAt !== null && !sAfter.tokensMoving && sAfter.tenCoinPaise === 8, JSON.stringify(sAfter.packs));
+  const w4 = await wallet();
+  check(`…and every wallet in the same run: this shop ${String(bal)} → ${String(bal * 10)} tokens, its 7 held → 70`, firstRun === 2 && w4?.balance === bal * 10 && w4.held === 70 && w4.tokenPaise === 1, `${String(firstRun)} ${JSON.stringify(w4)}`);
+  check('…one “convert” line in its history: the same money', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'convert', coins: bal * 9, balance: bal * 10, text: { $regex: 'the same money' } })));
+  const ow = await wallet(otherShop);
+  check('a shop with a read still running moves too — nothing waits: 37 → 370, its 3 held → 30', ow?.balance === 370 && ow.held === 30 && ow.tokenPaise === 1, JSON.stringify(ow));
+  const tw = await wallet(third);
+  check('a shop the old move had already moved is not moved again (500, 50 held); its stopped read’s hold is marked as ₹0.01 tokens', tw?.balance === 500 && tw.held === 50 && (await AiReadModel.findById(thirdRead).lean())?.hold?.tokenPaise === 1, JSON.stringify(tw));
   const roomAfter = await roomOf(shop, sAfter);
   check(`the guard’s money is the same before and after: given ₹${(roomBefore.giftedPaise / 100).toFixed(2)}, may cost up to ₹${(roomBefore.allowancePaise / 100).toFixed(2)} in all`, roomAfter.giftedPaise === roomBefore.giftedPaise && roomAfter.allowancePaise === roomBefore.allowancePaise, JSON.stringify([roomBefore, roomAfter]));
   check('a token now brings in ₹0.0084 (₹0.01 less 18% GST, rounded down)', coinValue(sAfter) === 0.84, String(coinValue(sAfter)));
+
+  const ended = await inTransaction((session) => settleJob(otherShop, sAfter, { coins: 3, freePaise: 0, month }, 0, { kind: 'read', text: '', byName: 'smoke', ref: String(liveId) }, session));
+  check('a read that started before the move and ends after it: its 3 ₹0.10 tokens come back as 30', ended.balance === 400 && (await wallet(otherShop))?.held === 0, JSON.stringify(ended));
+  await AiReadModel.updateOne({ _id: liveId }, { $set: { status: 'failed' } });
   const back = await settleStuckReads();
-  check('the dead read gives back its 50 (= the 5 it held)', back >= 1 && (await wallet())?.balance === bal * 10 + 50 && (await wallet())?.held === 20, JSON.stringify(await wallet()));
+  check('stopped reads give back theirs: this shop’s 5 → 50; the shop moved earlier gets 50 (not 500)', back >= 2 && (await wallet())?.balance === bal * 10 + 50 && (await wallet())?.held === 20 && (await wallet(third))?.balance === 550 && (await wallet(third))?.held === 0, JSON.stringify([await wallet(), await wallet(third)]));
+  const paid = await coinsPaid('order_paise_1', 'pay_paise_1', 29_900, 'test', null);
+  check('the order made for 2,990 ₹0.10 tokens, paid after the move → 29,900 tokens (₹299, the same money)', !paid.replayed && paid.balance === bal * 10 + 50 + 29_900, JSON.stringify(paid.balance));
   const o4 = await offer();
   check('a page now: ⌈₹7.92 × 1.5 ÷ ₹0.0084⌉ = 1,415 tokens at most (₹14.15 — was 149 × ₹0.10)', o4.mostPerPage === 1415, JSON.stringify(o4));
-  const r5 = await read();
   check('₹10 free is now 1,000 tokens (₹10 × 0.84 ÷ 1.5 = ₹5.60 of AI)', o4.free.tokens === 1000 && o4.free.monthPaise === 560, JSON.stringify(o4.free));
-  check('AI runs again after the move', r5.status === 200, code(r5));
-  check('runs once: a third time changes nothing', (await tokensToOnePaise()) === 0 && (await wallet(otherShop))?.balance === 400);
+  const r5 = await read();
+  const newest = await AiReadModel.findOne({ shopId: shop, status: { $ne: 'running' } }).sort({ createdAt: -1 }).lean();
+  check('AI runs straight away; a new hold is in ₹0.01 tokens', r5.status === 200 && newest?.hold?.tokenPaise === 1, code(r5));
+  check('runs once: a second time moves nothing', (await tokensToOnePaise()) === 0 && (await wallet(otherShop))?.balance === 400);
 
   await fake.close();
   await h.close();

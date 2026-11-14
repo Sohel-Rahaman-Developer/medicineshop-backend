@@ -22,7 +22,7 @@ import { costPaise } from './bill-ai';
 import { balanceOf } from './coins';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, PAGE_OUT, fits, safeNow, worstPage } from './guard';
-import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
+import { ensurePaise, freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 export const rxReadSchema = z.object({ photo: z.string().min(8).max(6_000_000, 'That photo is too large — at most about 4 MB') }).strict();
 
@@ -212,6 +212,7 @@ export async function readRx(t: TenantContext, actor: Actor, photoData: string) 
       throw AppError.validation('That is not a photo we can read — take it again');
     });
   const worst = worstPage(s);
+  await ensurePaise(t.shopId);
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
   // Too few tokens is told by the hold below (buy tokens), not as a pause.
   if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {

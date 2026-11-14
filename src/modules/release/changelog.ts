@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.60.4',
+    date: '2026-11-14',
+    title: 'The move to ₹0.01 tokens never pauses AI',
+    shop: ['“AI is being updated” is gone: AI and token packs work throughout. Packs show ₹0.01 tokens at once (₹299 = 29,900) and the free tokens 1,000; each shop’s tokens become × 10 the first time they are used — the same money.'],
+    admin: ['The move no longer pauses every shop until the last wallet has moved: packs change first, each wallet moves when touched or in the same scheduler run.'],
+    api: ['A hold and an order keep the tokens they were made in (tokenPaise); settling an old hold or paying an old order after the move counts it × 10. Wallets moved by 1.60.0–1.60.3 keep their move; their stopped jobs’ holds are marked as ₹0.01 tokens.'],
+  },
+  {
     version: '1.60.3',
     date: '2026-11-14',
     title: 'Free AI is 1,000 tokens a month — ₹10 = 1,000 tokens',

@@ -170,7 +170,7 @@ const readSchema = new Schema(
     /** Tokens charged; while running, the tokens held for the worst case (D109). */
     coins: { type: Number, required: true },
     /** D109: what was set aside before the AI ran — tokens and this month's free paise — and the free paise used. */
-    hold: { type: new Schema({ coins: Number, freePaise: Number, month: String }, { _id: false }) },
+    hold: { type: new Schema({ coins: Number, freePaise: Number, month: String, tokenPaise: Number }, { _id: false }) },
     freePaise: { type: Number, required: true, default: 0 },
     model: { type: String, required: true },
     status: { type: String, enum: ['running', 'done', 'failed'], required: true, default: 'running' },

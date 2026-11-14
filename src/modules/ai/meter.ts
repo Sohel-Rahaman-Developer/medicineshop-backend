@@ -6,7 +6,7 @@ import { logger } from '../../config/logger';
 import { istMonth } from '../../utils/date';
 import { aiSettings, readyFor, type AiSettings } from './ai-settings';
 import { AskQuestionModel } from '../ask/ask.model';
-import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
+import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinWalletModel, type CoinKind } from './ai.model';
 import { checks, coinValue, tokensFor } from './guard';
 
 // D109: AI is paid by what it really used — its cost × the margin, at what a token brings in (GST out), rounded up.
@@ -23,7 +23,33 @@ export interface Hold {
   coins: number;
   freePaise: number;
   month: string;
+  /** 1 for a hold in ₹0.01 tokens; unset for one in ₹0.10 tokens (made before tokens moved). */
+  tokenPaise?: number | null;
 }
+
+/**
+ * Once ₹0.01 tokens are on: this shop's wallet moves the first time anything touches it — balance and held × 10, the
+ * same money, one ledger line. True when ₹0.01 tokens are on (the wallet is then in them).
+ */
+export async function ensurePaise(shopId: Types.ObjectId, session?: ClientSession) {
+  if (!(await AiSettingsModel.exists({ _id: 'ai', paiseAt: { $type: 'date' } }).session(session ?? null))) return false;
+  await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0, held: 0, tokenPaise: 1 } }, { upsert: true, session });
+  for (let tries = 0; tries < 5; tries += 1) {
+    const w = await CoinWalletModel.findOne({ shopId }).select('balance held tokenPaise').session(session ?? null).lean();
+    if (!w || w.tokenPaise === 1) return true;
+    const r = await CoinWalletModel.updateOne({ shopId, balance: w.balance, held: w.held, tokenPaise: { $ne: 1 } }, { $set: { balance: w.balance * 10, held: w.held * 10, tokenPaise: 1 } }, { session });
+    if (!r.modifiedCount) continue;
+    if (w.balance > 0) {
+      const text = `Tokens are now ₹0.01 each (₹1 = 100 tokens): ${String(w.balance)} tokens = ${String(w.balance * 10)} tokens, the same money`;
+      await CoinEntryModel.create([{ shopId, kind: 'convert', coins: w.balance * 9, balance: w.balance * 10, text, ref: 'paise', byName: 'MedBox24' }], { session: session ?? null });
+    }
+    return true;
+  }
+  throw AppError.conflict('The AI tokens are busy — try again');
+}
+
+/** A hold's tokens in the wallet's tokens: one set aside as ₹0.10 tokens is 10 times as many ₹0.01 ones. */
+const heldNow = (hold: Hold, paise: boolean) => (paise && hold.tokenPaise !== 1 ? hold.coins * 10 : hold.coins);
 
 type FreeState = { freeMonth?: string | null; freeUsedPaise?: number | null } | null;
 
@@ -59,6 +85,7 @@ const resetsOn = (now: Date) => {
 
 /** The header's AI line for anyone in the shop: is any AI on, tokens left, this month's free AI used and left. */
 export async function meterOf(shopId: Types.ObjectId, now = new Date()) {
+  await ensurePaise(shopId);
   const [s, w] = await Promise.all([aiSettings(now), CoinWalletModel.findOne({ shopId }).select('balance freeMonth freeUsedPaise').lean()]);
   const left = freeLeft(s, w, now);
   return {
@@ -73,6 +100,7 @@ export async function meterOf(shopId: Types.ObjectId, now = new Date()) {
  * `need` after the free AI, `most` without it, `usual` from the real cost of the last 30 days' reads (null before any).
  */
 export async function shopAi(shopId: Types.ObjectId, now = new Date()) {
+  await ensurePaise(shopId);
   const [s, w, avg] = await Promise.all([
     aiSettings(now),
     CoinWalletModel.findOne({ shopId }).lean(),
@@ -92,7 +120,7 @@ export type ShopAi = Awaited<ReturnType<typeof shopAi>>;
 
 /** Sets aside a job's worst case, free AI first; too few tokens → NOT_ENOUGH, and nothing is set aside. */
 export async function holdJob(shopId: Types.ObjectId, s: AiSettings, worstPaise: number, session: ClientSession, now = new Date()): Promise<Hold> {
-  if (await AiSettingsModel.exists({ _id: 'ai', tokensMoving: true }).session(session)) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'AI is being updated — try again in a minute. No tokens were taken');
+  const paise = await ensurePaise(shopId, session);
   const month = istMonth(now);
   await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0 } }, { upsert: true, session });
   await CoinWalletModel.updateOne({ shopId, freeMonth: { $ne: month } }, { $set: { freeMonth: month, freeUsedPaise: 0 } }, { session });
@@ -103,7 +131,7 @@ export async function holdJob(shopId: Types.ObjectId, s: AiSettings, worstPaise:
     const have = w?.balance ?? 0;
     throw AppError.conflict(`Not enough AI tokens — this needs ${String(q.coins)}, the shop has ${String(have)}`, { reason: NOT_ENOUGH, need: q.coins, have });
   }
-  return { coins: q.coins, freePaise: q.freePaise, month };
+  return { coins: q.coins, freePaise: q.freePaise, month, tokenPaise: paise ? 1 : null };
 }
 
 /**
@@ -111,13 +139,14 @@ export async function holdJob(shopId: Types.ObjectId, s: AiSettings, worstPaise:
  * `costPaise` 0 when the AI was never reached: nothing is charged. One ledger line when anything was used.
  */
 export async function settleJob(shopId: Types.ObjectId, s: Pricing, hold: Hold, costPaise: number, line: { kind: CoinKind; text: string; byName: string; ref: string }, session: ClientSession) {
+  const held = heldNow(hold, await ensurePaise(shopId, session));
   const freePaise = Math.min(hold.freePaise, costPaise);
-  const coins = Math.min(hold.coins, tokensFor(s, costPaise - freePaise));
+  const coins = Math.min(held, tokensFor(s, costPaise - freePaise));
   // Free AI held in a month that has since ended is not given back to the new month.
   const sameMonth = Boolean(await CoinWalletModel.exists({ shopId, freeMonth: hold.month }).session(session));
   const w = await CoinWalletModel.findOneAndUpdate(
     { shopId },
-    { $inc: { balance: hold.coins - coins, held: -hold.coins, freeTotalPaise: freePaise, ...(sameMonth ? { freeUsedPaise: freePaise - hold.freePaise } : {}) } },
+    { $inc: { balance: held - coins, held: -held, freeTotalPaise: freePaise, ...(sameMonth ? { freeUsedPaise: freePaise - hold.freePaise } : {}) } },
     { session, returnDocument: 'after' },
   ).lean();
   const balance = w?.balance ?? 0;
@@ -175,58 +204,32 @@ export async function tokensToTenPaise(now = new Date()) {
   return changed;
 }
 
-/** Jobs younger than this may still be running (a read can take 4 min × 3 tries); older "running" ones died. */
-const LIVE_MS = 20 * 60_000;
-
-/** One wallet to ₹0.01 tokens: balance, held tokens of dead jobs and unpaid orders × 10. False while a job still runs. */
-async function walletToPaise(shopId: Types.ObjectId, cutoff: Date) {
-  return inTransaction(async (session) => {
-    const w = await CoinWalletModel.findOne({ shopId }).session(session).lean();
-    if (!w || w.tokenPaise === 1) return true;
-    // Only a job that may still be running holds this wallet back; anything older died and moves with it.
-    const live = { shopId: w.shopId, status: 'running' as const, createdAt: { $gte: cutoff } };
-    if ((await AiReadModel.exists(live).session(session)) || (await AskQuestionModel.exists(live).session(session))) return false;
-    const dead = { shopId: w.shopId, status: 'running' as const, createdAt: { $lt: cutoff }, hold: { $exists: true } };
-    const r = await CoinWalletModel.updateOne({ shopId, _id: w._id, balance: w.balance, held: w.held, tokenPaise: { $ne: 1 } }, { $set: { balance: w.balance * 10, held: w.held * 10, tokenPaise: 1 } }, { session });
-    if (!r.modifiedCount) return false;
-    await AiReadModel.updateMany(dead, { $mul: { 'hold.coins': 10, coins: 10 } }, { session });
-    await AskQuestionModel.updateMany(dead, { $mul: { 'hold.coins': 10, coins: 10 } }, { session });
-    await CoinOrderModel.updateMany({ shopId: w.shopId, status: 'created', tokenPaise: { $ne: 1 } }, { $mul: { coins: 10 }, $set: { tokenPaise: 1 } }, { session });
-    if (w.balance > 0) {
-      const text = `Tokens are now ₹0.01 each (₹1 = 100 tokens): ${String(w.balance)} tokens = ${String(w.balance * 10)} tokens, the same money`;
-      await CoinEntryModel.create([{ shopId: w.shopId, kind: 'convert', coins: w.balance * 9, balance: w.balance * 10, text, ref: 'paise', byName: 'MedBox24' }], { session });
-    }
-    return true;
-  });
-}
-
 /**
- * Once, after ₹0.10 tokens: tokens become ₹0.01 each (₹1 = 100 tokens). Every balance, held token, unpaid order and
- * pack × 10, so no shop gains or loses a paisa. Meanwhile no AI job and no pack order starts; a wallet with a job
- * still running waits for the next minute. The packs change last, once every wallet has moved.
+ * Once, after ₹0.10 tokens: tokens become ₹0.01 each (₹1 = 100 tokens). The packs × 10 at once, then every wallet
+ * (ensurePaise — any wallet touched first moves by itself). A hold keeps the tokens it was made in, so a job running
+ * across the move settles right, and an order keeps its own: nothing waits and no AI is paused.
  */
 export async function tokensToOnePaise(now = new Date()) {
-  const st = await AiSettingsModel.findById('ai').select('tokensAt paiseAt packs').lean();
-  if (!st?.tokensAt || st.paiseAt) return 0;
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { tokensMoving: true } });
-  // An unpaid order from a shop with no wallet yet: a wallet to move it with.
-  const unpaid = { shopId: { $exists: true }, status: 'created' as const, tokenPaise: { $ne: 1 } };
-  for (const shopId of await CoinOrderModel.distinct('shopId', unpaid)) {
-    await CoinWalletModel.updateOne({ shopId }, { $setOnInsert: { balance: 0 } }, { upsert: true });
-  }
-  const cutoff = new Date(now.getTime() - LIVE_MS);
+  const st = await AiSettingsModel.findById('ai').select('tokensAt paiseAt packs tokensMoving').lean();
+  if (!st?.tokensAt) return 0;
+  if (!st.paiseAt) {
+    // v1.60.0–1.60.3 moved some wallets with their stopped jobs' holds already × 10: those holds are in ₹0.01 tokens.
+    const moved = await CoinWalletModel.find({ shopId: { $exists: true }, tokenPaise: 1 }).select('shopId').lean();
+    const shops = moved.map((w) => w.shopId);
+    if (shops.length) {
+      const was = { shopId: { $in: shops }, status: 'running' as const, hold: { $exists: true }, 'hold.tokenPaise': { $exists: false } };
+      await AiReadModel.updateMany(was, { $set: { 'hold.tokenPaise': 1 } });
+      await AskQuestionModel.updateMany(was, { $set: { 'hold.tokenPaise': 1 } });
+    }
+    const old = (st.packs ?? []).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 }));
+    const packs = old.map((p) => ({ ...p, coins: p.coins * 10 }));
+    await AiSettingsModel.updateOne({ _id: 'ai', paiseAt: { $exists: false } }, { $set: { packs, paiseAt: now, tenCoinPaise: old.length ? coinValue({ packs: old }) : null }, $unset: { tokensMoving: 1 } });
+    logger.info({ wallets: shops.length }, 'AI tokens are now ₹0.01 each');
+  } else if (st.tokensMoving) await AiSettingsModel.updateOne({ _id: 'ai' }, { $unset: { tokensMoving: 1 } });
   let moved = 0;
-  const left = { shopId: { $exists: true }, tokenPaise: { $ne: 1 } };
-  for (const w of await CoinWalletModel.find(left).select('shopId').lean()) {
-    if (await walletToPaise(w.shopId, cutoff)) moved += 1;
+  for (const w of await CoinWalletModel.find({ shopId: { $exists: true }, tokenPaise: { $ne: 1 } }).select('shopId').limit(500).lean()) {
+    await inTransaction((session) => ensurePaise(w.shopId, session));
+    moved += 1;
   }
-  if ((await CoinWalletModel.exists(left)) || (await CoinOrderModel.exists(unpaid))) {
-    logger.info({ moved }, 'AI tokens moving to ₹0.01: a job is still running, the rest next minute');
-    return moved;
-  }
-  const old = (st.packs ?? []).map((p) => ({ code: p.code ?? '', name: p.name ?? '', coins: p.coins ?? 0, price: p.price ?? 0 }));
-  const packs = old.map((p) => ({ ...p, coins: p.coins * 10 }));
-  await AiSettingsModel.updateOne({ _id: 'ai' }, { $set: { packs, paiseAt: now, tenCoinPaise: old.length ? coinValue({ packs: old }) : null }, $unset: { tokensMoving: 1 } });
-  logger.info({ moved }, 'AI tokens are now ₹0.01 each');
   return moved;
 }

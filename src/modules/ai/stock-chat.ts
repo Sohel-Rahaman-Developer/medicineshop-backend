@@ -21,7 +21,7 @@ import { balanceOf } from './coins';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, PAGE_IN, PAGE_OUT, fits, safeNow, worstPage } from './guard';
 import { needSwitch } from './stock-switch';
-import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
+import { ensurePaise, freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 // The AI only fills a form from the owner's words. It saves nothing: the shop checks every line on the bill review
 // screen and saves there, and the server checks everything again as if typed by hand.
@@ -169,6 +169,7 @@ export async function stockChat(t: TenantContext, actor: Actor, input: StockChat
   if (!key) throw AppError.forbidden('AI is off');
   const pages = pagesOf(input);
   const worst = worstPage(s) * pages;
+  await ensurePaise(t.shopId);
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
   if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {
     await signal('ai_paused');

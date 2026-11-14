@@ -18,7 +18,7 @@ import { aiSettings, apiKey, onFreeTier, priceOf, providerOf, readyFor, type AiS
 import { AI_MODELS, CoinWalletModel, SaltNoteModel } from './ai.model';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, SALT_OUT, fits, safeNow, tokensFor, worstSalt } from './guard';
-import { freeLeft, holdJob, quote, settleJob, shopAi, tookText, type Hold } from './meter';
+import { ensurePaise, freeLeft, type Hold, holdJob, quote, settleJob, shopAi, tookText } from './meter';
 
 // D110: a medicine the shop has never kept — the AI says what it is made of, the shop's own stock gives the same salt.
 // Asked only after a yes, paid by what it used (D109); the answer is kept for this shop, so the same name is free after.
@@ -82,6 +82,7 @@ export async function findSalt(t: TenantContext, actor: Actor, input: z.infer<ty
   const apiKeyOf = s.chat.enabled && readyFor(s, s.chat.model) ? await apiKey(provider) : null;
   if (!apiKeyOf) throw AppError.forbidden('AI is off');
   const worst = worstSalt(s);
+  await ensurePaise(t.shopId);
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
   if (!input.confirm) {
     const mine = await shopAi(t.shopId, now);

@@ -15,13 +15,14 @@ import { chargeRow, onlineCharge, splitOf, type Charge } from '../subscription/o
 import type { Actor } from '../user/actor';
 import { AskQuestionModel } from '../ask/ask.model';
 import { aiOffer, aiSettings, readyFor } from './ai-settings';
-import { shopAi } from './meter';
+import { ensurePaise, shopAi } from './meter';
 import { AiReadModel, AiSettingsModel, CoinEntryModel, CoinOrderModel, CoinWalletModel, type CoinKind } from './ai.model';
 
 const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
 
 /** Coins in or out with their ledger line, in the caller's transaction. Never below zero. */
 export async function moveCoins(shopId: Types.ObjectId, kind: CoinKind, coins: number, text: string, byName: string, ref: string, session: ClientSession): Promise<number> {
+  await ensurePaise(shopId, session);
   const w =
     coins < 0
       ? await CoinWalletModel.findOneAndUpdate({ shopId, balance: { $gte: -coins } }, { $inc: { balance: coins } }, { returnDocument: 'after', session }).lean()
@@ -35,6 +36,7 @@ export async function moveCoins(shopId: Types.ObjectId, kind: CoinKind, coins: n
 }
 
 export async function balanceOf(shopId: Types.ObjectId) {
+  await ensurePaise(shopId);
   return (await CoinWalletModel.findOne({ shopId }).lean())?.balance ?? 0;
 }
 
@@ -70,6 +72,7 @@ export const shapeRead = (r: { _id: Types.ObjectId; userName: string; supplierNa
 
 /** The shop's coin page: balance, packs, every coin in or out, its AI reads and its coin invoices. */
 export async function wallet(t: TenantContext) {
+  await ensurePaise(t.shopId);
   const [offer, s, w, mine, entries, reads, questions, orders] = await Promise.all([
     aiOffer(),
     aiSettings(),
@@ -106,8 +109,7 @@ export async function orderCoins(t: TenantContext, actor: Actor, packCode: strin
   if (g.mode === 'off') throw AppError.forbidden('Online payment is off — ask MedBox24 to add tokens');
   const pack = offer.packs.find((p) => p.code === packCode);
   if (!pack) throw AppError.validation('Choose a pack', [{ field: 'body.packCode', message: 'Choose a pack' }]);
-  const unit = await AiSettingsModel.findById('ai').select('paiseAt tokensMoving').lean();
-  if (unit?.tokensMoving) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Tokens are being updated — try again in a minute');
+  const unit = await AiSettingsModel.findById('ai').select('paiseAt').lean();
   const { amount, gst, charge } = await onlineCharge(pack.price);
   const receipt = `${String(t.shopId).slice(-8)}-c${Date.now().toString(36)}`;
   const orderId = await createOrder(amount, receipt, { shopId: String(t.shopId), coins: String(pack.coins), kind: 'coins' });
@@ -133,8 +135,10 @@ export async function coinsPaid(orderId: string, paymentId: string, amount: numb
     o.set({ status: 'paid', razorpayPaymentId: paymentId, method, paidAt: now, invoiceNumber, invoiceFrom: await supplier(), invoiceTo: await buyerOf(o.shopId, session), failureReason: undefined });
     await o.save({ session });
     const who = by ?? { id: String(o.createdBy), name: o.createdByName };
-    const balance = await moveCoins(o.shopId, 'purchase', o.coins, `Bought ${o.packName} — ${inr(o.amount)} (${invoiceNumber})`, who.name, String(o._id), session);
-    await audit({ shopId: o.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(o._id), entityName: invoiceNumber, text: `${who.name} bought ${String(o.coins)} AI tokens for ${inr(o.amount)} (${invoiceNumber})` }, session);
+    // An order made in ₹0.10 tokens, paid after the move: the same money in ₹0.01 tokens.
+    const coins = o.tokenPaise !== 1 && (await ensurePaise(o.shopId, session)) ? o.coins * 10 : o.coins;
+    const balance = await moveCoins(o.shopId, 'purchase', coins, `Bought ${o.packName} — ${inr(o.amount)} (${invoiceNumber})`, who.name, String(o._id), session);
+    await audit({ shopId: o.shopId, userId: who.id, userName: who.name, action: 'update', module: 'subscription', entityId: String(o._id), entityName: invoiceNumber, text: `${who.name} bought ${String(coins)} AI tokens for ${inr(o.amount)} (${invoiceNumber})` }, session);
     return { order: o, replayed: false, balance };
   });
 }

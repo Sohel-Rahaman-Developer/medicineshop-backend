@@ -19,7 +19,7 @@ import { AI_MODELS, AiReadModel, CoinWalletModel } from './ai.model';
 import { outOfCredit } from './credits';
 import { AI_PAUSED, MAX_OUT, PAGE_OUT, fits, safeNow, worstPage } from './guard';
 import { balanceOf, moveCoins } from './coins';
-import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
+import { ensurePaise, freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 export const aiReadSchema = z
   .object({
@@ -187,6 +187,7 @@ export async function readWithAi(t: TenantContext, actor: Actor, input: AiReadIn
   if (pages > s.maxPages) throw AppError.validation(`AI reads up to ${String(s.maxPages)} pages at a time — this file has ${String(pages)}`);
   const worst = pages * worstPage(s);
   // D97: nothing runs at a price that could lose money, or past what this shop has paid for (or has free); no tokens are taken.
+  await ensurePaise(t.shopId);
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
   // Too few tokens is told by the hold below (buy tokens), not as a pause.
   if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {
@@ -263,7 +264,7 @@ export async function settleStuckReads(now = new Date()) {
     await inTransaction(async (session) => {
       const claimed = await AiReadModel.updateOne({ _id: r._id, status: 'running' }, { $set: { status: 'failed', refunded: true, error: 'Stopped before it finished', coins: 0 } }, { session });
       if (!claimed.modifiedCount) return;
-      if (r.hold) await settleJob(r.shopId, s, { coins: r.hold.coins ?? 0, freePaise: r.hold.freePaise ?? 0, month: r.hold.month ?? '' }, 0, { kind: 'read', text: '', byName: 'MedBox24', ref: String(r._id) }, session);
+      if (r.hold) await settleJob(r.shopId, s, { coins: r.hold.coins ?? 0, freePaise: r.hold.freePaise ?? 0, month: r.hold.month ?? '', tokenPaise: r.hold.tokenPaise ?? null }, 0, { kind: 'read', text: '', byName: 'MedBox24', ref: String(r._id) }, session);
       else await moveCoins(r.shopId, 'refund', r.coins, `Back: ${r.fileName} — the read stopped before it finished`, 'MedBox24', String(r._id), session);
     });
   }
