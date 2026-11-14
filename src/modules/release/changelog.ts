@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.61.1',
+    date: '2026-11-14',
+    title: 'Add stock by chat works with few tokens; one language everywhere',
+    shop: [
+      'Add stock by chat: a message sets aside what that message can cost, not a whole bill page — a short “Dolo 650” needs a few tokens, so the month’s free tokens cover it.',
+      'When a message can’t go (no tokens, AI busy, lock off), the chat says why and offers Buy tokens / Try again — the words are not just put back in the box.',
+      'The EN / हिं / বাং switch in Ask AI is the app’s language: choosing English shows English everywhere, not only in the chat.',
+    ],
+    admin: [],
+    api: ['GET /purchases/import/chat/offer: what a short message may take. Stock chat answers at most 30 lines.'],
+  },
+  {
     version: '1.61.0',
     date: '2026-11-14',
     title: 'Voice messages to the AI — it listens and answers',

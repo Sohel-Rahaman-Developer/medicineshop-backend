@@ -130,8 +130,13 @@ async function main() {
   const long = [0, 1, 2, 3].map(() => ({ from: 'me' as const, text: 'Dolo 650 4 strip '.repeat(88).trim() }));
   fake.answer = { bill: form({ items: [] }), input: 2400, output: 200 };
   const r9 = await owner.post('/purchases/import/chat', { messages: long });
-  const longRead = await AiReadModel.findOne({ shopId: shop, kind: 'chat' }).sort({ createdAt: -1 }).lean();
-  check('a long chat (5,600 letters) counts as 2 pages: twice as much set aside, so its cost can’t pass the hold', r9.status === 200 && longRead?.pages === 2, `${code(r9)} ${String(longRead?.pages)}`);
+  const { worstOf } = await import('../src/modules/ai/stock-chat.js');
+  const { worstPage } = await import('../src/modules/ai/guard.js');
+  const { aiSettings } = await import('../src/modules/ai/ai-settings.js');
+  const sNow = await aiSettings();
+  const shortWorst = worstOf(sNow, { messages: [{ text: 'Dolo 650' }] });
+  const longWorst = worstOf(sNow, { messages: long });
+  check(`what is set aside follows the chat: “Dolo 650” at most ₹${(shortWorst / 100).toFixed(2)}, 5,600 letters ₹${(longWorst / 100).toFixed(2)} — a bill page ₹${(worstPage(sNow) / 100).toFixed(2)}`, r9.status === 200 && longWorst > shortWorst && shortWorst < worstPage(sNow) / 2, `${code(r9)} ${String(shortWorst)} ${String(longWorst)}`);
   const tooLong = await owner.post('/purchases/import/chat', { messages: Array.from({ length: 10 }, () => ({ from: 'me', text: 'x'.repeat(1500) })) });
   check('past 14,000 letters → 422 “start a new one”, the AI not called', tooLong.status === 422, code(tooLong));
   check('a year that is not 20xx is not an expiry: 06/1998 → nothing (asked again)', expiryOf('06/1998') === null && expiryOf('06/2028') === '06/28');
@@ -171,6 +176,9 @@ async function main() {
   const plain = data<{ id: string }>(await owner.post('/purchases/import', { clientRequestId: randomUUID(), market: true, invoiceNumber: 'MKT-3', invoiceDate: new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10), lines: [{ productId: dolo, billName: '', billPack: '', batchNumber: 'DL80', expiry: '2028-09', quantity: 1, freeQuantity: 0, unit: 'STRIP', rate: 2500, discountPercent: 0, mrp: 3300, gstRate: 12, rack: '' }], paid: { mode: 'CASH', fromDrawer: false } }));
   const notChat = await owner.post(`/purchases/${plain.id}/undo`, {});
   check('a purchase not from the chat can’t be undone — only cancelled, which needs approve (409)', notChat.status === 409 && JSON.stringify(notChat.json.error?.details).includes('NOT_CHAT') && (await PurchaseModel.findOne({ shopId: shop, _id: new Types.ObjectId(plain.id) }).lean())?.status === 'active', code(notChat));
+
+  const co = data<{ need: number; most: number; balance: number }>(await owner.get('/purchases/import/chat/offer'));
+  check('the Yes before the first message says what a short one may take', co.most >= 1 && co.need <= co.most && co.balance >= 0, JSON.stringify(co));
 
   section('5. A voice message: the recording goes to Gemini, which writes down the words — paid by real use');
   const AUDIO = Buffer.alloc(3000, 9).toString('base64');

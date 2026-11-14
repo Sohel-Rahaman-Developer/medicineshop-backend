@@ -30,7 +30,7 @@ import {
 } from './purchases.validation';
 import * as rsvc from './returns.service';
 import { can } from '../rbac/permissions';
-import { stockChat, stockChatSchema, type StockChatInput } from '../ai/stock-chat';
+import { chatOffer, stockChat, stockChatSchema, type StockChatInput } from '../ai/stock-chat';
 import { setSwitch, switchOf } from '../ai/stock-switch';
 
 export const photoSchema = z.object({ photo: z.string().max(820_000, 'That photo is too large') }).strict();
@@ -118,6 +118,14 @@ purchasesRouter.get(
   create,
   asyncHandler(async (req: Request, res: Response) => {
     fetched(res, await switchOf(tenantOf(req), await actorOf(req)));
+  }),
+);
+// What a short stock-chat message may take, for the Yes before the first one.
+purchasesRouter.get(
+  '/import/chat/offer',
+  create,
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await chatOffer(tenantOf(req)));
   }),
 );
 purchasesRouter.put(
