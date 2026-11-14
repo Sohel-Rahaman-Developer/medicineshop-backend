@@ -28,8 +28,8 @@ import { ensurePaise, freeLeft, holdJob, quote, settleJob, tookText } from './me
 
 /** The whole chat goes to the AI each time: at most this many letters, read as up to 4 pages. */
 const CHAT_LETTERS = 14_000;
-/** The form back, thinking kept low: it grows with what was said — a short message gets a short form — up to 30 lines. */
-const outOf = (input: { messages: { text: string }[] }) => Math.min(3000, 800 + 3 * input.messages.reduce((n, x) => n + x.text.length, 0));
+/** The form back plus the model's thinking (it counts here and can't be turned off on Opus 5.5): grows with the chat, up to 30 lines. */
+const outOf = (input: { messages: { text: string }[] }) => Math.min(3000, 1500 + 3 * input.messages.reduce((n, x) => n + x.text.length, 0));
 /** In: the instructions, then at most a token a letter of the chat (Bengali and Hindi can be that dear). */
 const inOf = (input: { messages: { text: string }[] }) => 900 + input.messages.reduce((n, x) => n + x.text.length + 8, 0);
 /** One message's worst cost: what it sends and the most it can get back — a short message holds little. */
@@ -57,7 +57,9 @@ export const stockChatSchema = z
 export type StockChatInput = z.infer<typeof stockChatSchema>;
 
 const itemSchema = z.object({ name: z.string(), company: z.string(), pack: z.string(), batch: z.string(), expiry: z.string(), qty: z.string(), free: z.string(), mrp: z.string(), rate: z.string(), rateWithGst: z.string(), gst: z.string() });
-export const aiStockSchema = z.object({ from: z.string(), supplier: z.string(), invoiceNumber: z.string(), invoiceDate: z.string(), paidFromCounter: z.string(), items: z.array(itemSchema).max(30) });
+// No maxItems here: Claude's structured outputs refuse it (400). The 30-line limit is checked after.
+export const aiStockSchema = z.object({ from: z.string(), supplier: z.string(), invoiceNumber: z.string(), invoiceDate: z.string(), paidFromCounter: z.string(), items: z.array(itemSchema) });
+const formSchema = aiStockSchema.refine((f) => f.items.length <= 30);
 type AiStock = z.infer<typeof aiStockSchema>;
 type Item = z.infer<typeof itemSchema>;
 
@@ -86,7 +88,7 @@ async function askClaude(s: { model: keyof typeof AI_MODELS }, key: string, text
   const usage = { input: msg.usage.input_tokens + (msg.usage.cache_creation_input_tokens ?? 0) + (msg.usage.cache_read_input_tokens ?? 0), output: msg.usage.output_tokens };
   if (msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens') return { usage, error: part('The AI could not use this chat') };
   try {
-    return { usage, form: aiStockSchema.parse(JSON.parse(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join(''))) };
+    return { usage, form: formSchema.parse(JSON.parse(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join(''))) };
   } catch {
     return { usage, error: part('The AI answer could not be used') };
   }
@@ -103,7 +105,7 @@ async function askGemini(s: { model: keyof typeof AI_MODELS }, key: string, text
   const c = r.candidates?.[0];
   if (r.promptFeedback?.blockReason || !c || c.finishReason !== 'STOP') return { usage, error: part('The AI could not use this chat') };
   try {
-    return { usage, form: aiStockSchema.parse(JSON.parse(textOf(c.content))) };
+    return { usage, form: formSchema.parse(JSON.parse(textOf(c.content))) };
   } catch {
     return { usage, error: part('The AI answer could not be used') };
   }

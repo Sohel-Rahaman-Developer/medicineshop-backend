@@ -53,6 +53,16 @@ const fail = (res: ServerResponse, status: number, type: string, message = type)
 };
 
 /** A stand-in for api.anthropic.com: the Messages API (streamed) and Models API, enough for the SDK. */
+/** What the real API refuses in an output schema (structured outputs): the first such keyword found, else null. */
+const UNSUPPORTED = ['maxItems', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength', 'uniqueItems'];
+function refusedKeyword(schema: unknown): string | null {
+  if (Array.isArray(schema)) return schema.map(refusedKeyword).find((k) => k !== null) ?? null;
+  if (!schema || typeof schema !== 'object') return null;
+  const o = schema as Record<string, unknown>;
+  const own = UNSUPPORTED.find((k) => k in o) ?? (typeof o.minItems === 'number' && o.minItems > 1 ? 'minItems' : null);
+  return own ?? Object.values(o).map(refusedKeyword).find((k) => k !== null) ?? null;
+}
+
 export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-0123456789abcdefghij'): Promise<FakeClaude> {
   const fake: FakeClaude = { url: '', key, queue: [], answer: { status: 500, type: 'api_error' }, seen: [], close: () => Promise.resolve() };
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -75,6 +85,11 @@ export async function startFakeClaude(key = 'sk-ant-api03-fake-test-key-01234567
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { model: string; max_tokens: number; stream?: boolean; system?: string | { text: string; cache_control?: unknown }[]; tools?: { name: string }[]; tool_choice?: { type: string }; output_config?: { effort?: string; format?: unknown }; messages: { role: string; content: string | { type: string }[] }[] };
       const system = typeof body.system === 'string' ? body.system : (body.system ?? []).map((b) => b.text).join(' ');
+      const refused = refusedKeyword((body.output_config?.format as { schema?: unknown } | undefined)?.schema);
+      if (refused) {
+        fail(res, 400, 'invalid_request_error', `output_config.format.schema: '${refused}' is not supported`);
+        return;
+      }
       fake.seen.push({
         key: fake.key,
         model: body.model,

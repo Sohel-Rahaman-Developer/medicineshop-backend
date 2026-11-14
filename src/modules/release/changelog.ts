@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.61.2',
+    date: '2026-11-14',
+    title: 'Add stock by chat works on Claude',
+    shop: [
+      'Add stock by chat answers again when the AI is Claude: every message used to stop with “the AI could not be reached” (no tokens were taken). Ask AI was not affected.',
+    ],
+    admin: ['The stock chat sent Claude a form with a 30-line limit written into it, which Claude refuses; the limit is now checked after the answer. Each message also leaves room for Opus 5.5’s thinking (at least 1,500 tokens out). The test AI now refuses such forms the way Claude does, so this can’t come back unseen.'],
+    api: [],
+  },
+  {
     version: '1.61.1',
     date: '2026-11-14',
     title: 'Add stock by chat works with few tokens; one language everywhere',

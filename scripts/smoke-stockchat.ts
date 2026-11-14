@@ -1,6 +1,7 @@
 // AI stock chat: the owner says what was bought (typed or spoken), the AI fills a form, the software asks for what is
 // missing; the AI saves nothing — the shop saves on the review screen. Market (cash) buys, Undo within 24 hours.
 import { randomUUID } from 'node:crypto';
+import { startFakeClaude } from './lib/fake-claude';
 import { startFakeGemini } from './lib/fake-gemini';
 import { check, crash, finish, section, startHarness, type Res } from './lib/harness';
 
@@ -25,6 +26,8 @@ interface Chat { ready: boolean; ask: string[]; from: string | null; supplier: {
 async function main() {
   const fake = await startFakeGemini();
   process.env.GEMINI_BASE_URL = fake.url;
+  const claude = await startFakeClaude();
+  process.env.AI_BASE_URL = claude.url;
   const h = await startHarness();
   const { AdminUserModel } = await import('../src/modules/admin/admin.model.js');
   const { AiReadModel, CoinWalletModel } = await import('../src/modules/ai/ai.model.js');
@@ -203,6 +206,23 @@ async function main() {
   check('longer than a minute → 422', (await voice({ seconds: 300 })).status === 422);
   check('a file that is not audio → 422', (await voice({ mime: 'image/png' })).status === 422);
 
+  section('6. On Claude: the form’s schema is one Claude accepts (no maxItems, min/max…), and “Dolo 650” is answered');
+  await root.put('/admin/ai/key', { apiKey: claude.key, reason: 'new key from Anthropic console' });
+  const onClaude = await root.put('/admin/ai/settings', { settings: { enabled: true, model: 'claude-opus-5-5', effort: 'medium', coinsPerPage: 2, maxPages: 5, welcomeCoins: 0, targetMargin: 1.5, usdInr: 88, packs: [{ code: 'c25', name: 'Starter', coins: 25, price: 29_900 }] }, reason: 'stock chat on Claude' });
+  check('AI on (Claude Opus 5.5)', onClaude.status === 200, code(onClaude));
+  await root.post(`/admin/shops/${shopId}/coins`, { coins: 2000, reason: 'tokens to try the stock chat on Claude' });
+  await owner.put('/purchases/import/chat/switch', { on: true });
+  claude.answer = { bill: form({ items: [item({ name: 'Dolo 650 Tablet' })] }), input: 1000, output: 200 };
+  const rc = await owner.post('/purchases/import/chat', { messages: [{ from: 'me', text: 'Dolo 650' }] });
+  const cc = data<Chat>(rc);
+  const sentC = claude.seen.at(-1);
+  check('“Dolo 650” → 200: Dolo found in the shop, the rest asked for — the schema went and Claude took it', rc.status === 200 && cc.lines[0]?.productName === 'Dolo 650 Tablet' && cc.ask.length > 0 && sentC?.schema === true && sentC.stream, `${code(rc)} ${rc.json.error?.message ?? ''}`);
+  check('room for thinking and the form: effort low, at least 1,500 tokens out', sentC?.effort === 'low' && (sentC.maxTokens) >= 1500, JSON.stringify({ effort: sentC?.effort, max: sentC?.maxTokens }));
+  claude.answer = { bill: form({ items: Array.from({ length: 31 }, () => item({ name: 'Dolo 650 Tablet' })) }), input: 1000, output: 900 };
+  const over = await owner.post('/purchases/import/chat', { messages: [{ from: 'me', text: 'Dolo 650' }] });
+  check('more than 30 lines back → 422, not used', over.status === 422, code(over));
+
+  await claude.close();
   await fake.close();
   await h.close();
   finish();
