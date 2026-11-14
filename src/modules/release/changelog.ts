@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.60.2',
+    date: '2026-11-14',
+    title: 'One chat screen: Ask and Add stock together, with a microphone that works',
+    shop: [
+      'Ask AI now has two modes on one screen — Ask and Add stock — always there, also when the chat has messages. Purchases → By chat opens the same screen.',
+      'The microphone works: the site no longer blocks it. Ask AI has one too; words show as you speak, and if the microphone can’t be used you are told why.',
+      'Dashboard dates on a phone: the two date boxes of a custom range sit one under the other and fit the screen.',
+    ],
+    admin: [],
+    api: ['Permissions-Policy on pages: microphone=(self).'],
+  },
+  {
     version: '1.60.1',
     date: '2026-11-14',
     title: 'Stock chat and token move: three safety fixes',
