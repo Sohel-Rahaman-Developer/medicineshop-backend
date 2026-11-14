@@ -14,7 +14,7 @@ export const packSchema = z
   .object({
     code: z.string().regex(/^[a-z][a-z0-9-]{1,19}$/, 'Code: small letters and digits'),
     name: z.string().trim().min(2).max(30),
-    coins: z.number().int().min(1).max(100_000),
+    coins: z.number().int().min(1).max(10_000_000),
     price: z.number().int().min(100).max(10_000_000),
   })
   .strict();

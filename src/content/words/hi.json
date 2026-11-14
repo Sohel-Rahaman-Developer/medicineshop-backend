@@ -1141,5 +1141,11 @@
   "Adding stock with AI is on for 15 minutes": "AI से स्टॉक जोड़ना 15 मिनट के लिए चालू है",
   "Adding stock with AI is off": "AI से स्टॉक जोड़ना बंद है",
   "Only purchases added from the stock chat can be undone — cancel this one instead": "सिर्फ़ स्टॉक चैट से जोड़ी गई purchase ही undo होती है — इसे cancel कीजिए",
-  "The AI tokens are busy — try again": "AI टोकन अभी व्यस्त हैं — फिर कोशिश कीजिए"
+  "The AI tokens are busy — try again": "AI टोकन अभी व्यस्त हैं — फिर कोशिश कीजिए",
+  "Voice messages need the AI — type instead": "आवाज़ वाले मैसेज के लिए AI चाहिए — लिखकर बताइए",
+  "The recording is too long — at most a minute": "रिकॉर्डिंग बहुत लंबी है — ज़्यादा से ज़्यादा एक मिनट",
+  "Not a recording": "यह रिकॉर्डिंग नहीं है",
+  "The AI could not use this recording": "AI इस रिकॉर्डिंग को इस्तेमाल नहीं कर पाया",
+  "Nothing could be heard — speak a little closer, or type": "कुछ सुनाई नहीं दिया — थोड़ा पास से बोलिए, या लिखिए",
+  "Could not hear that: {why}": "सुन नहीं पाए: {why}"
 }

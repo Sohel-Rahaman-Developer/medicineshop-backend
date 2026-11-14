@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.61.0',
+    date: '2026-11-14',
+    title: 'Voice messages to the AI — it listens and answers',
+    shop: [
+      'Ask AI and Add stock: tap the microphone, speak (up to a minute), tap stop. The recording goes to the AI, which writes down what you said — Bengali, Hindi, English or a mix — and the chat goes on with it. A timer shows while recording.',
+      'Paid like any AI job, by real use (the month’s free tokens first); asked once before the first voice message. The recording itself is not kept.',
+      'Without the AI’s ears (no Gemini key set by MedBox24) the microphone falls back to the browser’s own speech-to-text.',
+    ],
+    admin: ['Voice messages use Gemini (Claude cannot hear audio): the chat’s or the reader’s Gemini model, else Gemini 3.5 Flash-Lite, on the Gemini key. Audio is counted at 4× the input price so it is never a loss. Token packs and token grants can now go up to 10,000,000 tokens (₹0.01 tokens).'],
+    api: ['GET /ai/listen (on, need, most, maxSeconds, balance); POST /ai/listen {audio base64, mime, seconds ≤ 60, lang} → {text, ai}. AiRead kind "voice", fileType "audio".'],
+  },
+  {
     version: '1.60.4',
     date: '2026-11-14',
     title: 'The move to ₹0.01 tokens never pauses AI',

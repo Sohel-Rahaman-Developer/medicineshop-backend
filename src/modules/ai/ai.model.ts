@@ -161,11 +161,11 @@ const readSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     userName: { type: String, required: true },
     /** D105: a supplier bill (purchase) or a prescription (POS); a prescription has no supplier. */
-    kind: { type: String, enum: ['bill', 'rx', 'chat'], required: true, default: 'bill' },
+    kind: { type: String, enum: ['bill', 'rx', 'chat', 'voice'], required: true, default: 'bill' },
     supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier' },
     supplierName: { type: String, required: true },
     fileName: { type: String, required: true },
-    fileType: { type: String, enum: ['pdf', 'image', 'docx', 'chat'], required: true },
+    fileType: { type: String, enum: ['pdf', 'image', 'docx', 'chat', 'audio'], required: true },
     pages: { type: Number, required: true },
     /** Tokens charged; while running, the tokens held for the worst case (D109). */
     coins: { type: Number, required: true },

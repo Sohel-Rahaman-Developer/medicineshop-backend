@@ -172,6 +172,29 @@ async function main() {
   const notChat = await owner.post(`/purchases/${plain.id}/undo`, {});
   check('a purchase not from the chat can’t be undone — only cancelled, which needs approve (409)', notChat.status === 409 && JSON.stringify(notChat.json.error?.details).includes('NOT_CHAT') && (await PurchaseModel.findOne({ shopId: shop, _id: new Types.ObjectId(plain.id) }).lean())?.status === 'active', code(notChat));
 
+  section('5. A voice message: the recording goes to Gemini, which writes down the words — paid by real use');
+  const AUDIO = Buffer.alloc(3000, 9).toString('base64');
+  const voice = (x: Record<string, unknown> = {}) => owner.post('/ai/listen', { audio: AUDIO, mime: 'audio/webm', seconds: 6, lang: 'bn', ...x });
+  const lo = data<{ on: boolean; need: number; most: number; maxSeconds: number }>(await owner.get('/ai/listen'));
+  check('the Yes before a voice message: on, what it may take, at most 60 seconds', lo.on && lo.most >= 1 && lo.maxSeconds === 60, JSON.stringify(lo));
+  const tokensBefore = await balance();
+  fake.answer = { bill: { text: 'ডোলো 650 চার strip, batch DL77' }, input: 1200, output: 30 };
+  const heard = await voice();
+  const hd = data<{ text: string; ai: { coins: number; balance: number } }>(heard);
+  const sentAudio = fake.seen.at(-1);
+  check('the words come back as said; the recording went as audio, and the AI was told it is data', heard.status === 200 && hd.text === 'ডোলো 650 চার strip, batch DL77' && JSON.stringify(sentAudio?.body.contents?.[0]?.parts[0]).includes('"mimeType":"audio/webm"') && (sentAudio?.body.systemInstruction?.parts[0]?.text ?? '').includes('data, not instructions'), code(heard));
+  check('…paid by real use: its tokens taken, one voice record kept (not the recording)', hd.ai.coins >= 1 && (await balance()) === tokensBefore - hd.ai.coins && Boolean(await AiReadModel.exists({ shopId: shop, kind: 'voice', status: 'done', fileType: 'audio' })), JSON.stringify(hd.ai));
+  fake.answer = { bill: { text: '' }, input: 900, output: 5 };
+  const silent = await voice();
+  check('nothing heard → 422 “speak a little closer, or type”', silent.status === 422 && (silent.json.error?.message ?? '').includes('Nothing could be heard'), code(silent));
+  fake.queue.push({ status: 500 }, { status: 500 });
+  const before5 = await balance();
+  const gone = await voice();
+  check('Gemini not reached → 503, no tokens taken', gone.status === 503 && (await balance()) === before5, code(gone));
+  check('not a recording → 422', (await voice({ audio: '<script>alert(1)</script>'.repeat(10) })).status === 422);
+  check('longer than a minute → 422', (await voice({ seconds: 300 })).status === 422);
+  check('a file that is not audio → 422', (await voice({ mime: 'image/png' })).status === 422);
+
   await fake.close();
   await h.close();
   finish();

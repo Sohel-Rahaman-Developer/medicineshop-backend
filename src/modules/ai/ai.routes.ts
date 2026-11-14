@@ -1,14 +1,17 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { env } from '../../config/env';
 import { asyncHandler } from '../../core/async-handler';
+import { perUser } from '../../core/middleware/rate-limit';
 import { sendFile } from '../../core/export';
-import { notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
+import { needFeature, notInDemo, requirePermission, shopAuth, tenantOf } from '../../core/middleware/tenant';
 import { validate } from '../../core/middleware/validate';
 import { created, fetched, sent } from '../../core/response';
 import { idParams } from '../../core/zod';
 import { actorOf } from '../user/actor';
 import { aiOffer } from './ai-settings';
 import { coinInvoicePdf, orderCoins, testPayCoins, verifyCoins, wallet } from './coins';
+import { listen, listenOffer, listenSchema, type ListenInput } from './listen';
 import { meterOf, shopAi } from './meter';
 
 const orderSchema = z.object({ packCode: z.string().trim().min(1).max(20) }).strict();
@@ -26,6 +29,21 @@ aiRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const mine = await shopAi(tenantOf(req).shopId);
     fetched(res, { ...(await aiOffer()), coinsPerPage: mine.page.need, mostPerPage: mine.page.most, usualPerPage: mine.page.usual, free: mine.free, balance: mine.balance });
+  }),
+);
+// A voice message for Ask AI or the stock chat: anyone in the shop whose plan has either.
+const voice = (req: Request, res: Response, next: NextFunction) => {
+  if (tenantOf(req).features.includes('ai')) next();
+  else needFeature('ask')(req, res, next);
+};
+aiRouter.get('/listen', voice, asyncHandler(async (req: Request, res: Response) => { fetched(res, await listenOffer(tenantOf(req))); }));
+aiRouter.post(
+  '/listen',
+  voice,
+  perUser({ limit: env.RATE_ASK_PER_USER_PER_MIN, name: 'rl-listen' }),
+  validate({ body: listenSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    fetched(res, await listen(tenantOf(req), await actorOf(req), req.body as ListenInput));
   }),
 );
 // The header's tokens and free AI: anyone in the shop sees them, like the Yes before a job.

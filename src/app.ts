@@ -63,7 +63,7 @@ const PHOTO_PATH = /^\/((purchases|stock\/adjustments)\/[a-f0-9]{24}\/photo|sale
 // A supplier bill file comes base64 — the same 850 KB ceiling as a photo.
 const BILL_PATH = /^\/purchases\/import\/read$/;
 // D78: a scan or a phone photo for AI reading — up to about 4 MB (Nginx has its own block for this path).
-const AI_BILL_PATH = /^\/purchases\/import\/ai$/;
+const AI_BILL_PATH = /^\/(purchases\/import\/ai|ai\/listen)$/;
 // A logo upload — the platform's from the admin console or a shop's own (≤ 600 KB image).
 const BRAND_PATH = /^\/(admin\/brand|shop\/logo)$/;
 // D115: a blog post (the editor's document) and its pictures.
