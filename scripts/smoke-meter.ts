@@ -58,7 +58,7 @@ async function main() {
   check('…the guard no longer counts the 100 it no longer has', (await roomOf(otherShop, s1)).giftedPaise === 0);
   check('runs once: a second time changes nothing', (await tokensToTenPaise()) === 0 && (await wallet())?.balance === 2381);
 
-  section('2. ₹10 of real AI cost free every month, used first');
+  section('2. ₹10 of tokens free every month (100 at ₹0.10; as AI cost ₹10 × 0.8 ÷ 1.5 = ₹5.33), used first');
   await AdminUserModel.create({ email: 'root@meter.test', name: 'Root', role: 'super' });
   const root = h.client({ origin: 'http://localhost:3001' });
   await h.seedOtp('root@meter.test', '135790', 'admin');
@@ -71,33 +71,34 @@ async function main() {
   await CoinWalletModel.updateOne({ shopId: shop }, { $set: { balance: 0 } });
   fake.answer = { bill: MA_AI, input: 3200, output: 2400 };
   const read = () => owner.post('/purchases/import/ai', { supplierId: ma, fileName: 'bill.jpg', data: `data:image/jpeg;base64,${PHOTO.toString('base64')}` });
-  type Offer = { coinsPerPage: number; mostPerPage: number; free: { leftPaise: number; monthPaise: number; resetsOn: string }; balance: number };
+  type Offer = { coinsPerPage: number; mostPerPage: number; free: { leftPaise: number; monthPaise: number; resetsOn: string; tokens: number; tokensLeft: number }; balance: number };
   const offer = async () => data<Offer>(await owner.get('/ai/offer'));
   const o0 = await offer();
-  check('0 tokens, ₹10 free: a page needs 0 tokens (its worst ₹7.92 fits in the free AI), 149 without it', o0.coinsPerPage === 0 && o0.mostPerPage === 149 && o0.free.leftPaise === 1000 && o0.free.monthPaise === 1000 && o0.balance === 0, JSON.stringify(o0));
+  check('0 tokens, 100 free tokens (₹5.33 of AI): a page’s worst ₹7.92 needs ⌈(₹7.92 − ₹5.33) × 1.5 ÷ ₹0.08⌉ = 49 more, 149 without the free', o0.coinsPerPage === 49 && o0.mostPerPage === 149 && o0.free.leftPaise === 533 && o0.free.monthPaise === 533 && o0.free.tokens === 100 && o0.free.tokensLeft === 100 && o0.balance === 0, JSON.stringify(o0));
+  await give(shop, 'grant', 49);
   const r1 = await read();
   const a1 = data<{ ai: { coins: number; freePaise: number; balance: number } }>(r1).ai;
-  check('a read with 0 tokens → done on the free AI: its ₹2.68 from the ₹10, 0 tokens', r1.status === 200 && a1.coins === 0 && a1.freePaise === 268 && a1.balance === 0, code(r1));
+  check('given the 49 → read: its real ₹2.68 came from the free AI, 0 tokens taken, the 49 back', r1.status === 200 && a1.coins === 0 && a1.freePaise === 268 && a1.balance === 49, code(r1));
   const w1 = await wallet();
   check('…₹2.68 of this month used, the month noted; one ledger line, 0 tokens, saying the free tokens paid', w1?.freeUsedPaise === 268 && w1.freeTotalPaise === 268 && w1.freeMonth === istMonth(new Date()) && w1.held === 0 && Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'read', coins: 0, text: { $regex: '[0-9]+ of this month’s free tokens' } })));
   const o1 = await offer();
-  check('₹7.32 free left: the next page needs ⌈(₹7.92 − ₹7.32) × 1.5 ÷ ₹0.08⌉ = 12 tokens', o1.free.leftPaise === 732 && o1.coinsPerPage === 12, JSON.stringify(o1));
+  check('₹2.65 of free AI left (50 of the 100 tokens): the next page needs ⌈(₹7.92 − ₹2.65) × 1.5 ÷ ₹0.08⌉ = 99 tokens', o1.free.leftPaise === 265 && o1.coinsPerPage === 99 && o1.free.tokensLeft === 50, JSON.stringify(o1));
   const r2 = await read();
-  check('with 0 tokens → 409 “buy tokens”, nothing used', r2.status === 409 && reason(r2) === 'NOT_ENOUGH_COINS' && (await wallet())?.freeUsedPaise === 268, code(r2));
-  await give(shop, 'grant', 12);
+  check('with 49 tokens → 409 “buy tokens”, nothing used', r2.status === 409 && reason(r2) === 'NOT_ENOUGH_COINS' && (await wallet())?.freeUsedPaise === 268, code(r2));
+  await give(shop, 'grant', 50);
   const r3 = await read();
   const a3 = data<{ ai: { coins: number; freePaise: number; balance: number } }>(r3).ai;
-  check('given 12 → read: ₹7.32 free + 12 tokens held, its ₹2.68 came from the free AI, the 12 back', r3.status === 200 && a3.coins === 0 && a3.freePaise === 268 && a3.balance === 12 && (await wallet())?.freeUsedPaise === 536 && (await wallet())?.held === 0, code(r3));
-  const m = data<{ on: boolean; balance: number; free: { usedPaise: number; leftPaise: number; monthPaise: number } }>(await owner.get('/ai/meter'));
-  check('the header: 12 tokens, free ₹5.36 of ₹10 used, ₹4.64 left', m.on && m.balance === 12 && m.free.usedPaise === 536 && m.free.leftPaise === 464 && m.free.monthPaise === 1000, JSON.stringify(m));
-  check('the guard counts the free AI used: given ₹0.96 + free ₹5.36 ≥ the AI cost ₹5.36', (await roomOf(shop, await aiSettings())).leftPaise >= 0 && (await roomOf(shop, await aiSettings())).giftedPaise === 12 * 8 + 536);
+  check('given 50 more → read: the last ₹2.65 free, the other 3 paise × 1.5 ÷ ₹0.08 = 1 token, 98 left', r3.status === 200 && a3.coins === 1 && a3.freePaise === 265 && a3.balance === 98 && (await wallet())?.freeUsedPaise === 533 && (await wallet())?.held === 0, code(r3));
+  const m = data<{ on: boolean; balance: number; free: { usedPaise: number; leftPaise: number; monthPaise: number; tokens: number; tokensLeft: number } }>(await owner.get('/ai/meter'));
+  check('the header: 98 tokens, free 100 of 100 used', m.on && m.balance === 98 && m.free.usedPaise === 533 && m.free.leftPaise === 0 && m.free.tokens === 100 && m.free.tokensLeft === 0, JSON.stringify(m));
+  check('the guard counts the free AI used: given 99 × ₹0.08 + free ₹5.33 ≥ the AI cost ₹5.36', (await roomOf(shop, await aiSettings())).leftPaise >= 0 && (await roomOf(shop, await aiSettings())).giftedPaise === 99 * 8 + 533);
 
   section('3. A new month starts the free AI again — never added up');
   await CoinWalletModel.updateOne({ shopId: shop }, { $set: { freeMonth: '2026-01' } });
   const o2 = await offer();
-  check('last month’s ₹5.36 used doesn’t count: ₹10 free again (not ₹14.64)', o2.free.leftPaise === 1000 && o2.coinsPerPage === 0, JSON.stringify(o2));
+  check('last month’s free AI used doesn’t count: 100 free tokens again, never more', o2.free.leftPaise === 533 && o2.free.tokensLeft === 100 && o2.coinsPerPage === 49, JSON.stringify(o2));
   const r4 = await read();
-  check('the month’s first read starts from 0: ₹2.68 used this month', r4.status === 200 && (await wallet())?.freeUsedPaise === 268 && (await wallet())?.freeMonth === istMonth(new Date()) && (await wallet())?.freeTotalPaise === 804, code(r4));
+  check('the month’s first read starts from 0: ₹2.68 used this month', r4.status === 200 && (await wallet())?.freeUsedPaise === 268 && (await wallet())?.freeMonth === istMonth(new Date()) && (await wallet())?.freeTotalPaise === 801, code(r4));
 
   section('4. Once: tokens become ₹0.01 each (₹1 = 100 tokens) — every balance × 10, the same money');
   // Room for one more page while a dead read still counts at its worst.
@@ -143,6 +144,7 @@ async function main() {
   const o4 = await offer();
   check('a page now: ⌈₹7.92 × 1.5 ÷ ₹0.0084⌉ = 1,415 tokens at most (₹14.15 — was 149 × ₹0.10)', o4.mostPerPage === 1415, JSON.stringify(o4));
   const r5 = await read();
+  check('₹10 free is now 1,000 tokens (₹10 × 0.84 ÷ 1.5 = ₹5.60 of AI)', o4.free.tokens === 1000 && o4.free.monthPaise === 560, JSON.stringify(o4.free));
   check('AI runs again after the move', r5.status === 200, code(r5));
   check('runs once: a third time changes nothing', (await tokensToOnePaise()) === 0 && (await wallet(otherShop))?.balance === 400);
 

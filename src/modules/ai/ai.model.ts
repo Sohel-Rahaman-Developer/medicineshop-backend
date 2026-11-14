@@ -71,7 +71,7 @@ const settingsSchema = new Schema(
     maxPages: { type: Number, required: true, default: 10 },
     /** Free coins every shop gets once (D96); 0 since D109 — the monthly free AI replaced them. */
     welcomeCoins: { type: Number, required: true, default: 0 },
-    /** D109: MedBox24's real AI cost each shop may use free in an IST month, in paise; it resets, never adds up. */
+    /** Free tokens each shop gets in an IST month, as their price in paise (1000 = ₹10 = 1,000 tokens); resets, never adds up. */
     freeMonthPaise: { type: Number, required: true, default: 1000 },
     /** D109: when tokens became ₹0.10 each, and what one old token was worth then (GST out) — older gifts count at that. */
     tokensAt: { type: Date },

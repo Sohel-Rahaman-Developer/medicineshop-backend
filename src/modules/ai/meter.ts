@@ -12,7 +12,8 @@ import { checks, coinValue, tokensFor } from './guard';
 // D109: AI is paid by what it really used — its cost × the margin, at what a token brings in (GST out), rounded up.
 // Before a job runs its worst case is set aside (this month's free AI first, then tokens), so a job never runs on
 // tokens the shop doesn't have; afterwards the real cost is charged and the rest goes back. MedBox24 gives each shop
-// up to freeMonthPaise of real AI cost an IST month: it resets, never adds up, and is used before bought tokens.
+// freeMonthPaise worth of tokens an IST month (₹10 = 1,000 tokens): it resets, never adds up, and is used before
+// bought tokens. Inside, the free AI is counted in real AI cost — those tokens' worth, GST and the margin taken out.
 
 export const NOT_ENOUGH = 'NOT_ENOUGH_COINS';
 
@@ -26,19 +27,29 @@ export interface Hold {
 
 type FreeState = { freeMonth?: string | null; freeUsedPaise?: number | null } | null;
 
+type FreePricing = Pricing & Pick<AiSettings, 'freeMonthPaise'>;
+/** A token's price in the cheapest pack, GST in (1 paisa). */
+const tokenPrice = (s: Pick<AiSettings, 'packs'>) => Math.min(...s.packs.map((k) => k.price / Math.max(1, k.coins)));
+/** The month's free tokens as real AI cost: ₹10 of tokens → 1,000 × 0.84 ÷ 1.5 = ₹5.60 of AI. */
+export const freeBudget = (s: FreePricing) => Math.floor((s.freeMonthPaise * coinValue(s)) / tokenPrice(s) / s.targetMargin);
 /** This month's free AI a shop has left, in paise of real cost. */
-export const freeLeft = (s: Pick<AiSettings, 'freeMonthPaise'>, w: FreeState, now = new Date()) => Math.max(0, s.freeMonthPaise - (w?.freeMonth === istMonth(now) ? (w.freeUsedPaise ?? 0) : 0));
+export const freeLeft = (s: FreePricing, w: FreeState, now = new Date()) => Math.max(0, freeBudget(s) - (w?.freeMonth === istMonth(now) ? (w.freeUsedPaise ?? 0) : 0));
 
 /** What a job will need before it runs: at most `coins` tokens, `free` paise of this month's free AI first. */
-export function quote(s: Pricing & Pick<AiSettings, 'freeMonthPaise'>, w: FreeState, worstPaise: number, now = new Date()) {
+export function quote(s: FreePricing, w: FreeState, worstPaise: number, now = new Date()) {
   const free = Math.min(freeLeft(s, w, now), worstPaise);
   return { coins: tokensFor(s, worstPaise - free), freePaise: free };
 }
 
 const DAY = 86_400_000;
 
-/** This month's free AI shown as the tokens it covers: a job takes the same tokens from it as it would from bought ones. */
-const freeTokens = (s: Pricing, paise: number) => (paise > 0 ? tokensFor(s, paise) : 0);
+/** Free AI (real cost) as the tokens it stands for: the cost × margin ÷ a token's worth. */
+const freeTokens = (s: Pricing, paise: number) => (paise > 0 ? Math.max(1, Math.round((paise * s.targetMargin) / coinValue(s))) : 0);
+/** The month's free tokens as the shop sees them, and how many are left. */
+const freeShown = (s: FreePricing, left: number) => {
+  const tokens = Math.round(s.freeMonthPaise / tokenPrice(s));
+  return { tokens, tokensLeft: left >= freeBudget(s) ? tokens : Math.min(tokens, freeTokens(s, left)) };
+};
 
 /** When this IST month's free AI comes back: midnight IST on the 1st. */
 const resetsOn = (now: Date) => {
@@ -53,7 +64,7 @@ export async function meterOf(shopId: Types.ObjectId, now = new Date()) {
   return {
     on: (s.enabled && readyFor(s, s.model)) || (s.chat.enabled && readyFor(s, s.chat.model)),
     balance: w?.balance ?? 0,
-    free: { usedPaise: s.freeMonthPaise - left, leftPaise: left, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now), tokens: freeTokens(s, s.freeMonthPaise), tokensLeft: freeTokens(s, left) },
+    free: { usedPaise: freeBudget(s) - left, leftPaise: left, monthPaise: freeBudget(s), resetsOn: resetsOn(now), ...freeShown(s, left) },
   };
 }
 
@@ -72,7 +83,7 @@ export async function shopAi(shopId: Types.ObjectId, now = new Date()) {
   const per = avg[0]?.pages ? Math.ceil(avg[0].cost / avg[0].pages) : null;
   return {
     balance: w?.balance ?? 0,
-    free: { leftPaise: free, monthPaise: s.freeMonthPaise, resetsOn: resetsOn(now), tokens: freeTokens(s, s.freeMonthPaise), tokensLeft: freeTokens(s, free) },
+    free: { leftPaise: free, monthPaise: freeBudget(s), resetsOn: resetsOn(now), ...freeShown(s, free) },
     page: { need: quote(s, w, read.worstPaise, now).coins, most: read.coins, usual: per === null ? null : tokensFor(s, per) },
     question: { need: quote(s, w, chat.worstPaise, now).coins, most: chat.coins },
   };
@@ -87,7 +98,7 @@ export async function holdJob(shopId: Types.ObjectId, s: AiSettings, worstPaise:
   await CoinWalletModel.updateOne({ shopId, freeMonth: { $ne: month } }, { $set: { freeMonth: month, freeUsedPaise: 0 } }, { session });
   const w = await CoinWalletModel.findOne({ shopId }).session(session).lean();
   const q = quote(s, w, worstPaise, now);
-  const r = await CoinWalletModel.updateOne({ shopId, balance: { $gte: q.coins }, freeUsedPaise: { $lte: s.freeMonthPaise - q.freePaise } }, { $inc: { balance: -q.coins, held: q.coins, freeUsedPaise: q.freePaise } }, { session });
+  const r = await CoinWalletModel.updateOne({ shopId, balance: { $gte: q.coins }, freeUsedPaise: { $lte: freeBudget(s) - q.freePaise } }, { $inc: { balance: -q.coins, held: q.coins, freeUsedPaise: q.freePaise } }, { session });
   if (!r.modifiedCount) {
     const have = w?.balance ?? 0;
     throw AppError.conflict(`Not enough AI tokens — this needs ${String(q.coins)}, the shop has ${String(have)}`, { reason: NOT_ENOUGH, need: q.coins, have });

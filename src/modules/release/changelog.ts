@@ -10,6 +10,14 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.60.3',
+    date: '2026-11-14',
+    title: 'Free AI is 1,000 tokens a month — ₹10 = 1,000 tokens',
+    shop: ['The monthly free AI is now counted as tokens like everything else: 1,000 free tokens a month (₹10 at ₹0.01 a token), used before bought tokens, back to 1,000 on the 1st. Before, ₹10 meant MedBox24’s own AI cost, which showed as an odd number of tokens.'],
+    admin: ['“Free tokens each month, per shop (₹)” is the worth of the free tokens; MedBox24’s real AI cost for it is at most that ÷ 1.18 GST ÷ the margin (₹10 → ₹5.60 at 1.5).'],
+    api: ['free.monthPaise / leftPaise / usedPaise are real AI cost against that budget; free.tokens / tokensLeft are what a shop sees.'],
+  },
+  {
     version: '1.60.2',
     date: '2026-11-14',
     title: 'One chat screen: Ask and Add stock together, with a microphone that works',
