@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.60.1',
+    date: '2026-11-14',
+    title: 'Stock chat and token move: three safety fixes',
+    shop: [
+      'Stock chat: a long chat is counted as 2 to 4 pages, so what is set aside always covers what the AI can cost; past 14,000 letters it asks you to review or start a new chat.',
+      'Stock chat: an expiry year that is not 20xx (like 06/1998) is asked again instead of being read as 2098.',
+    ],
+    admin: ['The move to ₹0.01 tokens no longer waits on a wallet whose held tokens no job accounts for — only on a job that may still be running.'],
+    api: [],
+  },
+  {
     version: '1.60.0',
     date: '2026-11-13',
     title: 'One token is ₹0.01 — ₹1 is 100 tokens',

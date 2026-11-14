@@ -172,10 +172,10 @@ async function walletToPaise(shopId: Types.ObjectId, cutoff: Date) {
   return inTransaction(async (session) => {
     const w = await CoinWalletModel.findOne({ shopId }).session(session).lean();
     if (!w || w.tokenPaise === 1) return true;
+    // Only a job that may still be running holds this wallet back; anything older died and moves with it.
+    const live = { shopId: w.shopId, status: 'running' as const, createdAt: { $gte: cutoff } };
+    if ((await AiReadModel.exists(live).session(session)) || (await AskQuestionModel.exists(live).session(session))) return false;
     const dead = { shopId: w.shopId, status: 'running' as const, createdAt: { $lt: cutoff }, hold: { $exists: true } };
-    const reads = await AiReadModel.find(dead).select('hold').session(session).lean();
-    const asks = await AskQuestionModel.find(dead).select('hold').session(session).lean();
-    if ([...reads, ...asks].reduce((t, d) => t + (d.hold?.coins ?? 0), 0) !== w.held) return false;
     const r = await CoinWalletModel.updateOne({ shopId, _id: w._id, balance: w.balance, held: w.held, tokenPaise: { $ne: 1 } }, { $set: { balance: w.balance * 10, held: w.held * 10, tokenPaise: 1 } }, { session });
     if (!r.modifiedCount) return false;
     await AiReadModel.updateMany(dead, { $mul: { 'hold.coins': 10, coins: 10 } }, { session });

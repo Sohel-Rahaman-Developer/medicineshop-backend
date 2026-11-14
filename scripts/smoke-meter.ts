@@ -110,7 +110,8 @@ async function main() {
   // A read that died 30 minutes ago still holding 5 tokens; a read on the other shop still running.
   const deadId = new Types.ObjectId();
   await AiReadModel.collection.insertOne({ _id: deadId, shopId: shop, shopName: 'Shri Ram Medical Store', userId: new Types.ObjectId(), userName: 'Rohit', supplierName: 'M.A. Pharma', fileName: 'bill.jpg', fileType: 'image', kind: 'bill', pages: 1, coins: 5, hold: { coins: 5, freePaise: 0, month }, model: 'claude-sonnet-5-5', status: 'running', refunded: false, lines: 0, costPaise: 0, inputTokens: 0, outputTokens: 0, createdAt: old, updatedAt: old });
-  await CoinWalletModel.updateOne({ shopId: shop }, { $inc: { held: 5 } });
+  // …and 2 more held that no job accounts for: they must not stop the move.
+  await CoinWalletModel.updateOne({ shopId: shop }, { $inc: { held: 7 } });
   await give(otherShop, 'grant', 40);
   const liveId = new Types.ObjectId();
   await AiReadModel.collection.insertOne({ _id: liveId, shopId: otherShop, shopName: 'Mina Medical', userId: new Types.ObjectId(), userName: 'Mina', supplierName: 'X', fileName: 'bill.jpg', fileType: 'image', kind: 'bill', pages: 1, coins: 3, hold: { coins: 3, freePaise: 0, month }, model: 'claude-sonnet-5-5', status: 'running', refunded: false, lines: 0, costPaise: 0, inputTokens: 0, outputTokens: 0, createdAt: new Date(), updatedAt: new Date() });
@@ -121,12 +122,12 @@ async function main() {
   const firstRun = await tokensToOnePaise();
   const w4 = await wallet();
   const st4 = await AiSettingsModel.findById('ai').lean();
-  check(`this shop: ${String(bal)} tokens → ${String(bal * 10)}, its dead read’s 5 held → 50, the unpaid order’s 2,990 → 29,900`, firstRun === 1 && w4?.balance === bal * 10 && w4.held === 50 && w4.tokenPaise === 1 && (await AiReadModel.findById(deadId).lean())?.hold?.coins === 50 && (await CoinOrderModel.findOne({ razorpayOrderId: 'order_paise_1' }).lean())?.coins === 29_900, JSON.stringify(w4));
+  check(`this shop: ${String(bal)} tokens → ${String(bal * 10)}, its 7 held → 70 (the dead read’s 5 → 50), the unpaid order’s 2,990 → 29,900`, firstRun === 1 && w4?.balance === bal * 10 && w4.held === 70 && w4.tokenPaise === 1 && (await AiReadModel.findById(deadId).lean())?.hold?.coins === 50 && (await CoinOrderModel.findOne({ razorpayOrderId: 'order_paise_1' }).lean())?.coins === 29_900, JSON.stringify(w4));
   check('…one “convert” line: the same money', Boolean(await CoinEntryModel.exists({ shopId: shop, kind: 'convert', coins: bal * 9, balance: bal * 10, text: { $regex: 'the same money' } })));
   const ow = await wallet(otherShop);
   check('the other shop has a read still running: not moved yet, the packs not changed, AI paused for now', ow?.balance === 37 && ow.held === 3 && ow.tokenPaise === undefined && st4?.tokensMoving === true && !st4.paiseAt && st4.packs?.[0]?.coins === 2990, JSON.stringify([ow, st4?.packs?.[0]]));
   const paused = await read();
-  check('while tokens move no AI job starts → 503, nothing taken', paused.status === 503 && (await wallet())?.balance === bal * 10 && (await wallet())?.held === 50, code(paused));
+  check('while tokens move no AI job starts → 503, nothing taken', paused.status === 503 && (await wallet())?.balance === bal * 10 && (await wallet())?.held === 70, code(paused));
 
   // The running read ends: its 3 come back.
   await AiReadModel.updateOne({ _id: liveId }, { $set: { status: 'failed', refunded: true } });
@@ -138,7 +139,7 @@ async function main() {
   check(`the guard’s money is the same before and after: given ₹${(roomBefore.giftedPaise / 100).toFixed(2)}, may cost up to ₹${(roomBefore.allowancePaise / 100).toFixed(2)} in all`, roomAfter.giftedPaise === roomBefore.giftedPaise && roomAfter.allowancePaise === roomBefore.allowancePaise, JSON.stringify([roomBefore, roomAfter]));
   check('a token now brings in ₹0.0084 (₹0.01 less 18% GST, rounded down)', coinValue(sAfter) === 0.84, String(coinValue(sAfter)));
   const back = await settleStuckReads();
-  check('the dead read gives back its 50 (= the 5 it held)', back >= 1 && (await wallet())?.balance === bal * 10 + 50 && (await wallet())?.held === 0, JSON.stringify(await wallet()));
+  check('the dead read gives back its 50 (= the 5 it held)', back >= 1 && (await wallet())?.balance === bal * 10 + 50 && (await wallet())?.held === 20, JSON.stringify(await wallet()));
   const o4 = await offer();
   check('a page now: ⌈₹7.92 × 1.5 ÷ ₹0.0084⌉ = 1,415 tokens at most (₹14.15 — was 149 × ₹0.10)', o4.mostPerPage === 1415, JSON.stringify(o4));
   const r5 = await read();

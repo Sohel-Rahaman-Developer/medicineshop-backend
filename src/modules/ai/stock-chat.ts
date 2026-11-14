@@ -19,12 +19,17 @@ import { AI_MODELS, AiReadModel, CoinWalletModel } from './ai.model';
 import { costPaise, rowsOfAi, type AiBill } from './bill-ai';
 import { balanceOf } from './coins';
 import { outOfCredit } from './credits';
-import { AI_PAUSED, PAGE_OUT, fits, safeNow, worstPage } from './guard';
+import { AI_PAUSED, PAGE_IN, PAGE_OUT, fits, safeNow, worstPage } from './guard';
 import { needSwitch } from './stock-switch';
 import { freeLeft, holdJob, quote, settleJob, tookText } from './meter';
 
 // The AI only fills a form from the owner's words. It saves nothing: the shop checks every line on the bill review
 // screen and saves there, and the server checks everything again as if typed by hand.
+
+/** The whole chat goes to the AI each time: at most this many letters, read as up to 4 pages. */
+const CHAT_LETTERS = 14_000;
+/** A letter is a token at most; with the form's own words, the chat in pages of PAGE_IN — what is set aside follows it. */
+const pagesOf = (input: { messages: { text: string }[] }) => Math.max(1, Math.ceil((input.messages.reduce((n, x) => n + x.text.length, 0) + 1000) / PAGE_IN));
 
 export const stockChatSchema = z
   .object({
@@ -32,7 +37,8 @@ export const stockChatSchema = z
       .array(z.object({ from: z.enum(['me', 'app']), text: z.string().trim().min(1).max(1500, 'At most 1,500 letters in one message') }).strict())
       .min(1)
       .max(30, 'This chat is long — review what is there, or start a new one')
-      .refine((m) => m.at(-1)?.from === 'me', 'Say what you bought'),
+      .refine((m) => m.at(-1)?.from === 'me', 'Say what you bought')
+      .refine((m) => m.reduce((n, x) => n + x.text.length, 0) <= CHAT_LETTERS, 'This chat is long — review what is there, or start a new one'),
   })
   .strict();
 export type StockChatInput = z.infer<typeof stockChatSchema>;
@@ -114,7 +120,7 @@ export function expiryOf(s: string) {
     month = m ? MONTHS.indexOf((m[1] ?? '').slice(0, 3)) + 1 : NaN;
     year = m ? Number(m[2]) : NaN;
   }
-  if (!(month >= 1 && month <= 12) || !Number.isFinite(year)) return null;
+  if (!(month >= 1 && month <= 12) || !Number.isFinite(year) || (year > 99 && (year < 2000 || year > 2099))) return null;
   const yy = year % 100;
   return `${String(month).padStart(2, '0')}/${String(yy).padStart(2, '0')}`;
 }
@@ -161,7 +167,8 @@ export async function stockChat(t: TenantContext, actor: Actor, input: StockChat
   const provider = providerOf(s.model);
   const key = s.enabled ? await apiKey(provider) : null;
   if (!key) throw AppError.forbidden('AI is off');
-  const worst = worstPage(s);
+  const pages = pagesOf(input);
+  const worst = worstPage(s) * pages;
   const w = await CoinWalletModel.findOne({ shopId: t.shopId }).lean();
   if (!safeNow(s, 'read') || ((w?.balance ?? 0) >= quote(s, w, worst).coins && !(await fits(t.shopId, s, worst, freeLeft(s, w))))) {
     await signal('ai_paused');
@@ -169,7 +176,7 @@ export async function stockChat(t: TenantContext, actor: Actor, input: StockChat
   }
   const { read, hold } = await inTransaction(async (session) => {
     const h = await holdJob(t.shopId, s, worst, session);
-    const [doc] = await AiReadModel.create([{ shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, kind: 'chat', supplierName: 'Stock chat', fileName: 'Stock chat', fileType: 'chat', pages: 1, coins: h.coins, hold: h, model: s.model }], { session });
+    const [doc] = await AiReadModel.create([{ shopId: t.shopId, shopName: t.shopName, userId: new Types.ObjectId(actor.id), userName: actor.name, kind: 'chat', supplierName: 'Stock chat', fileName: 'Stock chat', fileType: 'chat', pages, coins: h.coins, hold: h, model: s.model }], { session });
     if (!doc) throw AppError.internal();
     return { read: doc, hold: h };
   });

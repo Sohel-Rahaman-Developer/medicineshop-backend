@@ -27,7 +27,7 @@ async function main() {
   process.env.GEMINI_BASE_URL = fake.url;
   const h = await startHarness();
   const { AdminUserModel } = await import('../src/modules/admin/admin.model.js');
-  const { CoinWalletModel } = await import('../src/modules/ai/ai.model.js');
+  const { AiReadModel, CoinWalletModel } = await import('../src/modules/ai/ai.model.js');
   const { PurchaseModel } = await import('../src/modules/purchases/purchase.model.js');
   const { SupplierModel } = await import('../src/modules/suppliers/supplier.model.js');
   const { BatchModel } = await import('../src/modules/stock/batch.model.js');
@@ -126,6 +126,15 @@ async function main() {
   const r7 = await owner.post('/purchases/import/chat', { messages: [{ from: 'me', text: 'Dolo 10 strip' }] });
   check('the AI can’t be reached → 503, no tokens taken', r7.status === 503 && (await balance()) === tokens, code(r7));
   check('the last message must be the owner’s → 422', (await owner.post('/purchases/import/chat', { messages: [{ from: 'app', text: 'hi' }] })).status === 422);
+  // A long chat goes to the AI whole: more is set aside for it, and past 14,000 letters it is refused.
+  const long = [0, 1, 2, 3].map(() => ({ from: 'me' as const, text: 'Dolo 650 4 strip '.repeat(88).trim() }));
+  fake.answer = { bill: form({ items: [] }), input: 2400, output: 200 };
+  const r9 = await owner.post('/purchases/import/chat', { messages: long });
+  const longRead = await AiReadModel.findOne({ shopId: shop, kind: 'chat' }).sort({ createdAt: -1 }).lean();
+  check('a long chat (5,600 letters) counts as 2 pages: twice as much set aside, so its cost can’t pass the hold', r9.status === 200 && longRead?.pages === 2, `${code(r9)} ${String(longRead?.pages)}`);
+  const tooLong = await owner.post('/purchases/import/chat', { messages: Array.from({ length: 10 }, () => ({ from: 'me', text: 'x'.repeat(1500) })) });
+  check('past 14,000 letters → 422 “start a new one”, the AI not called', tooLong.status === 422, code(tooLong));
+  check('a year that is not 20xx is not an expiry: 06/1998 → nothing (asked again)', expiryOf('06/1998') === null && expiryOf('06/2028') === '06/28');
 
   section('4. A cash buy from the market: paid on the spot, no GST claimed, Undo within 24 hours');
   const r8 = await chat(['College Street ki dukaan se 4 strip Dolo, batch DL77, 09/28, MRP 33, 25 rupaye diye, counter se'], form({ from: 'market', paidFromCounter: 'yes', items: [item({ name: 'Dolo 650 Tablet', batch: 'DL77', expiry: '09/28', qty: '4', mrp: '33', rate: '25' })] }));
