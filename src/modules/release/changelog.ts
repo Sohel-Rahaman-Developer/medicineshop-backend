@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.62.2',
+    date: '2026-11-15',
+    title: 'A bill that can’t be saved keeps Payment open',
+    shop: [
+      'When a bill can’t be saved, Payment stays open with what you typed (amount, udhaar, limit) and says why inside it — no going back to the bill to type it all again.',
+      'A medicine no longer in the shop’s list (deleted, turned off, or the demo shop made again since the bill was started) is marked on the bill with Remove, and Charge waits until it is removed — instead of “Item 1: product not found” after Confirm.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.62.1',
     date: '2026-11-15',
     title: 'Set or edit the udhaar limit right in Payment',
