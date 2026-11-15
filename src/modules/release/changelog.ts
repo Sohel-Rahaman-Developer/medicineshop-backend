@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.62.1',
+    date: '2026-11-15',
+    title: 'Set or edit the udhaar limit right in Payment',
+    shop: [
+      'Billing on udhaar: Payment shows Set limit (no limit yet) or Edit limit for the chosen customer. Save it there and carry on — Payment stays open with what was typed, no going back to the bill.',
+      'Only people who may edit customers see the button; the change is in the customer’s history like any limit change.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.62.0',
     date: '2026-11-15',
     title: 'Licence expiry optional; udhaar keeps what the customer paid',
