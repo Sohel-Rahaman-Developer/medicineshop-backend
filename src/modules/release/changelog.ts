@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.63.1',
+    date: '2026-11-15',
+    title: 'Prescription read: doubts first, beside the photo; change any medicine',
+    shop: [
+      'Prescription read with AI: the photo stays at the top (tap to make it larger), and the lines the AI is not sure of come first, with what it read — match them with the prescription, then pick or search.',
+      'Every line has Change / Search another: search the shop’s medicines right there; the one you pick takes the AI’s place on the bill, with the dose (and the quantity when it is counted the same way).',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.63.0',
     date: '2026-11-15',
     title: 'Send the bill by SMS; doctor and prescription photo at the end of a bill',
