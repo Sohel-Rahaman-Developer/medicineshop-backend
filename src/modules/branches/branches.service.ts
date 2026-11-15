@@ -30,7 +30,7 @@ export interface BranchInput {
   phone: string;
   email?: string;
   drugLicenseNumber: string;
-  drugLicenseExpiry: Date;
+  drugLicenseExpiry: Date | null;
   fssai?: string;
   gst: 'main' | 'own';
   gstin?: string;

@@ -234,6 +234,25 @@ async function main() {
   const theirs = data<Entry[]>(await other.get('/audit?limit=100'));
   check('another shop’s log has none of shop 1’s entries', !theirs.some((x) => /Shri Ram|vikram|sunita/.test(x.text)), String(theirs.length));
 
+  section('10. The drug licence expiry is optional, and its reminder can be turned off');
+  const noDl = await h.signIn('owner@notif3.test');
+  const bare = shopBody('Licence Later Pharmacy');
+  const made = await noDl.post('/shops', { ...bare, shop: { ...bare.shop, drugLicenseExpiry: '' } });
+  check('a shop starts without the licence expiry', made.status < 300, code(made));
+  noDl.shopId = data<{ id: string }>(made).id;
+  const pr = data<{ version: number; drugLicenseExpiry: string | null; drugLicenseReminder: boolean }>(await noDl.get('/shop'));
+  check('…no expiry kept, reminders on by default, and no licence alert', pr.drugLicenseExpiry === null && pr.drugLicenseReminder && !types(await get(noDl)).includes('DL_EXPIRY'), JSON.stringify(pr));
+  const soonDay = new Date(Date.now() + IST + 20 * DAY);
+  const soon = `${String(soonDay.getUTCFullYear())}-${String(soonDay.getUTCMonth() + 1).padStart(2, '0')}`;
+  const save = (x: Record<string, unknown>, version: number) => noDl.patch('/shop', { ...bare.shop, pricingMode: undefined, legalName: bare.shop.name, version, ...x });
+  const withDl = await save({ drugLicenseExpiry: soon }, pr.version);
+  check(`expiry added in Settings (${soon}, under 60 days away) → the licence alert shows`, withDl.status === 200 && types(await get(noDl)).includes('DL_EXPIRY'), code(withDl));
+  const off = await save({ drugLicenseExpiry: soon, drugLicenseReminder: false }, data<{ version: number }>(withDl).version);
+  check('reminder turned off → no licence alert, the expiry kept', off.status === 200 && !data<{ drugLicenseReminder: boolean }>(off).drugLicenseReminder && data<{ drugLicenseExpiry: string | null }>(off).drugLicenseExpiry !== null && !types(await get(noDl)).includes('DL_EXPIRY'), code(off));
+  const cleared = await save({ drugLicenseExpiry: '' }, data<{ version: number }>(off).version);
+  check('expiry cleared → none kept, no alert', cleared.status === 200 && data<{ drugLicenseExpiry: string | null }>(cleared).drugLicenseExpiry === null && !types(await get(noDl)).includes('DL_EXPIRY'), code(cleared));
+  check('an expiry already past is still refused → 422', (await save({ drugLicenseExpiry: '2020-01' }, data<{ version: number }>(cleared).version)).status === 422);
+
   await h.close();
   finish();
 }

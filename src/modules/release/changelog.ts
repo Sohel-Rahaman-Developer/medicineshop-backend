@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.62.0',
+    date: '2026-11-15',
+    title: 'Licence expiry optional; udhaar keeps what the customer paid',
+    shop: [
+      'Starting a shop: the drug licence expiry is optional — add it now or later in Settings. Without it there is no licence reminder.',
+      'Settings → Licence expiry reminders: on by default, turn it off to stop the reminder before the licence expires. The expiry can also be cleared.',
+      'Billing on udhaar: choosing the customer from Payment brings you straight back to Payment, on udhaar, with what the customer handed over already filled in — no going back to the bill and typing it again.',
+    ],
+    admin: ['Shops without a licence expiry show “No expiry given” and are never marked DL expired. Partner shop forms: licence expiry optional.'],
+    api: ['Shop: drugLicenseExpiry may be "" or missing at sign-up and in PATCH /shop (stored null); new drugLicenseReminder (boolean, default true) on GET/PATCH /shop.'],
+  },
+  {
     version: '1.61.2',
     date: '2026-11-14',
     title: 'Add stock by chat works on Claude',

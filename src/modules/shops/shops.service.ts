@@ -143,7 +143,7 @@ export function context(t: TenantContext, roleName: string, designation: string)
 
 export async function getProfile(shopId: Types.ObjectId) {
   const shop = await ShopModel.findById(shopId)
-    .select('name legalName address phone email gstin pan fssai drugLicenseNumber drugLicenseExpiry financialYearStartMonth version')
+    .select('name legalName address phone email gstin pan fssai drugLicenseNumber drugLicenseExpiry drugLicenseReminder financialYearStartMonth version')
     .lean();
   if (!shop) throw AppError.notFound('Shop not found');
   const { _id, ...rest } = shop;
@@ -166,6 +166,7 @@ export async function updateProfile(t: TenantContext, actor: { id: string; name:
     fssai: input.fssai,
     drugLicenseNumber: input.drugLicenseNumber,
     drugLicenseExpiry: input.drugLicenseExpiry,
+    drugLicenseReminder: input.drugLicenseReminder,
   });
   await shop.save();
   const after = await getProfile(t.shopId);

@@ -97,7 +97,7 @@ export async function shops(q: { q?: string; status?: string; cursor?: string; l
     return {
       id: String(s._id), name: s.name, city: s.address?.city ?? '', phone: s.phone ?? '', status: s.status, createdAt: s.createdAt, demo: s.demo === true,
       owner: { name: o?.name ?? '', email: o?.email ?? '' },
-      drugLicense: { number: s.drugLicenseNumber, expiry: s.drugLicenseExpiry, expired: s.drugLicenseExpiry.getTime() < now.getTime() },
+      drugLicense: { number: s.drugLicenseNumber, expiry: s.drugLicenseExpiry, expired: ((s.drugLicenseExpiry as Date | null | undefined)?.getTime() ?? Infinity) < now.getTime() },
       plan: sub ? { status: statusAt(sub, now), planCode: sub.planCode, endDate: sub.endDate, maxUsers: sub.maxUsers } : null,
       users: u?.n ?? 0, lastActiveAt: u?.last ?? null,
       branchOf: s.mainShopId ? { id: String(s.mainShopId), name: main?.name ?? '' } : null,
@@ -126,7 +126,7 @@ export async function shop(id: string, now = new Date()) {
   ]);
   return {
     id, name: doc.name, status: doc.status, createdAt: (doc as { createdAt?: Date }).createdAt ?? null, demo: doc.demo === true,
-    address: doc.address, phone: doc.phone, gstin: doc.gstin ?? '', drugLicense: { number: doc.drugLicenseNumber, expiry: doc.drugLicenseExpiry },
+    address: doc.address, phone: doc.phone, gstin: doc.gstin ?? '', drugLicense: { number: doc.drugLicenseNumber, expiry: doc.drugLicenseExpiry ?? null },
     owner: { name: owner?.name ?? '', email: owner?.email ?? '' },
     branchOf: doc.mainShopId ? { id: String(doc.mainShopId), name: main?.name ?? '' } : null,
     branches: branches.map((b) => ({ id: String(b._id), name: b.name, city: b.address?.city ?? '' })),

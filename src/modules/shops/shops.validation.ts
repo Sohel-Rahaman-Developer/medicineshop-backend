@@ -43,7 +43,7 @@ export const shopFields = {
   phone: phone('Shop phone'),
   email: z.email('Enter a valid email address').trim().toLowerCase().optional().or(z.literal('').transform(() => undefined)),
   drugLicenseNumber: text('Drug licence number', 60),
-  drugLicenseExpiry: monthEnd.refine((d) => d.getTime() > Date.now(), 'This licence has already expired'),
+  drugLicenseExpiry: z.union([z.literal('').transform(() => null), monthEnd.refine((d) => d.getTime() > Date.now(), 'This licence has already expired')]).nullish().transform((v) => v ?? null),
   gstin: upper(GSTIN_RE, 'GSTIN looks wrong — 15 characters, like 19ABCDE1234F1Z5'),
   pan: upper(PAN_RE, 'PAN looks wrong — 10 characters, like ABCDE1234F'),
   fssai: optionalText(20),
@@ -58,7 +58,7 @@ const shopObject = z.object({ ...shopFields, pricingMode: z.enum(['MRP_INCLUSIVE
 
 /** D100: what field staff fill for an owner — the same checks, the licence month kept as typed for the owner's form. */
 export const draftShopSchema = shopObject
-  .extend({ drugLicenseExpiry: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use month and year, like 08/2027').refine((v) => monthEnd.parse(v).getTime() > Date.now(), 'This licence has already expired') })
+  .extend({ drugLicenseExpiry: z.union([z.literal(''), z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use month and year, like 08/2027').refine((v) => monthEnd.parse(v).getTime() > Date.now(), 'This licence has already expired')]).optional().transform((v) => v ?? '') })
   .strict()
   .refine(gstinMatchesState, gstinMessage);
 
@@ -74,7 +74,7 @@ export const createShopSchema = z
   .strict();
 
 export const updateShopSchema = z
-  .object({ ...shopFields, legalName: text('Legal name'), version: z.number().int().nonnegative() })
+  .object({ ...shopFields, legalName: text('Legal name'), drugLicenseReminder: z.boolean().default(true), version: z.number().int().nonnegative() })
   .strict()
   .refine(gstinMatchesState, gstinMessage);
 

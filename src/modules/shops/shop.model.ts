@@ -88,7 +88,9 @@ const shopSchema = new Schema(
     gstin: { type: String, uppercase: true, trim: true },
     pan: { type: String, uppercase: true, trim: true },
     drugLicenseNumber: { type: String, required: true, trim: true },
-    drugLicenseExpiry: { type: Date, required: true },
+    /** Optional: without it, or with reminders off, no licence alert is shown. */
+    drugLicenseExpiry: { type: Date },
+    drugLicenseReminder: { type: Boolean, default: true },
     fssai: { type: String, trim: true },
     timezone: { type: String, default: 'Asia/Kolkata' },
     currency: { type: String, default: 'INR' },

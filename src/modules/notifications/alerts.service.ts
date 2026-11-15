@@ -164,7 +164,7 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     const y0 = new Date(istDayStart(now).getTime() - DAY);
     const yDay = istIsoDay(y0);
     const [shop, auto, bills, closes, soldYesterday, closedYesterday, web, dom] = await Promise.all([
-      ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry settings.loyalty').lean(),
+      ShopModel.findOne({ _id: t.shopId }).select('drugLicenseExpiry drugLicenseReminder settings.loyalty').lean(),
       AutopayModel.findOne({ shopId: t.shopId, status: { $in: ['pending', 'halted'] } }).select('status').lean(),
       SaleModel.find({ shopId: t.shopId, status: { $ne: 'cancelled' }, billDate: { $gte: d0, $lt: new Date(d0.getTime() + DAY) } }).select('grandTotal payments').lean(),
       DayCloseModel.find({ shopId: t.shopId, diff: { $lte: -10_000 }, at: { $gte: new Date(now.getTime() - 7 * DAY) } }).select('day diff counted expected byName note at').lean(),
@@ -176,7 +176,9 @@ export async function liveAlerts(t: TenantContext, now: Date): Promise<Alert[]> 
     if (shop && t.features.includes('loyalty') && !rulesOf(shop.settings.loyalty).configured) {
       out.push(alert('LOYALTY_SETUP', { key: 'LOYALTY_SETUP', priority: 'medium', title: 'Loyalty points are not set up', body: 'Decide what a point is worth — until then customers earn no points.', route: '/loyalty', action: 'Set up points', at: at8 }));
     }
-    const dl = shop ? Math.ceil((shop.drugLicenseExpiry.getTime() - now.getTime()) / DAY) : 999;
+    // No expiry given, or reminders turned off in Settings: no licence alert.
+    // Shops made before v1.62.0 have no reminder field (lean adds no default): on.
+    const dl = shop?.drugLicenseExpiry && (shop.drugLicenseReminder as boolean | undefined) !== false ? Math.ceil((shop.drugLicenseExpiry.getTime() - now.getTime()) / DAY) : 999;
     if (dl < 0) out.push(alert('DL_EXPIRY', { key: `DL_EXPIRED:${day}`, priority: 'critical', title: `Drug licence expired on ${dayLabel(shop?.drugLicenseExpiry ?? now)}`, body: 'Selling medicines needs a valid licence. Update it in Settings → Shop profile.', route: '/settings', action: 'Update licence', at: at8 }));
     else if (dl <= 60) out.push(alert('DL_EXPIRY', { key: `DL_SOON:${day}`, priority: 'high', title: dl === 1 ? 'Drug licence expires in 1 day' : `Drug licence expires in ${String(dl)} days`, body: `On ${dayLabel(shop?.drugLicenseExpiry ?? now)}. Apply for renewal now — it takes weeks.`, route: '/settings', action: 'Shop profile', at: at8 }));
 
