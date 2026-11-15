@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.63.2',
+    date: '2026-11-15',
+    title: 'Phone counter: one tidy search line; barcode and prescription side by side',
+    shop: [
+      'On a phone the search line no longer breaks onto a second line. With nothing typed, Scan barcode and Read a prescription sit side by side, half and half; once you type, their small buttons come back next to the search.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.63.1',
     date: '2026-11-15',
     title: 'Prescription read: doubts first, beside the photo; change any medicine',
