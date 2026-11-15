@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.63.0',
+    date: '2026-11-15',
+    title: 'Send the bill by SMS; doctor and prescription photo at the end of a bill',
+    shop: [
+      'Bill saved: WhatsApp and SMS to the customer side by side, from the shop’s own phone (free). On udhaar the message says what was paid now, what went on udhaar and what they owe now, with the shop’s name.',
+      'A bill with prescription medicines (Schedule H, H1, X): Charge first offers the doctor’s name and a photo of the prescription — camera or a file — both optional; Skip goes straight to Payment. Shops that require H1 / X details keep that step as before.',
+      'Bill details: Send by SMS next to Send on WhatsApp.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.62.2',
     date: '2026-11-15',
     title: 'A bill that can’t be saved keeps Payment open',
