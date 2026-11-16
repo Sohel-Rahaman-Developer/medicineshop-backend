@@ -10,6 +10,18 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.64.0',
+    date: '2026-11-16',
+    title: 'Reading a prescription with a bill open: add to it, hold it, or clear it',
+    shop: [
+      'If the bill already has medicines when you tap Read a prescription, the counter asks first: Add to this bill (same customer), Hold this bill and read on a new one (another customer), or Clear this bill and read on a new one. Clear happens only once the prescription is read — Cancel before that keeps the bill.',
+      'Holding or clearing a bill no longer carries its prescription photo onto the next bill.',
+      'Firefox: a camera that stops when focus is set now starts again by itself; no more red console errors on every page.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.63.2',
     date: '2026-11-15',
     title: 'Phone counter: one tidy search line; barcode and prescription side by side',
