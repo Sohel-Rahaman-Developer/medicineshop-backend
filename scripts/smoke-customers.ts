@@ -18,7 +18,7 @@ const units10 = { type: 'COUNT', base: 'CAPSULE', sale: 'STRIP', salePack: 10, p
 
 interface Cust { id: string; name: string; phone: string; creditBalance: number; creditLimit: number; totalSpend: number; visitCount: number; firstVisit: string | null; version: number; status: string }
 interface Sale { id: string; dueAmount?: number; paymentStatus?: string; customerId: string | null; customerName: string; doctorName: string; status: string }
-interface Ledger { rows: { kind: string; debit: number; credit: number; balance: number }[]; balance: number }
+interface Ledger { rows: { kind: string; debit: number; credit: number; balance: number }[]; balance: number; oldDue: number; open: { billNumber: string; due: number; total: number }[] }
 
 async function main() {
   const h = await startHarness();
@@ -103,6 +103,8 @@ async function main() {
   check('same clientRequestId → 200, collected once', (await cashier.post(`/customers/${ratna.id}/payments`, cb)).status === 200 && (await cust(ratna.id)).creditBalance === 30_200);
   const s1after = await SaleModel.findOne({ shopId: shop1, _id: b1.id }).lean();
   check('first bill: due 0, paid', s1after?.dueAmount === 0 && s1after.paymentStatus === 'paid');
+  const owed = data<Ledger>(await cashier.get(`/customers/${ratna.id}/ledger`));
+  check('statement lists what is still owed, oldest first: ₹26 on the second bill, ₹276 on the third — together the ₹302 udhaar', owed.open.length === 2 && owed.open[0]?.due === 2600 && owed.open[1]?.due === 27_600 && owed.open.reduce((a, o) => a + o.due, 0) + owed.oldDue === owed.balance, JSON.stringify(owed.open));
   check('accountant can’t collect (no customers: edit) → 403', (await accountant.post(`/customers/${ratna.id}/payments`, { clientRequestId: randomUUID(), amount: 100, mode: 'CASH' })).status === 403);
 
   section('4. Return against udhaar, cancel');

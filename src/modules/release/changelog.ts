@@ -10,6 +10,17 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.65.0',
+    date: '2026-11-16',
+    title: 'Old udhaar at the counter: see it, see its bills, take it with the bill',
+    shop: [
+      'Pick a customer at the counter and their udhaar shows at once. See bills opens what is still owed — old khata and each bill — and a tap on a bill shows what was bought. Back to the bill keeps everything you added.',
+      'Payment can take old udhaar together with a cash, UPI or card bill: all of it or any part. The screen shows bill + old udhaar = take now, and the udhaar left; it is saved as its own receipt, oldest bill first, and the Bill saved screen says how much was taken and what is still owed.',
+    ],
+    admin: [],
+    api: ['GET /customers/:id/ledger also returns oldDue and open — each bill still owed, oldest first.'],
+  },
+  {
     version: '1.64.1',
     date: '2026-11-16',
     title: 'Share a bill: the customer’s own number first',

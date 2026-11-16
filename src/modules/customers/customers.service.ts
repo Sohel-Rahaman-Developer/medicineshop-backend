@@ -195,7 +195,7 @@ export interface CreditRow {
 export async function ledger(t: TenantContext, id: string) {
   const c = await load(t, id);
   const [bills, payments, returns, old] = await Promise.all([
-    SaleModel.find({ shopId: t.shopId, customerId: c._id, 'payments.mode': 'CREDIT' }).select('billNumber billDate payments status cancelledAt cancelledDue').lean(),
+    SaleModel.find({ shopId: t.shopId, customerId: c._id, 'payments.mode': 'CREDIT' }).select('billNumber billDate payments status cancelledAt cancelledDue dueAmount grandTotal').lean(),
     CustomerPaymentModel.find({ shopId: t.shopId, customerId: c._id }).select('receiptNumber paymentDate amount paymentMode').lean(),
     SaleReturnModel.find({ shopId: t.shopId, customerId: c._id, adjusted: { $gt: 0 } }).select('returnNumber returnDate adjusted saleId').lean(),
     OldUdhaarModel.find({ shopId: t.shopId, customerId: c._id }).select('amount since note').lean(),
@@ -215,7 +215,12 @@ export async function ledger(t: TenantContext, id: string) {
     balance += r.debit - r.credit;
     return { ...r, balance };
   });
-  return { rows: out, balance: c.creditBalance, limit: c.creditLimit };
+  // What is still owed, bill by bill (oldest first, the order a payment is applied in), and on the old khata.
+  const open = bills
+    .filter((s) => s.status !== 'cancelled' && s.dueAmount > 0)
+    .sort((a, b) => a.billDate.getTime() - b.billDate.getTime())
+    .map((s) => ({ saleId: String(s._id), billNumber: s.billNumber, billDate: s.billDate, due: s.dueAmount, total: s.grandTotal }));
+  return { rows: out, balance: c.creditBalance, limit: c.creditLimit, oldDue: c.oldDue, open };
 }
 
 /** Collect udhaar (PLAN §22): the old khata first, then the oldest open credit bill; never more than is owed. */
