@@ -10,6 +10,16 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    version: '1.64.1',
+    date: '2026-11-16',
+    title: 'Share a bill: the customer’s own number first',
+    shop: [
+      'Share on a bill now opens one sheet: the customer’s own number on top with WhatsApp and SMS, then a box for any other number, then the PDF to any app or a download. A walk-in bill asks for the number first.',
+    ],
+    admin: [],
+    api: [],
+  },
+  {
     version: '1.64.0',
     date: '2026-11-16',
     title: 'Reading a prescription with a bill open: add to it, hold it, or clear it',
